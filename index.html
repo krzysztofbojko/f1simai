@@ -1,0 +1,416 @@
+<!DOCTYPE html>
+<html lang="pl">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>F1 AI Simulator - Symulator Wyścigów & Uczenie Maszynowe</title>
+    <link rel="stylesheet" href="./style.css" />
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Titillium+Web:wght@300;400;600;700;900&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+  </head>
+  <body>
+    <div id="app">
+      <!-- Header / Top Bar -->
+      <header class="f1-header">
+        <div class="f1-brand">
+          <div class="f1-badge">F1</div>
+          <h1>AI RACING SIMULATOR</h1>
+          <span class="f1-subbadge">NEUROEVOLUTION & TELEMETRY</span>
+        </div>
+
+        <div class="f1-stats-bar">
+          <div class="stat-card">
+            <span class="stat-label">GENERACJA</span>
+            <span class="stat-value highlight" id="stat-gen">1</span>
+          </div>
+          <div class="stat-card">
+            <span class="stat-label">NA TORZE</span>
+            <span class="stat-value" id="stat-alive">40 / 40</span>
+          </div>
+          <div class="stat-card">
+            <span class="stat-label">NAJLEPSZY CZAS (P1)</span>
+            <span class="stat-value purple" id="stat-best-lap">--:--.---</span>
+          </div>
+          <div class="stat-card">
+            <span class="stat-label">REKORD FITNESS</span>
+            <span class="stat-value" id="stat-fitness">0</span>
+          </div>
+        </div>
+      </header>
+
+      <!-- Main Workspace -->
+      <main class="sim-container">
+        <!-- Canvas wrapper -->
+        <div class="canvas-wrapper" id="canvas-wrapper">
+          <canvas id="sim-canvas"></canvas>
+
+          <!-- Notification / Prompt overlay for drawing -->
+          <div id="draw-banner" class="draw-banner hidden">
+            <div class="draw-banner-content">
+              <span class="draw-icon">✏️</span>
+              <p><strong>Narysuj pętlę toru:</strong> Kliknij i przytrzymaj lewy przycisk myszy, aby nakreślić tor. Dokończ pętlę przy punkcie startowym. <em>(Przytrzymaj Shift, aby rysować idealną prostą)</em></p>
+            </div>
+          </div>
+
+          <!-- Player Manual Drive Controls Overlay (when active) -->
+          <!-- Ready to Start Banner Overlay -->
+          <div id="start-banner" class="start-banner">
+            <div class="start-banner-box">
+              <div class="start-title">SYMULACJA GOTOWA DO STARTU</div>
+              <p>System jest zatrzymany. Kliknij przycisk poniżej, aby wypuścić bolidy na tor lub najpierw nakreśl własny tor.</p>
+              <button id="btn-start-banner" class="f1-btn highlight banner-action-btn">
+                <span class="btn-icon">▶️</span> Start
+              </button>
+            </div>
+          </div>
+          <div id="player-hud" class="player-hud hidden">
+            <span class="mode-tag">TRYB KIEROWCY (MANUAL)</span>
+            <div class="key-hints">
+              <span><kbd>W</kbd> / <kbd>↑</kbd> Gaz</span>
+              <span><kbd>S</kbd> / <kbd>↓</kbd> Hamulec</span>
+              <span><kbd>A</kbd> <kbd>D</kbd> / <kbd>←</kbd> <kbd>→</kbd> Skręt</span>
+              <span><kbd>P</kbd> Zjazd do Boksu (Pit)</span>
+            </div>
+          </div>
+
+          <!-- Race Finish / Podium Results Modal -->
+          <div id="podium-modal" class="podium-modal hidden">
+            <div class="podium-box">
+              <div class="podium-header">
+                <span class="podium-trophy">🏆</span>
+                <div class="podium-header-titles">
+                  <h2>OFICJALNE WYNIKI GRAND PRIX</h2>
+                  <span class="panel-tag gold" id="podium-laps-tag">50 OKRĄŻEŃ</span>
+                </div>
+              </div>
+              <div class="podium-cards" id="podium-cards"></div>
+              <div class="podium-table-container">
+                <table class="podium-table">
+                  <thead>
+                    <tr>
+                      <th>POZ</th>
+                      <th>KIEROWCA</th>
+                      <th>STRATA</th>
+                      <th>PIT STOPS</th>
+                      <th>NAJSZYBSZE OKR.</th>
+                      <th>CZAS ŁĄCZNY</th>
+                    </tr>
+                  </thead>
+                  <tbody id="podium-table-body"></tbody>
+                </table>
+              </div>
+              <div class="podium-actions">
+                <button id="btn-close-podium" class="f1-btn highlight">
+                  <span class="btn-icon">🏁</span> Zamknij Wyniki
+                </button>
+                <button id="btn-restart-race-podium" class="f1-btn primary">
+                  <span class="btn-icon">🔄</span> Nowy Wyścig
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Sidebar / Telemetry & Leaderboard & Neural Network -->
+        <aside class="sidebar">
+          <!-- Live Telemetry Card -->
+          <div class="f1-panel telemetry-panel">
+            <div class="panel-header">
+              <h3 id="telemetry-header-title">TELEMETRIA BOLIDU (LIDER)</h3>
+              <div class="live-indicator">LIVE</div>
+            </div>
+
+            <div class="telemetry-grid">
+              <div class="speedo-box">
+                <div class="speed-num" id="tele-speed">0</div>
+                <div class="speed-unit">KM/H</div>
+                <div class="gear-box" id="tele-gear">N</div>
+              </div>
+
+              <div class="g-meter-box">
+                <canvas id="g-meter-canvas" width="70" height="70"></canvas>
+                <span class="g-meter-lbl" id="tele-g-total">0.0 G</span>
+              </div>
+              <div class="bars-box">
+                <div class="gauge-row">
+                  <span class="gauge-label">PRZEPUSTNICA</span>
+                  <div class="gauge-track">
+                    <div class="gauge-fill throttle" id="gauge-throttle" style="width: 0%"></div>
+                  </div>
+                </div>
+                <div class="gauge-row">
+                  <span class="gauge-label">HAMULEC (CARBON) <span id="tele-brake-agg" style="color:var(--f1-papaya);">(Styl: 100%)</span></span>
+                  <div class="gauge-track">
+                    <div class="gauge-fill brake" id="gauge-brake" style="width: 0%"></div>
+                  </div>
+                </div>
+                <div class="gauge-row">
+                  <span class="gauge-label">ROZKŁAD MASY P/T: <span id="tele-weight-ratio" style="color:var(--f1-cyan);">46% / 54%</span></span>
+                  <div class="gauge-track"><div class="gauge-fill weight-split" id="gauge-weight" style="width: 46%"></div></div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Fuel & Mass Realism Row -->
+            <div class="fuel-mass-row">
+              <div class="fuel-gauge-box">
+                <div class="fuel-header">
+                  <span class="gauge-label">PALIWO W BAKU</span>
+                  <span class="fuel-val" id="tele-fuel">55.0 kg</span>
+                </div>
+                <div class="gauge-track">
+                  <div class="gauge-fill fuel" id="gauge-fuel" style="width: 50%"></div>
+                </div>
+              </div>
+              <div class="mass-box">
+                <span class="mass-lbl">MASA CAŁKOWITA</span>
+                <span class="mass-val" id="tele-mass">853.0 kg</span>
+              </div>
+            </div>
+
+            <div class="lap-times-row">
+              <div class="lap-box">
+                <span class="lap-lbl">AKTUALNY CZAS</span>
+                <span class="lap-val" id="tele-lap-time">00:00.000</span>
+              </div>
+              <div class="lap-box">
+                <span class="lap-lbl">REKORD KIEROWCY (PB)</span>
+                <span class="lap-val" id="tele-best-lap-time" style="color: #ffd700;">--:--.---</span>
+              </div>
+              <div class="lap-box">
+                <span class="lap-lbl">OKRĄŻENIE</span>
+                <span class="lap-val" id="tele-lap-num">1</span>
+              </div>
+            </div>
+
+            <!-- 4 Checkpoints / Sector Splits Matrix -->
+            <div class="tele-sectors-row" id="tele-sectors-row">
+              <div class="tele-sector-box" id="tele-sec-0">
+                <span class="sec-lbl">CP 1 (25%)</span>
+                <span class="sec-time" id="tele-sec-0-time">--:--.---</span>
+                <span class="sec-delta" id="tele-sec-0-delta">--</span>
+              </div>
+              <div class="tele-sector-box" id="tele-sec-1">
+                <span class="sec-lbl">CP 2 (50%)</span>
+                <span class="sec-time" id="tele-sec-1-time">--:--.---</span>
+                <span class="sec-delta" id="tele-sec-1-delta">--</span>
+              </div>
+              <div class="tele-sector-box" id="tele-sec-2">
+                <span class="sec-lbl">CP 3 (75%)</span>
+                <span class="sec-time" id="tele-sec-2-time">--:--.---</span>
+                <span class="sec-delta" id="tele-sec-2-delta">--</span>
+              </div>
+              <div class="tele-sector-box" id="tele-sec-3">
+                <span class="sec-lbl">META (100%)</span>
+                <span class="sec-time" id="tele-sec-3-time">--:--.---</span>
+                <span class="sec-delta" id="tele-sec-3-delta">--</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- 10 F1 Teams Leaderboard Card -->
+          <div class="f1-panel leaderboard-panel">
+            <div class="panel-header">
+              <h3>KLASYFIKACJA 10 ZESPOŁÓW F1</h3>
+              <div style="display: flex; align-items: center; gap: 8px;">
+                <button class="f1-btn small" id="btn-reset-best-times" title="Zresetuj wszystkie najlepsze czasy okrążeń">🔄 Resetuj czasy</button>
+                <span class="panel-tag gold">LIVE</span>
+              </div>
+            </div>
+            <div class="selection-banner hidden" id="selection-banner">
+              <div class="selection-banner-left">
+                <span class="selection-banner-text">🎯 Śledzony: <strong id="selected-driver-name">-</strong></span>
+              </div>
+              <div class="selection-banner-actions">
+                <button class="selection-action-btn accent" id="btn-takeover-driver" title="Przejmij kontrolę nad tym bolidem (WASD)">🏎️ Prowadź Bolid (WASD)</button>
+                <button class="selection-action-btn" id="btn-reset-selected-brain" title="Zresetuj sieć AI wybranego kierowcy">🧠 Zresetuj AI</button>
+                <button class="selection-clear-btn" id="btn-clear-selection" title="Wróć do śledzenia lidera">✕ Śledź lidera</button>
+              </div>
+            </div>
+            <div class="leaderboard-list" id="leaderboard-list">
+              <div class="leaderboard-empty">Inicjalizacja 10 zespołów F1...</div>
+            </div>
+          </div>
+
+          <!-- Neural Network Visualizer -->
+          <div class="f1-panel brain-panel">
+            <div class="panel-header">
+              <h3>MÓZG AI (SIEĆ NEURONOWA)</h3>
+              <span class="panel-tag" id="brain-target-tag">LIDER</span>
+            </div>
+            <p class="brain-desc" id="brain-desc-text">Wiązki LIDAR + telemetria wejściowa → 18 ukrytych → 14 ukrytych → 3 wyjścia (Skręt, Gaz, Hamulec)</p>
+            <div class="brain-canvas-container">
+              <canvas id="brain-canvas" width="300" height="120"></canvas>
+            </div>
+            <div class="brain-reset-row" style="margin-top: 8px;">
+              <button id="btn-reset-current-brain" class="f1-btn small primary" style="width: 100%;">
+                <span class="btn-icon">🔄</span> Zresetuj Sieć AI Wybranego Bolidu
+              </button>
+            </div>
+          </div>
+
+          <!-- Live Lap Time Learning Progress Chart -->
+          <div class="f1-panel chart-panel">
+            <div class="panel-header">
+              <h3>POSTĘP CZASÓW NA ŻYWO (PROGRES AI)</h3>
+              <span class="panel-tag cyan" id="chart-best-tag">REKORD: --:--.---</span>
+            </div>
+            <div class="chart-container">
+              <canvas id="learning-chart" width="480" height="125"></canvas>
+            </div>
+            <div class="chart-legend">
+              <span class="legend-item"><span class="legend-dot" style="background:#ffd700"></span> Rekord sesji</span>
+              <span class="legend-item"><span class="legend-dot" style="background:#00d2be"></span> Średnia stawki</span>
+              <span class="legend-item"><span class="legend-dot" style="background:#ff8000"></span> Ostatnie okrążenie</span>
+            </div>
+          </div>
+
+          <!-- Grand Prix Race Mode Panel -->
+          <div class="f1-panel race-mode-panel">
+            <div class="panel-header">
+              <h3>TRYB WYŚCIGU (GRAND PRIX)</h3>
+              <span class="panel-tag gold" id="race-status-tag">TRENING</span>
+            </div>
+            
+            <div class="race-setup-row">
+              <span class="control-label">DYSTANS WYŚCIGU:</span>
+              <div class="race-laps-buttons">
+                <button class="race-lap-btn active" data-laps="50">50 OKR.</button>
+                <button class="race-lap-btn" data-laps="75">75 OKR.</button>
+                <button class="race-lap-btn" data-laps="100">100 OKR.</button>
+              </div>
+            </div>
+
+            <div class="race-actions-row">
+              <button id="btn-start-race" class="f1-btn highlight" style="flex: 1.4;">
+                <span class="btn-icon">🏁</span> Rozpocznij Wyścig (F1)
+              </button>
+              <button id="btn-stop-race" class="f1-btn danger hidden" style="flex: 1;">
+                <span class="btn-icon">⏹️</span> Przerwij Wyścig
+              </button>
+              <button id="btn-pit-player" class="f1-btn accent" title="Zgłoś zjazd do boksu na najbliższym okrążeniu (Klawisz P)">
+                <span class="btn-icon">⛽</span> Zjedź do Boksu (P)
+              </button>
+            </div>
+
+            <div class="race-info-banner hidden" id="race-info-banner">
+              <div class="race-info-col">
+                <span class="race-info-lbl">OKRĄŻENIE</span>
+                <span class="race-info-val" id="race-lap-counter">1 / 50</span>
+              </div>
+              <div class="race-info-col">
+                <span class="race-info-lbl">LIDER</span>
+                <span class="race-info-val" id="race-leader-name">-</span>
+              </div>
+              <div class="race-info-col">
+                <span class="race-info-lbl">PIT STOP</span>
+                <span class="race-info-val" id="race-pit-status">OTWARTE</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Controls Panel -->
+          <div class="f1-panel controls-panel">
+            <div class="panel-header">
+              <h3>STEROWANIE SYMULACJĄ</h3>
+            </div>
+
+            <div class="btn-group">
+              <button id="btn-draw" class="f1-btn highlight">
+                <span class="btn-icon">✏️</span> Rysuj Tor
+              </button>
+              <button id="btn-play" class="f1-btn primary">
+                <span class="btn-icon">▶️</span> Start
+              </button>
+              <button id="btn-stop" class="f1-btn danger">
+                <span class="btn-icon">⏹️</span> Stop
+              </button>
+              <button id="btn-restart" class="f1-btn">
+                <span class="btn-icon">🔄</span> Nowa Gen
+              </button>
+              <button id="btn-refuel" class="f1-btn">
+                <span class="btn-icon">⛽</span> Tankuj
+              </button>
+              <button id="btn-drive" class="f1-btn accent">
+                <span class="btn-icon">🏎️</span> Gracz (WASD)
+              </button>
+            </div>
+
+            <div class="speed-controls">
+              <div class="speed-header">
+                <span class="control-label">PRĘDKOŚĆ SYMULACJI:</span>
+                <span class="thread-badge" id="thread-badge">⚡ 16 RDZENI (WEB WORKER)</span>
+              </div>
+              <div class="speed-buttons">
+                <button class="speed-btn active" data-speed="1">1x</button>
+                <button class="speed-btn" data-speed="2">2x</button>
+                <button class="speed-btn" data-speed="5">5x</button>
+                <button class="speed-btn" data-speed="10">10x</button>
+                <button class="speed-btn turbo" data-speed="50">50x</button>
+                <button class="speed-btn turbo" data-speed="100">100x</button>
+                <button class="speed-btn extreme" data-speed="200">200x 🚀</button>
+                <button class="speed-btn fast" data-speed="max" title="Uczenie bez renderowania (super-szybkie)">MAX ⚡</button>
+              </div>
+            </div>
+
+            <div class="presets-row">
+              <span class="control-label">GOTOWE TORY I WŁASNE:</span>
+              <div class="preset-buttons" style="margin-bottom: 6px;">
+                <button id="preset-gp" class="preset-btn">Grand Prix</button>
+                <button id="preset-oval" class="preset-btn">Owal Szybki</button>
+              </div>
+              <div class="preset-buttons">
+                <button id="btn-save-track" class="preset-btn" title="Pobierz aktualny tor do pliku JSON"><span class="btn-icon">💾</span> Zapisz Tor</button>
+                <button id="btn-load-track" class="preset-btn" title="Wczytaj tor z pliku JSON"><span class="btn-icon">📂</span> Wczytaj Tor</button>
+                <input type="file" id="input-track-file" accept=".json" style="display: none;" />
+              </div>
+            </div>
+
+            <div class="settings-group">
+              <div class="setting-row">
+                <label class="checkbox-label">
+                  <input type="checkbox" id="check-racing-line" checked /> 🏁 Pokaż optymalną nitkę toru
+                </label>
+              </div>
+              <div class="setting-row">
+                <label class="checkbox-label">
+                  <input type="checkbox" id="check-car-speed" checked /> 🏎️ Pokaż prędkość nad bolidami
+                </label>
+              </div>
+              <div class="setting-row">
+                <label class="checkbox-label">
+                  <input type="checkbox" id="check-sensors" checked /> 📡 Pokaż sensory LIDAR
+                </label>
+              </div>
+              <div class="setting-row">
+                <label for="slider-lidar-count">Wiązki LIDAR: <span id="val-lidar-count">25</span> sensorów</label>
+                <input type="range" id="slider-lidar-count" min="9" max="45" value="25" step="2" />
+              </div>
+              <div class="setting-row">
+                <label for="slider-fuel">Paliwo Początkowe: <span id="val-fuel">105</span> kg (FIA max: 110 kg)</label>
+                <input type="range" id="slider-fuel" min="10" max="110" value="105" step="5" />
+              </div>
+              <div class="setting-row">
+                <label for="slider-track-width">Szerokość Toru: <span id="val-track-width">14</span> m</label>
+                <input type="range" id="slider-track-width" min="5" max="20" value="14" step="1" />
+              </div>
+              <div class="setting-row">
+                <label for="slider-mutation">Współczynnik Mutacji: <span id="val-mutation">9%</span></label>
+                <input type="range" id="slider-mutation" min="1" max="30" value="9" />
+              </div>
+            </div>
+
+            <div class="export-group">
+              <button id="btn-save-model" class="f1-btn small">💾 Zapisz Model AI</button>
+              <button id="btn-load-model" class="f1-btn small">📂 Wczytaj Model</button>
+              <input type="file" id="input-model-file" accept=".json" style="display: none;" />
+            </div>
+          </div>
+        </aside>
+      </main>
+    </div>
+
+    <script type="module" src="./src/main.ts"></script>
+  </body>
+</html>
