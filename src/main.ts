@@ -130,15 +130,18 @@ class App {
         car.raceLapsCompleted = sc.raceLapsCompleted;
       }
 
-      if (snapshot.timingGates && snapshot.timingGates.length > 0 && (!this.track.timingGates || this.track.timingGates.length === 0)) {
-        this.track.timingGates = snapshot.timingGates.map(g => ({
-          ...g,
-          left: new Vector2(g.left.x, g.left.y),
-          right: new Vector2(g.right.x, g.right.y),
-          center: new Vector2(g.center.x, g.center.y),
-          tangent: new Vector2(g.tangent.x, g.tangent.y),
-          normal: new Vector2(g.normal.x, g.normal.y),
-        }));
+      if (snapshot.timingGates && snapshot.timingGates.length > 0) {
+        if (!this.track.timingGates || this.track.timingGates.length !== snapshot.timingGates.length ||
+            this.track.timingGates[0]?.distanceAlongTrack !== snapshot.timingGates[0]?.distanceAlongTrack) {
+          this.track.timingGates = snapshot.timingGates.map(g => ({
+            ...g,
+            left: new Vector2(g.left.x, g.left.y),
+            right: new Vector2(g.right.x, g.right.y),
+            center: new Vector2(g.center.x, g.center.y),
+            tangent: new Vector2(g.tangent.x, g.tangent.y),
+            normal: new Vector2(g.normal.x, g.normal.y),
+          }));
+        }
       }
 
       this.population.bestRacingLine = snapshot.bestRacingLine.map(p => ({ ...p }));
