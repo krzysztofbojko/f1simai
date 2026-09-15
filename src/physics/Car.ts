@@ -351,20 +351,6 @@ export class Car {
     const outputs = this.brain.forward(inputs);
 
     const steer = Math.max(-1, Math.min(1, outputs[0]));
-    let rawThrottle = Math.max(0, Math.min(1, (outputs[1] + 0.3) * 1.12));
-
-    // Point 1: AI Telemetry Coaching from P1 Leader
-    if (leaderSpeeds && leaderSpeeds.length > 0) {
-      const leaderV = leaderSpeeds[this.currentCheckpointIdx % leaderSpeeds.length];
-      if (leaderV && leaderV > 25) {
-        const speedDeltaKmh = this.speedKmh - leaderV;
-        if (speedDeltaKmh < -12 && overspeedDelta < 0.1) {
-          rawThrottle = Math.min(1.0, rawThrottle + 0.15);
-        }
-      }
-    }
-
-    let brake = outputs[2] > 0.05 ? Math.min(1, (outputs[2] - 0.05) * 1.35) : 0;
 
     // Check forward clearance using central LiDAR rays
     const midRayIdx = Math.floor(this.rayDistances.length / 2);
@@ -373,58 +359,78 @@ export class Car {
     const rightForwardNorm = this.rayDistances[Math.min(this.rayDistances.length - 1, midRayIdx + 1)] ?? 1.0;
     const minCenterClearance = Math.min(forwardDistNorm, leftForwardNorm, rightForwardNorm);
 
-    // Open straightaway check: clear road ahead (>60m), no impending corner within braking zone
-    const isOpenStraight = minCenterClearance > 0.32 && overspeedDelta <= 0 && curvatureInput < 0.25;
+    // 3. F1 Racing Throttle & Braking Policy:
+    // - If approaching a corner too fast (overspeedDelta > 0):
+    //     BRAKE FIRMLY (Carbon-ceramic deceleration: ~4.5G - 5.5G). Throttle = 0.
+    // - If NOT overspeeding (overspeedDelta <= 0):
+    //     ZERO BRAKING. Brake is strictly 0.0.
+    //     On straights, gentle bends, and corner exits (Math.abs(steer) < 0.35):
+    //     100% FULL THROTTLE (Flat out up to 420+ km/h!).
+    //     In tight cornering (Math.abs(steer) >= 0.35):
+    //     Modulate throttle for traction (50-80%), snapping to 100% as steering centers.
+    let throttle: number;
+    let brake: number;
 
-    if (isOpenStraight) {
-      // Driver sees a clear, open straight: 100% throttle, 0% brake!
-      brake = 0;
-      rawThrottle = 1.0;
+    if (overspeedDelta > 0.0) {
+      // Actively in braking zone before turn:
+      throttle = 0.0;
+      brake = Math.max(0.40, Math.min(1.0, 0.40 + overspeedDelta * 1.5));
     } else {
-      // Suppress erratic micro-taps if not entering a braking zone or overspeeding
-      if (overspeedDelta <= 0 && brake < 0.30) {
-        brake = 0;
+      // In acceleration or cruising zone - NO BRAKING!
+      brake = 0.0;
+      if (minCenterClearance > 0.18) {
+        if (Math.abs(steer) < 0.35) {
+          // Straights, gentle sweepers, and corner exits: 100% FLAT OUT
+          throttle = 1.0;
+        } else {
+          // Apex cornering: traction control modulation
+          const steerExcess = Math.abs(steer) - 0.35;
+          throttle = Math.max(0.50, 1.0 - steerExcess * 0.80);
+        }
+      } else {
+        // Approaching wall / close clearance: moderate throttle
+        throttle = Math.max(0.25, Math.min(0.60, (outputs[1] + 0.3) * 0.9));
       }
-    }
 
-    // Corner entry braking reflex / ABS threshold:
-    if (overspeedDelta > 0.05 && brake < 0.6) {
-      const cornerEntryBrake = Math.min(1.0, 0.35 + overspeedDelta * 1.4);
-      brake = Math.max(brake, cornerEntryBrake);
+      // Telemetry coaching from session leader:
+      if (leaderSpeeds && leaderSpeeds.length > 0) {
+        const leaderV = leaderSpeeds[this.currentCheckpointIdx % leaderSpeeds.length];
+        if (leaderV && this.speedKmh < leaderV - 8) {
+          throttle = 1.0;
+        }
+      }
     }
 
     // Point 4: Experience Replay Buffer sampling and online consolidation
     // Record both cornering technique AND straightaway full-throttle commitment
-    // to prevent network from degenerating into overly conservative braking over hundreds of laps!
-    const isCornering = (Math.abs(steer) > 0.08 || overspeedDelta > 0.05 || maxUpcomingCurvature > 0.002);
-    const isHighSpeedStraight = (isOpenStraight && this.speed > 25 && Math.abs(steer) < 0.06);
+    const isCornering = (Math.abs(steer) > 0.08 || overspeedDelta > 0.05);
+    const isHighSpeedStraight = (overspeedDelta <= 0 && this.speed > 25 && Math.abs(steer) < 0.10);
     const canRecordExperience = !this.isSkidding && (isCornering || isHighSpeedStraight);
 
     if (canRecordExperience) {
-      const targetThrottle = isHighSpeedStraight ? 1.0 : rawThrottle;
-      const targetBrake = isHighSpeedStraight ? 0.0 : brake;
+      const targetThrottle = overspeedDelta > 0 ? 0.0 : (Math.abs(steer) < 0.35 ? 1.0 : throttle);
+      const targetBrake = brake;
       this.replayBuffer.push({
         inputs: [...inputs],
         targets: [steer, targetThrottle, targetBrake],
-        reward: this.fitness,
+        reward: this.speedKmh, // Speed-based reward instead of monotonically accumulating fitness
       });
-      if (this.replayBuffer.length > 30) {
+      if (this.replayBuffer.length > 40) {
         this.replayBuffer.shift();
       }
     }
 
     this.replayStepTimer++;
-    if (this.replayStepTimer % 60 === 0 && this.replayBuffer.length >= 4 && this.brain) {
+    // Gentle learning rate (0.001) to prevent weight drift and catastrophic forgetting
+    if (this.replayStepTimer % 90 === 0 && this.replayBuffer.length >= 6 && this.brain) {
       const sorted = [...this.replayBuffer].sort((a, b) => b.reward - a.reward);
       const topBatch = sorted.slice(0, 3);
-      // In race mode, use a very gentle learning rate (0.002) for safe refinement; in training use 0.012
-      const lr = this.isRaceMode ? 0.002 : 0.012;
       for (const item of topBatch) {
-        this.brain.train(item.inputs, item.targets, lr);
+        this.brain.train(item.inputs, item.targets, 0.001);
       }
     }
 
-    return { steer, throttle: rawThrottle, brake };
+    return { steer, throttle, brake };
   }
 
   /**

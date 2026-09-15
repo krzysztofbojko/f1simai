@@ -154,6 +154,13 @@ export class Population {
         // Point 3: Simulated Annealing Cooldown on personal best lap
         t.stagnationCounter = 0;
         t.currentMutationRate = Math.max(0.025, t.currentMutationRate * 0.85);
+        if (car.brain) {
+          t.bestBrain = car.brain.clone();
+        }
+        car.safeBrainBackup = car.brain ? car.brain.clone() : null;
+      } else if (t.bestBrain && lapEvent.lapTime > t.bestLapTime + 2.5) {
+        // PERFORMANCE GUARD: If car suffered degradation or slow lap, restore its proven championship brain!
+        car.brain = t.bestBrain.clone();
       }
     }
 
@@ -253,10 +260,6 @@ export class Population {
 
         if (lapEvent) {
           this.recordLap(lapEvent, car, car.isManual);
-          // Reinforce winning lap control weights for AI only during training
-          if (car.brain && !car.isManual && !this.isRaceMode) {
-            car.brain.mutate(0.012, 0.035);
-          }
         }
 
         if (car.fitness > maxFitness) {
@@ -266,9 +269,6 @@ export class Population {
 
         if (record && car.fitness > record.bestFitness) {
           record.bestFitness = car.fitness;
-          if (car.brain && !car.isManual) {
-            record.bestBrain = car.brain.clone();
-          }
         }
       } else if (!this.isRaceMode) {
         // Individual car respawn & online team learning
@@ -280,23 +280,12 @@ export class Population {
             const baseBrain = record.bestBrain || car.brain;
             let newBrain: NeuralNetwork;
 
-            // Point 3: Simulated annealing - warm up exploration if stagnating
-            if (car.fitness < 600) {
-              record.stagnationCounter++;
-              if (record.stagnationCounter >= 2) {
-                record.currentMutationRate = Math.min(0.20, record.currentMutationRate * 1.25);
-              }
-            }
-
-            const mutRate = record.currentMutationRate || this.mutationRate;
-
-            if (championBrain && Math.random() < 0.35 && championBrain !== baseBrain) {
+            if (championBrain && Math.random() < 0.25 && championBrain !== baseBrain) {
               // Benchmark & crossover with session P1 champion
               newBrain = NeuralNetwork.crossover(baseBrain ? baseBrain : championBrain, championBrain);
-              newBrain.mutate(mutRate, this.mutationStrength);
             } else if (baseBrain) {
+              // Revert to proven championship brain
               newBrain = baseBrain.clone();
-              newBrain.mutate(mutRate, this.mutationStrength);
             } else {
               newBrain = NeuralNetwork.createTrainedDriverNetwork(this.rayCount);
             }
