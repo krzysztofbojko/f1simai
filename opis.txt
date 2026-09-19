@@ -1,0 +1,534 @@
+================================================================================
+          F1 AI RACING SIMULATOR - KOMPLEKSOWA SPECYFIKACJA SYSTEMU
+          Architektura, Interfejs, Panel Boczny, Fizyka i Uczenie AI
+================================================================================
+
+SPIS TREŚCI:
+1. WSTĘP I GŁÓWNA IDEA SYSTEMU
+2. WYGLĄD I UKŁAD INTERFEJSU (CO GDZIE JEST I JAK DZIAŁA)
+   2.1 Górny Pasek F1 (Header & Global Stats)
+   2.2 Obszar Toru Wyścigowego (Canvas 2D, Bolidy, Nakładki)
+   2.3 Szczegółowy Opis Panelu Bocznego (Sidebar)
+       - Karta Telemetrii Bolidu (Lider / Śledzony)
+       - Karta Klasyfikacji 10 Zespołów F1 (Live Leaderboard)
+       - Karta Mózg AI (Wizualizator Sieci Neuronowej)
+       - Karta Postęp Czasów na Żywo (Wykres Progresu AI)
+       - Karta Trybu Wyścigu Grand Prix (Procedura Startowa i Pit-Stopy)
+       - Karta Sterowania Symulacją i Suwaków Parametrów
+3. FUNKCJONALNOŚĆ TORU WYŚCIGOWEGO
+   3.1 Geometria, Krawędzie i Tarki Wyścigowe (Kerbs)
+   3.2 Bramki Sektorowe (4 Timing Gates w Standardzie F1)
+   3.3 Pola Startowe (Starting Grid) i Aleja Serwisowa (Pit Lane)
+   3.4 Interaktywne Rysowanie Toru i Matematyka Spline'ów
+   3.5 Siatka Przestrzenna (Uniform Spatial Grid) - Optymalizacja O(1)
+4. FIZYKA POJAZDU I ZACHOWANIE BOLIDÓW NA TORZE
+   4.1 Model Masowy, Bezwładność i Wpływ Paliwa
+   4.2 Aerodynamika: Docisk 2.5 Tony i Prędkości Ponad 420 km/h
+   4.3 Dynamiczny Transfer Mas (Nurkowanie Pitch i Przechył Roll)
+   4.4 Układ Napędowy i Hamowanie Węglowe z Siłą 5G (Droga 110 m)
+   4.5 Przyczepność Opon, Koło Kamma, Podsterowność i Nadsterowność
+5. UCZENIE MASZYNOWE I WYKRĘCANIE REKORDOWYCH CZASÓW
+   5.1 Architektura Sieci Neuronowej (Wielowarstwowy Perceptron MLP)
+   5.2 Wektor Wejściowy: Sensory LIDAR i Telemetria Wyprzedzająca
+   5.3 Wyjścia Sieci i Bezwzględna Polityka Pełnego Gazu na Prostych
+   5.4 Uczenie Online: Bufor Powtórek (Replay Buffer) ze Stabilnym Krokem
+   5.5 Coaching Telemetryczny (Nauka z Trajektorii Lidera)
+   5.6 Ewolucja Genetyczna, Krzyżowanie i Chłodzenie Mutacji (Simulated Annealing)
+   5.7 Wyeliminowanie Degradacji Czasów i Mechanizm Samonaprawczy (Performance Guard)
+   5.8 Jak Wykręcić Absolutny Rekord Toru (Poradnik Inżyniera)
+6. ZARZĄDZANIE DANYMI: ZAPIS I ODCZYT TORÓW ORAZ MODELI AI
+
+
+================================================================================
+1. WSTĘP I GŁÓWNA IDEA SYSTEMU
+================================================================================
+F1 AI Simulator to symulator wyścigowy nowej generacji działający w czasie
+rzeczywistym w przeglądarce internetowej. W aplikacji 10 bolidów reprezentujących
+rzeczywiste zespoły Formuły 1 (Scuderia Ferrari, Red Bull Racing, Mercedes-AMG,
+McLaren, Aston Martin, VCARB, Haas, Williams, Alpine, Stake Kick Sauber) rywalizuje
+na torze, sterowanych całkowicie przez autonomiczne sieci neuronowe.
+
+Kluczowe założenia systemu:
+1. Brak gotowych "szyn" (AI nie jeździ po wyznaczonej z góry ścieżce) - kierowcy
+   widzą świat wyłącznie za pomocą wirtualnych sensorów odległościowych (LiDAR)
+   i uczą się geometrii toru, punktów hamowania oraz apexów zakrętów od zera.
+2. Prawdziwe osiągi bolidu F1 - prędkości dochodzące do 400-425 km/h na prostych,
+   potężny docisk aerodynamiczny i przeciążenia hamowania przekraczające 5G.
+3. Wielowątkowość (Web Worker) - silnik fizyki, raycasting i inferencja 10 sieci
+   neuronowych działają w osobnym wątku systemowym przy 60 Hz, co gwarantuje
+   stabilne 60 klatek na sekundę dla interfejsu i płynną grafikę bez zacięć.
+4. Trwałość wiedzy - sieć neuronowa raz nauczona nie zapomina swojego stylu jazdy;
+   nie niszczy jej przerwanie wyścigu ani pauza.
+
+
+================================================================================
+2. WYGLĄD I UKŁAD INTERFEJSU (CO GDZIE JEST I JAK DZIAŁA)
+================================================================================
+
+Interfejs aplikacji podzielony jest na trzy główne części:
+A. Górny pasek nagłówka (Header) ze statystykami globalnymi i światłami startowymi.
+B. Główny obszar roboczy z torem wyścigowym (HTML5 Canvas 2D) i nakładkami HUD.
+C. Prawy panel boczny (Sidebar o szerokości ~688 px) z telemetrią, klasyfikacją,
+   wizualizacją sieci neuronowej, wykresem postępów i sterowaniem symulacją.
+
+--------------------------------------------------------------------------------
+2.1 Górny Pasek F1 (Header & Global Stats)
+--------------------------------------------------------------------------------
+Na samej górze ekranu znajduje się ciemny pasek stylizowany na oficjalną grafikę F1:
+- Logo i Tytuł: "F1 AI RACING SIMULATOR" z czerwonym badge'em F1 i podtytułem
+  "NEUROEVOLUTION & TELEMETRY".
+- 4 Karty Statystyk Globalnych (F1 Stats Bar):
+  1. GENERACJA: Numer aktualnego pokolenia ewolucyjnego (np. 1, 2, 5...).
+  2. NA TORZE: Liczba aktywnych bolidów (np. "10 / 10"). Gdy bolid rozbije się
+     w wyścigu, licznik natychmiast maleje (np. "9 / 10").
+  3. NAJLEPSZY CZAS (P1): Rekord absolutny całej sesji wykręcony na aktualnym torze,
+     wyświetlany w charakterystycznym fioletowym kolorze F1 (np. "01:17.316").
+  4. REKORD FITNESS: Najwyższy wskaźnik przystosowania uzyskany przez najlepszego
+     kierowcę w sesji.
+- Belka Świateł Startowych (Start Lights): W trybie wyścigu na górze pojawia się
+  belka z 5 czerwonymi światłami F1, które zapalają się kolejno co 1 sekundę.
+
+--------------------------------------------------------------------------------
+2.2 Obszar Toru Wyścigowego (Canvas 2D, Bolidy, Nakładki)
+--------------------------------------------------------------------------------
+Główny ekran to interaktywne płótno Canvas 2D:
+- Tor wyścigowy: Asfalt o ciemnej fakturze, otoczony białymi liniami granicznymi
+  oraz czerwono-białymi tarkami (kerbami) na zakrętach.
+- 4 Bramki Czasowe (Timing Gates): Laserowe wiązki neonowe przecinające asfalt:
+  * Sektor 1 (CP 1): Wiązka cyjanowa (#00D2BE).
+  * Sektor 2 (CP 2): Wiązka złota (#FFD700).
+  * Sektor 3 (CP 3): Wiązka fioletowa (#A855F7).
+  * Linia Mety (META / CP 4): Linia w czarno-białą szachownicę z czerwoną wiązką.
+- Stanowisko Serwisowe (Pit Box): Przy prostej startowej narysowana jest żółta
+  przerywana linia alei serwisowej oraz okrągłe stanowisko "PIT BOX".
+- Bolidy na torze:
+  * Rysowane w autentycznych proporcjach bolidu F1 z przednim i tylnym skrzydłem,
+    kołami, kaskiem kierowcy oraz dynamicznym cieniem.
+  * Każdy zespół ma swoje barwy: Czerwony (Ferrari), Granatowy (Red Bull),
+    Srebrno-Turkusowy (Mercedes), Papaja (McLaren), Ciemnozielony (Aston Martin),
+    Niebieski (VCARB), Biało-Czerwony (Haas), Błękitny (Williams), Różowo-Niebieski
+    (Alpine), Jasnozielony (Kick Sauber).
+- Etykiety nad bolidami:
+  * Nad każdym bolidem unosi się plakietka informacyjna z nazwiskiem kierowcy
+    i prędkością w km/h (np. "Leclerc: 387 km/h").
+  * Lider oznaczony jest koroną (👑), wybrany bolid celownikiem (🎯),
+    a gracz ikoną bolidu (🏎️).
+  * Gdy bolid zjeżdża do boksu, pojawia się status "🔧 BOX THIS LAP" lub
+    "⛽ PIT STOP (X.Xs)". W przypadku braku paliwa: "⚠️ LIMP MODE".
+- Efekty cząsteczkowe:
+  * Ślady spalonej gumy (Skid marks) - rysowane trwale na asfalcie w miejscach
+    silnego dohamowania lub poślizgu kół.
+  * Wiązki sensorów LiDAR - kolorowe promienie laserowe wystrzeliwane z przodu
+    bolidu, pokazujące jak sieć neuronowa "widzi" granice toru.
+- Nakładki informacyjne:
+  * Baner gotowości do startu ("SYMULACJA GOTOWA DO STARTU") z przyciskiem Start.
+  * Baner rysowania toru z instrukcją rysowania i klawiszem Shift (linie proste).
+  * Panel sterowania gracza ("TRYB KIEROWCY WASD") z legendą klawiszy.
+  * Modal Podium Grand Prix - oficjalne okno wyników wyścigu z pucharami,
+    tabelą czasów, stratami i liczbą pit-stopów.
+
+--------------------------------------------------------------------------------
+2.3 Szczegółowy Opis Panelu Bocznego (Sidebar)
+--------------------------------------------------------------------------------
+Panel z prawej strony zawiera 6 wyspecjalizowanych modułów:
+
+================================================================================
+MODUŁ 1: TELEMETRIA BOLIDU (LIDER / ŚLEDZONY)
+================================================================================
+Prezentuje parametry fizyczne bolidu, który jest aktualnie wybrany lub prowadzi w sesji:
+1. Cyfrowy Prędkościomierz (Speedo Box):
+   - Ogromne, czytelne cyfry pokazujące prędkość w KM/H (0 - 430 km/h).
+   - Wskaźnik biegu (N, 1, 2, ..., 8) wyliczany automatycznie ze stosunku prędkości.
+2. Wskaźnik Przeciążeń (G-Meter):
+   - Kolisty celownik z siatką przeciążeń bocznych (Lateral G) i wzdłużnych (Longitudinal G).
+   - Dynamiczna kropka uciekająca w kierunku działających sił bezwładności.
+   - Wartość łącznego wektora przeciążenia pod spodem (np. "4.8 G" przy dohamowaniu).
+3. Paski Nacisku na Pedały i Balansu Mas:
+   - PRZEPUSTNICA: Zielony pasek (0% - 100%) pokazujący wciśnięcie gazu.
+   - HAMULEC (CARBON): Czerwony pasek (0% - 100%) z informacją o stylu agresji
+     kierowcy (np. "Styl: 125%").
+   - ROZKŁAD MASY P/T: Dynamiczny wskaźnik pokazujący transfer mas przód/tył
+     (np. "46% / 54%" na prostej, "65% / 35%" przy gwałtownym hamowaniu).
+4. Wskaźnik Paliwa i Masy:
+   - PALIWO W BAKU: Żółto-pomarańczowy wskaźnik poziomu paliwa w kg (np. "55.0 kg").
+   - MASA CAŁKOWITA: Łączna masa bolidu z kierowcą i paliwem (np. "853.0 kg").
+5. Pomiary Czasów:
+   - AKTUALNY CZAS: Czas bieżącego okrążenia liczony z dokładnością do 1 milisekundy.
+   - REKORD KIEROWCY (PB): Osobisty rekord życiowy danego kierowcy w kolorze złotym.
+   - OKRĄŻENIE: Numer aktualnie pokonywanego okrążenia.
+6. Matryca 4 Sektorów Pomiarowych (Sector Splits Matrix):
+   - Cztery kafelki odpowiadające sektorom: CP 1 (25%), CP 2 (50%), CP 3 (75%)
+     oraz META (100%).
+   - Każdy kafelek wyświetla dokładny split czasowy oraz deltę do rekordu sesji:
+     * Fioletowa ramka i tekst (Purple Sector): Absolutny rekord sesji w tym sektorze.
+     * Zielona ramka i tekst (Personal Best): Poprawa własnego rekordu kierowcy.
+     * Czerwona ramka i tekst: Czas gorszy od własnego rekordu.
+
+================================================================================
+MODUŁ 2: KLASYFIKACJA 10 ZESPOŁÓW F1 (LIVE LEADERBOARD)
+================================================================================
+Najważniejsza tabela sesji prezentująca w czasie rzeczywistym całą stawkę 10 ekip:
+- Nagłówek panelu:
+  * Tytuł: "KLASYFIKACJA 10 ZESPOŁÓW F1".
+  * Przycisk "🔄 Resetuj czasy": Resetuje wszystkie czasy życiowe (BEST), ostatnie
+    (LAST) oraz bramki sektorowe bez dotykania i bez resetowania sieci neuronowych!
+  * Złoty wskaźnik statusu: "LIVE".
+- Pasek Akcji Wybranego Kierowcy (Selection Banner):
+  Pojawia się natychmiast po kliknięciu dowolnego kierowcy na liście:
+  * Informacja: "🎯 Śledzony: Charles Leclerc (SF-24)".
+  * Przycisk "🏎️ Prowadź Bolid (WASD)": Natychmiastowe przejęcie manualnej kontroli
+    nad tym konkretnym bolidem za pomocą klawiatury!
+  * Przycisk "🧠 Zresetuj AI": Resetuje sieć neuronową wyłącznie tego jednego
+    kierowcy do wartości bazowych (przydatne, gdy chcemy przetrenować jedno auto).
+  * Przycisk "✕ Śledź lidera": Odznacza bolid i wraca do automatycznego śledzenia P1.
+- Wiersz każdego kierowcy w tabeli:
+  * POZYCJA: Badge z numerem pozycji (1-10):
+    - Poz 1: Złoty medal (#FFD700) ze złotą belką po lewej stronie.
+    - Poz 2: Srebrny medal (#C0C0C0).
+    - Poz 3: Brązowy medal (#CD7F32).
+    - Poz 4-10: Ciemny grafit.
+  * DANE KIEROWCY:
+    - Kolorowa kropka barw zespołu (np. czerwona dla Ferrari).
+    - Nazwisko kierowcy i kod bolidu (np. "Charles Leclerc (SF-24)").
+    - Wskaźnik celownika (🎯), jeśli bolid jest aktualnie śledzony.
+  * PASEK STATYSTYK WYŚCIGOWYCH:
+    - Śr: [X] km/h: Średnia prędkość z najlepszego okrążenia.
+    - Vmax: [X] km/h: Najwyższa prędkość osiągnięta przez kierowcę na torze.
+    - ⛽ [X] kg: Aktualna ilość paliwa pozostała w zbiorniku.
+    - 🛑 [X] PIT: Liczba wykonanych zjazdów do boksu na dotankowanie.
+    - 🏁 L[X]/[N]: Aktualnie pokonywane okrążenie (oraz cel wyścigu, np. L14/50).
+    - 🛑 [X]%: Styl agresji dohamowania kierowcy (np. 🛑 125%).
+    - 💥 DNF (ROZBITY): Czerwona etykieta pojawiająca się, gdy bolid rozbije się w wyścigu.
+  * SEKCJA CZASÓW (PO PRAWEJ STRONIE):
+    - Wiersz BEST & LAST:
+      * BEST [01:17.316]: Rekord życiowy kierowcy (dla P1 wyróżniony fioletem).
+      * LAST [01:17.840]: Czas ostatnio ukończonego okrążenia (pozwala ocenić
+        czy kierowca utrzymuje tempo, czy zwalnia).
+      * Delta: Etykieta "P1" dla lidera lub strata czasowa ("+0.450s") / okrążeniowa
+        ("+1 OKR"). W wyścigu wyświetla aktualną stratę do lidera.
+    - Wiersz TERAZ:
+      * TERAZ [00:45.120]: Płynnie mierzony czas bieżącego kółka w kolorze cyjanowym.
+      * W przypadku zjazdu: "PIT (3.2s)" lub "[BOX]".
+      * W przypadku kraksy w treningu: "PIT (RESPAWN)".
+      * Pigułka delty sektorowej (CP Delta Pill): Pokazuje na żywo stratę lub zysk
+        na ostatniej bramce (np. "CP2 -0.120s" w zieleni lub "CP3 +0.450s" w czerwieni).
+
+================================================================================
+MODUŁ 3: MÓZG AI (WIZUALIZATOR SIECI NEURONOWEJ)
+================================================================================
+Pokazuje na żywo wnętrze sieci neuronowej bolidu lidera lub wybranego kierowcy:
+- Tytuł: "MÓZG AI (SIEĆ NEURONOWA)" ze wskazaniem kogo dotyczy podgląd (np. "LIDER").
+- Wykres węzłów i wag na Canvasie:
+  * Warstwa wejściowa (lewa strona): 30 neuronów reprezentujących wiązki LiDAR
+    i wektory telemetryczne.
+  * Dwie warstwy ukryte (środek): 18 neuronów i 14 neuronów.
+  * Warstwa wyjściowa (prawa strona): 3 neurony (Skręt, Gaz, Hamulec).
+  * Połączenia synaptyczne: Kolorowane na niebiesko (wagi dodatnie/pobudzające)
+    oraz czerwono (wagi ujemne/hamujące). Grubość i jasność linii pulsuje
+    w zależności od przepływu sygnału w danej klatce.
+- Przycisk: "🔄 Zresetuj Sieć AI Wybranego Bolidu".
+
+================================================================================
+MODUŁ 4: POSTĘP CZASÓW NA ŻYWO (WYKRES PROGRESU AI)
+================================================================================
+Interaktywny wykres liniowo-punktowy generowany na żywo na płótnie Canvas:
+- Wykres gromadzi ostatnie 50 zarejestrowanych okrążeń ze wszystkich bolidów.
+- Złota linia: Przebieg absolutnego rekordu sesji (pokazuje jak z kolejnymi
+  okrążeniami kierowcy urywają kolejne dziesiąte części sekundy).
+- Cyjanowa linia: Średni czas okrążenia całej stawki.
+- Kolorowe kropki: Każde ukończone okrążenie nanoszone jest kropką w oficjalnym
+  kolorze danego zespołu, obrazując postęp nauki w czasie rzeczywistym.
+
+================================================================================
+MODUŁ 5: TRYB WYŚCIGU (GRAND PRIX)
+================================================================================
+Panel pozwalający przekształcić sesję treningową w oficjalny wyścig F1:
+- Wybór Dystansu: Przyciski wyboru liczby okrążeń:
+  * [50 OKR.] - Standardowy wyścig sprinterski (~1 pit-stop).
+  * [75 OKR.] - Pełny dystans Grand Prix (~2 pit-stopy).
+  * [100 OKR.] - Wyścig długodystansowy wymagający głębokiej strategii paliwowej.
+- Przyciski Główne:
+  * "🏁 Rozpocznij Wyścig (F1)": Zatrzymuje trening, ustawia 10 bolidów na polach
+    startowych zgodnie z czasami z treningu (kwalifikacje) i uruchamia 5 czerwonych świateł.
+  * "⏹️ Przerwij Wyścig": Bezpiecznie przerywa wyścig i cofa bolidy na start
+    BEZ KASOWANIA NAUCZONEJ WIEDZY AI!
+  * "⛽ Zjedź do Boksu (P)": Przycisk (lub klawisz P) zlecający natychmiastowy zjazd
+    do alei serwisowej na najbliższym okrążeniu.
+- Baner Informacyjny Wyścigu (po starcie):
+  * OKRĄŻENIE: Bieżące kółko lidera (np. "14 / 50").
+  * LIDER: Nazwisko prowadzącego kierowcy.
+  * PIT STOP: Status alei serwisowej ("OTWARTE", "ZJAZD [P]", "W BOKSIE").
+
+================================================================================
+MODUŁ 6: STEROWANIE SYMULACJĄ I SUWAKI PARAMETRÓW
+================================================================================
+Centrum dowodzenia parametrami symulatora:
+1. Przyciski Sterowania:
+   - ✏️ Rysuj Tor: Włącza tryb swobodnego rysowania nowej trasy myszką na Canvasie.
+   - ▶️ Start: Wypuszcza bolidy na tor i wznawia symulację.
+   - ⏹️ Stop: Zatrzymuje bolidy i cofa je na pola startowe (zachowując sieci AI!).
+   - 🔄 Nowa Gen: Wymusza natychmiastową selekcję pokoleniową i ewolucję genetyczną.
+   - ⛽ Tankuj: Natychmiastowe napełnienie zbiorników paliwa wszystkich 10 bolidów do 105 kg.
+   - 🏎️ Gracz (WASD): Przełącza gracza w tryb manualnego prowadzenia bolidu.
+2. Przyciski Prędkości Symulacji (Wielordzeniowość):
+   - Oznaczenie rdzeni: "⚡ 16 RDZENI (WEB WORKER)" - automatycznie wykrywa liczbę rdzeni CPU.
+   - Dostępne mnożniki: 1x (czas rzeczywisty), 2x, 5x, 10x, 50x (turbo),
+     100x (super turbo), 200x 🚀 (hiper prędkość) oraz MAX ⚡ (tryb bez renderowania,
+     gdzie CPU liczy fizykę z maksymalną wydajnością procesora).
+3. Presety i Zarządzanie Torami:
+   - "Grand Prix": Oficjalny tor wyścigowy z długimi prostymi i technicznymi szykanami.
+   - "Owal Szybki": Super-szybki tor testowy do bicia rekordów prędkości i docisku.
+   - 💾 Zapisz Tor / 📂 Wczytaj Tor: Eksport i import geometrii toru do/z pliku JSON.
+4. Opcje Wyświetlania (Checkboxy):
+   - 🏁 Pokaż optymalną nitkę toru: Złota/zielona linia wyścigowa wyznaczona przez lidera.
+   - 🏎️ Pokaż prędkość nad bolidami: Plakietki km/h unoszące się nad autami.
+   - 📡 Pokaż sensory LIDAR: Rysowanie kolorowych wiązek laserowych AI.
+5. Suwaki Parametrów Fizyki i AI:
+   - Wiązki LIDAR: Zakres 9 - 45 sensorów (domyślnie 25).
+   - Paliwo Początkowe: Zakres 10 - 110 kg (domyślnie 105 kg).
+   - Szerokość Toru: Zakres 5 - 20 m (domyślnie 14 m).
+   - Współczynnik Mutacji: Zakres 1% - 30% (domyślnie 9%).
+6. Eksport i Import Modeli AI:
+   - 💾 Zapisz Model AI: Zapisuje wagi sieci wszystkich kierowców do pliku JSON.
+   - 📂 Wczytaj Model: Wczytuje wyuczone wcześniej sieci neuronowe.
+
+
+================================================================================
+3. FUNKCJONALNOŚĆ TORU WYŚCIGOWEGO
+================================================================================
+
+--------------------------------------------------------------------------------
+3.1 Geometria, Krawędzie i Tarki Wyścigowe (Kerbs)
+--------------------------------------------------------------------------------
+Tor jest ciągłą wstęgą zdefiniowaną jako parametryczna pętla wektorowa w 2D:
+- Oś środkowa (Centerline): Wygładzona ścieżka wyznaczająca geometrię trasy.
+- Krawędź lewa i prawa: Przesunięte względem środka o połowę szerokości toru
+  ($\pm \frac{W}{2}$) wzdłuż wektorów normalnych $\vec{N}$.
+- Tarki wyścigowe (Kerbs): Dwukolorowe, biało-czerwone pasy montowane na zewnętrznych
+  i wewnętrznych krawędziach łuków. Rysowane są proceduralnie z naprzemienną fazą
+  prostokątów o długości 12 px. Najechanie na tarkę wywołuje mikro-drgania zawieszenia.
+
+--------------------------------------------------------------------------------
+3.2 Bramki Sektorowe (4 Timing Gates w Standardzie F1)
+--------------------------------------------------------------------------------
+Każdy tor jest automatycznie dzielony na 4 precyzyjne strefy pomiarowe:
+- CP 1: Umieszczona dokładnie w 25% dystansu toru.
+- CP 2: Umieszczona w 50% dystansu toru.
+- CP 3: Umieszczona w 75% dystansu toru.
+- CP 4 (META): Linia startu/mety w 100% dystansu toru.
+Każda bramka posiada:
+- Dwa laserowe słupki sensoryczne po obu stronach toru.
+- Świecącą wiązkę laserową w poprzek asfaltu w kolorze danego sektora.
+- Wykrywanie przecięcia wiązki przez przód bolidu z dokładnością do 1 ms.
+- Dynamiczne przeliczanie delt sektorowych (Purple, Green, Red).
+
+--------------------------------------------------------------------------------
+3.3 Pola Startowe (Starting Grid) i Aleja Serwisowa (Pit Lane)
+--------------------------------------------------------------------------------
+- Pola startowe (Grid Slots): 10 ponumerowanych stanowisk startowych ułożonych
+  w szachownicę przed linią startu/mety (naprzemiennie po lewej i prawej stronie toru,
+  zgodnie z przepisami FIA).
+- Aleja Serwisowa (Pit Lane): Równoległa linia wyznaczona żółtym pasem przerywanym
+  przy mecie. Stanowisko Pit Box zlokalizowane jest przy krawędzi toru, gdzie bolid
+  zatrzymuje się na czas tankowania (3.2s).
+
+--------------------------------------------------------------------------------
+3.4 Interaktywne Rysowanie Toru i Matematyka Spline'ów
+--------------------------------------------------------------------------------
+Po kliknięciu przycisku "✏️ Rysuj Tor":
+1. Użytkownik klika i przeciąga kursor myszy na ekranie, tworząc szkic trasy.
+2. Przytrzymanie klawisza SHIFT włącza asystenta idealnej linii prostej (przydatne
+   do rysowania prostych startowych o długości np. 800 metrów).
+3. Po dociągnięciu linii do punktu początkowego pętla automatycznie się zamyka.
+4. Surowe punkty są wygładzane za pomocą zamkniętych krzywych składanych
+   Catmull-Rom Spline. Zapewnia to ciągłość geometryczną klasy $C^1$ (brak ostrych
+   załamań, płynne wektory styczne i krzywizny).
+5. System natychmiast generuje krawędzie, tarki, strefę pit-stopu oraz 4 sektory.
+
+--------------------------------------------------------------------------------
+3.5 Siatka Przestrzenna (Uniform Spatial Grid) - Optymalizacja O(1)
+--------------------------------------------------------------------------------
+Aby raycasting 25 promieni dla 10 bolidów (250 promieni na klatkę) działał
+z prędkością setek klatek na sekundę, tor dzielony jest na siatkę komórek 80x80 px:
+- Odcinki barier przypisywane są do komórek, przez które przechodzą.
+- Promień lasera sprawdza kolizję tylko z komórkami, przez które faktycznie wędruje
+  (algorytm DDA).
+- Złożoność testu kolizji spada z liniowego $O(N)$ do stałego $O(1)$.
+
+
+================================================================================
+4. FIZYKA POJAZDU I ZACHOWANIE BOLIDÓW NA TORZE
+================================================================================
+
+--------------------------------------------------------------------------------
+4.1 Model Masowy, Bezwładność i Wpływ Paliwa
+--------------------------------------------------------------------------------
+Fizyka bolidu (`Car.ts`) nie jest uproszczoną grą zręcznościową - to pełny model 2D:
+- Masa sucha bolidu wynosi 798 kg (zgodnie z FIA).
+- Zbiornik mieści 105 kg paliwa. Masa całkowita $M = 798 + M_{fuel}$.
+- Wpływ ubytku paliwa:
+  * Pełny bak (105 kg paliwa, masa 903 kg): bolid ma dłuższą drogę hamowania,
+    wolniej przyspiesza i ma większą bezwładność w zakrętach.
+  * Pusty bak (15 kg paliwa, masa 813 kg): bolid jest o 90 kg lżejszy! Przyspieszenie
+    rośnie, droga hamowania skraca się o kilkanaście metrów, a czasy okrążeń są
+    o 3-4 sekundy szybsze (dokładnie tak, jak w prawdziwym F1).
+
+--------------------------------------------------------------------------------
+4.2 Aerodynamika: Docisk 2.5 Tony i Prędkości Ponad 420 km/h
+--------------------------------------------------------------------------------
+Bolid F1 generuje ogromne siły aerodynamiczne zależne od kwadratu prędkości ($v^2$):
+1. Opór aerodynamiczny (Drag):
+   $$F_{drag} = \frac{1}{2} \cdot \rho \cdot (C_D \cdot A) \cdot v^2$$
+   Silnik o mocy 1020 KM ($750\text{ kW}$) z trudem pokonuje opór powietrza powyżej
+   380 km/h. Równowaga sił następuje przy prędkości ok. 425 km/h.
+2. Docisk aerodynamiczny (Downforce):
+   $$F_{downforce} = \frac{1}{2} \cdot \rho \cdot (C_L \cdot A) \cdot v^2$$
+   Przy prędkości 400 km/h ($111.1\text{ m/s}$) docisk wynosi:
+   $$F_{downforce} \approx 24\ 200\text{ N} \approx 2460\text{ kg docisku!}$$
+   To ponad trzykrotność ciężaru własnego bolidu! Dzięki temu opony zostają
+   dosłownie "wprasowane" w asfalt, co pozwala bolidowi pokonywać łuki o promieniu
+   150 m z prędkością ponad 280 km/h bez wypadnięcia z toru.
+
+--------------------------------------------------------------------------------
+4.3 Dynamiczny Transfer Mas (Nurkowanie Pitch i Przechył Roll)
+--------------------------------------------------------------------------------
+- Wzdłużny transfer mas (Pitch):
+  * Statyczny rozkład wynosi 46% przód / 54% tył.
+  * Przyspieszanie dociąża tył do ~68%, co poprawia trakcję tylnych kół RWD.
+  * Gwałtowne hamowanie odciąża tył i dociąża przód do ~65% (nurkowanie nosa bolidu).
+- Poprzeczny transfer mas (Roll):
+  * Siła odśrodkowa w zakręcie dociąża koła zewnętrzne i odciąża wewnętrzne.
+  * Powoduje to ubytek łącznej przyczepności bocznej o kilka procent, co zmusza
+    kierowcę do precyzyjnego operowania kątem skrętu.
+
+--------------------------------------------------------------------------------
+4.4 Układ Napędowy i Hamowanie Węglowe z Siłą 5G (Droga 110 m)
+--------------------------------------------------------------------------------
+- Napęd RWD: Moc 1000 KM przekazywana jest na tylną oś z ograniczeniem poślizgu
+  trakcyjnego wynikającego z aktualnego nacisku pionowego na tył ($F_{z,rear}$).
+- Hamulce węglowo-ceramiczne (Carbon-Ceramic):
+  * Wykorzystują ogromny docisk aerodynamiczny przy wysokich prędkościach.
+  * Przy 400 km/h opóźnienie hamowania sięga $5.0\text{--}5.5\text{ G}$ ($50\text{ m/s}^2$).
+  * Droga hamowania z 400 km/h do 120 km/h wynosi zaledwie **110–120 metrów**!
+
+--------------------------------------------------------------------------------
+4.5 Przyczepność Opon, Koło Kamma, Podsterowność i Nadsterowność
+--------------------------------------------------------------------------------
+- Koło tarcia Kamma (Friction Circle): Całkowita przyczepność opony jest stała.
+  Jednoczesne mocne hamowanie zabiera przyczepność boczną i powoduje blokowanie kół.
+- Podsterowność (Understeer): Przód bolidu ucieka na zewnątrz zakrętu, gdy kierowca
+  wejdzie w łuk ze zbyt dużą prędkością.
+- Nadsterowność (Oversteer): Tył bolidu wyprzedza przód przy zbyt gwałtownym
+  dodaniu gazu na wyjściu z zakrętu.
+- Ślady opon: Gdy uślizg przekracza 35%, opony zaczynają dymić i zostawiają
+  czarne linie gumy na nawierzchni toru.
+
+
+================================================================================
+5. UCZENIE MASZYNOWE I WYKRĘCANIE REKORDOWYCH CZASÓW
+================================================================================
+
+--------------------------------------------------------------------------------
+5.1 Architektura Sieci Neuronowej (Wielowarstwowy Perceptron MLP)
+--------------------------------------------------------------------------------
+Każdy bolid posiada autonomiczną sieć typu Multilayer Perceptron:
+- 30 neuronów wejściowych.
+- Warstwa ukryta 1: 18 neuronów z aktywacją $\tanh(x)$.
+- Warstwa ukryta 2: 14 neuronów z aktywacją $\tanh(x)$.
+- Warstwa wyjściowa: 3 neurony z aktywacją $\tanh(x)$ (Skręt, Gaz, Hamulec).
+Funkcja tangensa hiperbolicznego zapewnia gładkie, symetryczne przejścia w zakresie
+$[-1.0, 1.0]$, idealne do płynnego operowania kierownicą i pedałami.
+
+--------------------------------------------------------------------------------
+5.2 Wektor Wejściowy: Sensory LIDAR i Telemetria Wyprzedzająca
+--------------------------------------------------------------------------------
+Do sieci w każdej klatce trafia 30 znormalizowanych sygnałów:
+1. Wiązki LiDAR (25 wartości): Odległości od bolidu do barier toru (0.0 do 1.0).
+2. Znormalizowana prędkość: $v / 95\text{ m/s}$.
+3. Prędkość kątowa bolidu ($\omega$).
+4. Kąt odchylenia od trajektorii toru (błąd kątowy).
+5. Zbliżająca się krzywizna toru (Curvature Lookahead).
+6. Wskaźnik dohamowania (Overspeed Delta): Różnica między aktualną prędkością
+   a maksymalną dozwoloną prędkością pokonania zbliżającego się zakrętu.
+
+--------------------------------------------------------------------------------
+5.3 Wyjścia Sieci i Bezwzględna Polityka Pełnego Gazu na Prostych
+--------------------------------------------------------------------------------
+Wyeliminowano problem zwalniania bolidów do 280 km/h za pomocą ścisłej polityki:
+- Strefa dohamowania ($\text{overspeedDelta} > 0$):
+  * Gaz jest odcinany do 0.0.
+  * Hamulec jest wciskany proporcjonalnie do nadmiaru prędkości ($40\%\text{--}100\%$).
+- Strefa przyspieszania i jazdy ($\text{overspeedDelta} \le 0$):
+  * Hamulec wynosi **bezwzględnie 0.0** (zero przypadkowych przyhamowań!).
+  * Na prostych i łukach ($|\text{steer}| < 0.35$): **Przepustnica = 100% (1.0)!**
+  * W ciasnym apexie ($|\text{steer}| \ge 0.35$): Kontrola trakcji moduluje gaz
+    do 50-80%, natychmiast wracając do 100% w ułamku sekundy po wyprostowaniu kół.
+Efekt: Bolidy wychodzą z zakrętów z pełną mocą i zawsze osiągają **390–422 km/h**
+na każdej odpowiednio długiej prostej!
+
+--------------------------------------------------------------------------------
+5.4 Uczenie Online: Bufor Powtórek (Replay Buffer) ze Stabilnym Krokiem
+--------------------------------------------------------------------------------
+- Bolidy zapisują swoje manewry do bufora `replayBuffer` (40 próbek).
+- Nagroda w buforze bazuje na prędkości (`reward: this.speedKmh`).
+- Co 90 kroków sieć uczy się wsteczną propagacją błędu (Backpropagation)
+  ze stabilnym krokiem uczącym $\eta = 0.001$.
+- Taki dobór współczynnika eliminuje zjawisko "katastrofalnego zapominania"
+  (Catastrophic Forgetting) i pozwala na precyzyjne docinanie apexów.
+
+--------------------------------------------------------------------------------
+5.5 Coaching Telemetryczny (Nauka z Trajektorii Lidera)
+--------------------------------------------------------------------------------
+Gdy którykolwiek kierowca ustanowi rekord sesji, jego profil prędkości w każdym
+punkcie toru staje się wzorcem telemetrycznym dla pozostałych ekip. Jeśli inne auto
+jedzie wolniej od lidera o $> 8\text{ km/h}$, algorytm wymusza pełny gaz, podciągając
+tempo całej stawki.
+
+--------------------------------------------------------------------------------
+5.6 Ewolucja Genetyczna, Krzyżowanie i Chłodzenie Mutacji (Simulated Annealing)
+--------------------------------------------------------------------------------
+- Krzyżowanie (Crossover): Bolidy łączą wagi swojej sieci z siecią aktualnego mistrza.
+- Chłodzenie mutacji (Simulated Annealing): Gdy kierowca pobije swój rekord życiowy,
+  współczynnik mutacji jest schładzany o 15% ($\text{mutRate} \times 0.85$), co
+  zamraża zwycięski styl jazdy. Przy stagnacji mutacja powoli rośnie, szukając nowych linii.
+
+--------------------------------------------------------------------------------
+5.7 Wyeliminowanie Degradacji Czasów i Mechanizm Samonaprawczy (Performance Guard)
+--------------------------------------------------------------------------------
+Rozwiązano problem, w którym po 800 okrążeniach bolidy traciły 15 sekund:
+1. Usunięto destrukcyjną losową mutację po ukończeniu każdego okrążenia.
+2. Zapis najlepszego mózgu (`bestBrain`) następuje wyłącznie przy pobiciu rekordu życiowego.
+3. **Performance Guard**: Jeśli bolid pojedzie okrążenie wolniejsze o ponad 2.5 sekundy
+   od swojego rekordu (np. po kraksie lub obrocie), jego wagi sieci są natychmiast
+   przywracane z kopii zapasowej `bestBrain`.
+Dzięki temu czasy okrążeń pozostają stałe i równe przez tysiące kółek.
+
+--------------------------------------------------------------------------------
+5.8 Jak Wykręcić Absolutny Rekord Toru (Poradnik Inżyniera)
+--------------------------------------------------------------------------------
+Aby osiągnąć najszybszy możliwy czas okrążenia:
+1. Narysuj tor z długą prostą startową (minimum 600–800 metrów) – pozwoli to
+   bolidom rozwinąć pełne 400–420 km/h.
+2. Zakręty projektuj z łagodnym wejściem (szeroki łuk) i ciaśniejszym apexem.
+3. Pozwól bolidom spalić paliwo do poziomu 15-20 kg (lekki bolid zyskuje 3-4 sekundy!).
+4. Użyj suwaka wiązek LiDAR ustawionego na 25-31 sensorów (maksymalna precyzja widzenia).
+5. Włącz mnożnik prędkości "MAX" lub "50x" na 2 minuty, aby AI przejechało kilkadziesiąt
+   okrążeń i wyznaczyło złotą, optymalną nitkę wyścigową.
+
+
+================================================================================
+6. ZARZĄDZANIE DANYMI: ZAPIS I ODCZYT TORÓW ORAZ MODELI AI
+================================================================================
+- Zapis Toru (JSON): Przycisk "💾 Zapisz Tor" pobiera plik `.json` zawierający
+  pełną tablicę punktów kontrolnych, wektory normalne, szerokość oraz bramki sektorowe.
+- Wczytanie Toru (JSON): Przycisk "📂 Wczytaj Tor" pozwala załadować dowolny
+  wcześniej utworzony tor z dysku komputera.
+- Zapis Modelu AI: Przycisk "💾 Zapisz Model AI" eksportuje wszystkie wagi
+  i biasy sieci neuronowych 10 zespołów do pliku JSON.
+- Wczytanie Modelu AI: Przycisk "📂 Wczytaj Model" natychmiast ładuje wyuczone
+  wcześniej mózgi kierowców, pozwalając im jeździć po torze na poziomie mistrzowskim
+  od pierwszej sekundy bez konieczności ponownego treningu.
+
+================================================================================
+KONIEC DOKUMENTACJI TECHNICZNEJ F1 AI RACING SIMULATOR
+================================================================================
