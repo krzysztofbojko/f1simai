@@ -1,275 +1,398 @@
-# 🏎️ Dokumentacja Techniczna Systemu F1 AI Simulator
+# 🏎️ Pełna Specyfikacja Techniczna Systemu F1 AI Simulator
 
-Kompleksowy opis architektury, modelu fizyki, algorytmów sztucznej inteligencji oraz rozwiązań inżynieryjnych zaimplementowanych w projekcie symulatora bolidów Formuły 1.
+Dokument stanowi wyczerpującą specyfikację inżynieryjną, matematyczną i architektoniczną projektu **F1 AI Simulator**. Zawiera pełny opis modeli fizycznych, równań różniczkowych, wag i topologii sieci neuronowych, algorytmów uczenia, struktur danych, protokołów komunikacji wątkowej oraz mechanizmów bezpieczeństwa numerycznego.
 
 ---
 
 ## 📑 Spis Treści
-1. [Wprowadzenie i Cel Projektu](#1-wprowadzenie-i-cel-projektu)
-2. [Architektura Systemu i Wielowątkowość](#2-architektura-systemu-i-wielowątkowość)
-3. [Model Fizyki Pojazdu (Vehicle Dynamics 2D)](#3-model-fizyki-pojazdu-vehicle-dynamics-2d)
-4. [Sztuczna Inteligencja (AI) i Algorytmy Uczenia](#4-sztuczna-inteligencja-ai-i-algorytmy-uczenia)
-5. [Kluczowe Rozwiązania Inżynieryjne i Diagnoza Problemów](#5-kluczowe-rozwiązania-inżynieryjne-i-diagnoza-problemów)
-   - [Eliminacja blokady prędkości 280 km/h na prostych](#a-eliminacja-blokady-prędkości-280-kmh-na-prostych)
-   - [Rozwiązanie problemu degradacji osiągów po setkach okrążeń (L800+)](#b-rozwiązanie-problemu-degradacji-osiągów-po-setkach-okrążeń-l800)
-   - [Trwałość mózgów AI i ochrona przed niepożądanym resetem](#c-trwałość-mózgów-ai-i-ochrona-przed-niepożądanym-resetem)
-6. [Tryby Symulacji](#6-tryby-symulacji)
-   - [Tryb Treningu i Ciągłej Ewolucji](#a-tryb-treningu-i-ciągłej-ewolucji)
-   - [Tryb Wyścigu Grand Prix (50–100 Okrążeń)](#b-tryb-wyścigu-grand-prix-50100-okrążeń)
-   - [Strategia Pit-Stopów i Zużycie Paliwa](#c-strategia-pit-stopów-i-zużycie-paliwa)
-7. [System Pomiaru Czasów i Telemetria F1](#7-system-pomiaru-czasów-i-telemetria-f1)
-8. [Edytor Torów i Interpolacja Spline'ami](#8-edytor-torów-i-interpolacja-splineami)
-9. [Struktura Kodu Źródłowego](#9-struktura-kodu-źródłowego)
-10. [Instrukcja Uruchomienia i Budowania](#10-instrukcja-uruchomienia-i-budowania)
+1. [Architektura Systemowa i Model Wielowątkowości](#1-architektura-systemowa-i-model-wielowątkowości)
+2. [Specyfikacja Matematyczno-Fizyczna Pojazdu (Vehicle Dynamics 2D)](#2-specyfikacja-matematyczno-fizyczna-pojazdu-vehicle-dynamics-2d)
+   - [2.1 Tabela Stałych i Parametrów Fizycznych](#21-tabela-stałych-i-parametrów-fizycznych)
+   - [2.2 Równania Masowe i Dynamika Paliwa](#22-równania-masowe-i-dynamika-paliwa)
+   - [2.3 Model Aerodynamiczny (Docisk i Opór Powietrza)](#23-model-aerodynamiczny-docisk-i-opór-powietrza)
+   - [2.4 Dynamiczny Transfer Mas (Wzdłużny i Poprzeczny)](#24-dynamiczny-transfer-mas-wzdłużny-i-poprzeczny)
+   - [2.5 Napęd, Hamowanie Carbon-Ceramic i Przeciążenia 5G](#25-napęd-hamowanie-carbon-ceramic-i-przeciążenia-5g)
+   - [2.6 Model Przyczepności Opon, Koło Kamma i Uślizgi](#26-model-przyczepności-opon-koło-kamma-i-uślizgi)
+3. [Specyfikacja Sztucznej Inteligencji i Sieci Neuronowych](#3-specyfikacja-sztucznej-inteligencji-i-sieci-neuronowych)
+   - [3.1 Topologia Wielowarstwowego Perceptronu (MLP)](#31-topologia-wielowarstwowego-perceptronu-mlp)
+   - [3.2 Wektor Wejściowy i Sensory LiDAR (Raycasting)](#32-wektor-wejściowy-i-sensory-lidar-raycasting)
+   - [3.3 Warstwa Wyjściowa i Mapowanie Sygnałów Sterujących](#33-warstwa-wyjściowa-i-mapowanie-sygnałów-sterujących)
+   - [3.4 Uczenie Online (Backpropagation & Replay Buffer)](#34-uczenie-online-backpropagation--replay-buffer)
+   - [3.5 Algorytm Genetyczny, Selekcja i Simulated Annealing](#35-algorytm-genetyczny-selekcja-i-simulated-annealing)
+4. [Polityka Sterowania i Autonomiczny Kierowca Wyścigowy](#4-polityka-sterowania-i-autonomiczny-kierowca-wyścigowy)
+   - [4.1 Szacowanie Prędkości Dopuszczalnej i Stref Dohamowań](#41-szacowanie-prędkości-dopuszczalnej-i-stref-dohamowań)
+   - [4.2 Polityka 100% Pełnego Gazu na Prostych i Wyjściach](#42-polityka-100-pełnego-gazu-na-prostych-i-wyjściach)
+   - [4.3 Telemetry Coaching (Kooperacja z Liderem Sesji)](#43-telemetry-coaching-kooperacja-z-liderem-sesji)
+   - [4.4 Performance Guard (Mechanizm Samonaprawczy Mózgów AI)](#44-performance-guard-mechanizm-samonaprawczy-mózgów-ai)
+5. [Geometria Toru i Przyspieszenie Przestrzenne](#5-geometria-toru-i-przyspieszenie-przestrzenne)
+   - [5.1 Interpolacja Krzywymi Składanymi Catmull-Rom](#51-interpolacja-krzywymi-składanymi-catmull-rom)
+   - [5.2 Siatka Przestrzenna (Uniform Spatial Grid $O(1)$)](#52-siatka-przestrzenna-uniform-spatial-grid-o1)
+   - [5.3 Sektory i Bramki Pomiarowe (TimingGates)](#53-sektory-i-bramki-pomiarowe-timinggates)
+6. [Maszyna Stanów Wyścigu Grand Prix i Pit-Stopy](#6-maszyna-stanów-wyścigu-grand-prix-i-pit-stopy)
+   - [7. Protokoły Komunikacyjne i Interfejs Danych (SimSnapshot)](#7-protokoły-komunikacyjne-i-interfejs-danych-simsnapshot)
+8. [Podsumowanie Zaimplementowanych Poprawek Inżynieryjnych](#8-podsumowanie-zaimplementowanych-poprawek-inżynieryjnych)
 
 ---
 
-## 1. Wprowadzenie i Cel Projektu
+## 1. Architektura Systemowa i Model Wielowątkowości
 
-Projekt **F1 AI Simulator** to symulator wyścigowy działający w przeglądarce w czasie rzeczywistym, w którym 10 zespołów Formuły 1 (oraz opcjonalnie kierowca-gracz) rywalizuje na torze za pomocą autonomicznych sieci neuronowych.
-
-Główne cele techniczne projektu:
-- **Autonomiczne sterowanie bolidem F1**: Każdy bolid jest kontrolowany przez własną sieć neuronową, która na podstawie odczytów wirtualnych sensorów (LiDAR/promienie) decyduje o skręcie, gazie i hamulcu.
-- **Prawdziwe prędkości F1 (do 420+ km/h)**: Odwzorowanie aerodynamiki docisku ($F_{downforce} \sim v^2$), pozwalające na agresywne pokonywanie szybkich łuków i gwałtowne dohamowania z przeciążeniami rzędu 5G.
-- **Realistyczna strategia wyścigowa**: Zmienna masa bolidu wynikająca ze zużycia paliwa, procedury startowe ze światłami, zjazdy do boksów na dotankowanie oraz zasada DNF (odpadnięcie po kolizji).
-- **Stabilność numeryczna i płynność**: Całkowity rozdział obliczeń fizyczno-matematycznych od wątku interfejsu i renderowania.
-
----
-
-## 2. Architektura Systemu i Wielowątkowość
-
-Aplikacja wykorzystuje model **wielowątkowy z Web Workerem**, co zapobiega zacinaniu interfejsu użytkownika podczas intensywnych obliczeń:
+System opiera się na separacji wątku renderowania od wątku obliczeniowego:
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                    Główny Wątek (UI & Canvas)               │
-│  - Renderowanie grafiki Canvas 2D przy 60 FPS (Renderer.ts) │
-│  - Panel boczny z telemetrią na żywo (BEST, LAST, TERAZ)    │
-│  - Obsługa wejścia gracza (WASD, [P])                       │
-│  - Narzędzia edycji toru myszką (Spline Editor)             │
-└──────────────────────────────┬──────────────────────────────┘
-                               │
-            PostMessage:       │    PostMessage:
-            - Akcje UI         │    - SimSnapshot (stany bolidów,
-            - Sterowanie       │      czasy, delty, telemetria)
-                               ▼
-┌─────────────────────────────────────────────────────────────┐
-│               Wątek Symulacji (sim.worker.ts)               │
-│  - Pętla fizyki 60 Hz z całkowaniem numerycznym (Car.ts)    │
-│  - Inferencja 10 sieci neuronowych (NeuralNetwork.ts)       │
-│  - Obliczanie kolizji z krawędziami toru (Grid Akceleracji) │
-│  - Logika wyścigu, zużycia paliwa i pit-stopów              │
-│  - Most komunikacyjny (SimBridge.ts)                        │
-└─────────────────────────────────────────────────────────────┘
+[Główny Wątek Przeglądarki (UI Thread)]
+ │
+ ├── Pętla renderowania requestAnimationFrame (~60 FPS)
+ ├── Renderer Canvas 2D (Renderer.ts)
+ ├── Obsługa zdarzeń DOM i klawiatury gracza (main.ts)
+ └── SimBridge (SimBridge.ts)
+      │
+      │ Web Worker postMessage (JSON / Structured Clone)
+      ▼
+[Wątek Obliczeniowy (sim.worker.ts)]
+ ├── Pętla symulacji ze stałym krokiem czasowym dt = 1/60 s
+ ├── Fizyka pojazdów 2D (Car.ts)
+ ├── Sieci neuronowe i propagacja w przód (NeuralNetwork.ts)
+ ├── Ewolucja i populacja 10 zespołów (Population.ts)
+ └── Detekcja kolizji na siatce przestrzennej (Track.ts)
 ```
 
-### Przepływ Migawki (`SimSnapshot`)
-Wątek roboczy generuje skompresowany obiekt stanu `SimSnapshot`, który zawiera:
-- Pozycje $(x, y)$, kąty, prędkości liniowe i kątowe bolidów,
-- Wartości sensorów LiDAR, przeciążenia G, uślizgi kół i ślady opon,
-- Czasy okrążeń, międzyczasy bramek pomiarowych,
-- Stan wyścigu (IDLE, GRID_START, RACING, FINISHED), zużycie paliwa oraz status zjazdów do boksu.
-
-Dzięki temu główny wątek jedynie odrysowuje gotowy stan, zachowując idealną płynność animacji.
+Zalety rozwiązania:
+- Złożona inferencja 10 sieci neuronowych, raycasting (250 promieni na klatkę) oraz całkowanie fizyki nie powodują mikroprzycięć animacji.
+- Możliwość przyspieszenia symulacji (1x, 2x, 5x, 10x, MAX) bez spadku płynności interfejsu.
 
 ---
 
-## 3. Model Fizyki Pojazdu (Vehicle Dynamics 2D)
+## 2. Specyfikacja Matematyczno-Fizyczna Pojazdu (Vehicle Dynamics 2D)
 
-Fizyka bolidu (`Car.ts`) została oparta na rzeczywistych zasadach dynamiki pojazdów wyścigowych:
+### 2.1 Tabela Stałych i Parametrów Fizycznych
 
-### A. Masa i Bezwładność
-- **Masa sucha bolidu**: $798\text{ kg}$ (zgodnie z przepisami FIA).
-- **Masa paliwa**: do $105\text{ kg}$ w zbiorniku.
-- **Masa całkowita**: $M = 798\text{ kg} + M_{fuel}$.
-- Wraz ze zużywaniem się paliwa bolid staje się lżejszy, co skraca drogę hamowania i poprawia przyspieszenie.
-
-### B. Siły Aerodynamiczne
-1. **Docisk aerodynamiczny (Downforce)**:
-   $$F_{downforce} = \frac{1}{2} \cdot \rho \cdot C_L \cdot A \cdot v^2$$
-   Przy prędkości $400\text{ km/h}$ docisk generuje ponad $2000\text{ kg}$ dodatkowego nacisku na koła, co podwaja przyczepność opon.
-2. **Opór aerodynamiczny (Drag)**:
-   $$F_{drag} = \frac{1}{2} \cdot \rho \cdot C_D \cdot A \cdot v^2$$
-   Przy mocy silnika $1000\text{ KM}$ ($750\text{ kW}$) opór równoważy napęd przy prędkości ok. $425\text{ km/h}$.
-
-### C. Dynamiczny Transfer Masy (Weight Transfer)
-- **Wzdłużny (Pitch)**: Przyspieszanie dociąża oś tylną ($54\% \rightarrow 70\%$), hamowanie przerzuca masę na przód ($46\% \rightarrow 65\%$).
-- **Poprzeczny (Roll)**: Siła odśrodkowa w zakrętach dociąża koła zewnętrzne kosztem wewnętrznych.
-
-### D. Hamowanie Carbon-Ceramic z dociskiem (4.5–5.5 G)
-Maksymalna siła hamowania uwzględnia potężny docisk aero przy wysokich prędkościach:
-$$a_{brake} = (42.0 + a_{aero} \cdot 0.40) \cdot \text{brakingAggression}$$
-Dzięki temu bolid wyhamowuje z $400\text{ km/h}$ do $120\text{ km/h}$ na odcinku ok. $110\text{–}125$ metrów.
-
-### E. Model Przyczepności Opon i Poślizgów
-- Koło tarcia Kamma (*Kamm's friction circle*): jednoczesne silne hamowanie zmniejsza dostępną przyczepność boczną.
-- Modelowanie podsterowności (*understeer*) i nadsterowności (*oversteer*).
-- Wizualizacja dymu i czarnych śladów opon (*skid marks*) na asfalcie przy przekroczeniu limitu trakcji.
+| Parametr | Symbol | Wartość w kodzie | Jednostka | Opis fizyczny |
+| :--- | :--- | :--- | :--- | :--- |
+| **Grawitacja** | $g$ | `9.81` | $\text{m/s}^2$ | Przyspieszenie ziemskie |
+| **Masa sucha** | $m_{dry}$ | `798.0` | $\text{kg}$ | Masa bolidu bez paliwa (FIA F1) |
+| **Maksymalne paliwo** | $M_{fuel}^{max}$ | `105.0` | $\text{kg}$ | Pojemność baku |
+| **Moc maksymalna** | $P_{max}$ | `750000.0` | $\text{W}$ | $750\text{ kW} \approx 1020\text{ KM}$ |
+| **Gęstość powietrza** | $\rho$ | `1.225` | $\text{kg/m}^3$ | Standardowa gęstość na poziomie morza |
+| **Współczynnik oporu** | $C_D \cdot A$ | `0.70` | $\text{m}^2$ | Efektywna powierzchnia oporu aerodynamicznego |
+| **Współczynnik docisku**| $C_L \cdot A$ | `3.20` | $\text{m}^2$ | Efektywny współczynnik docisku skrzydeł i dyfuzora |
+| **Przyczepność opon** | $\mu_{base}$ | `1.70` | $-$ | Współczynnik tarcia miękkiej mieszanki slick |
+| **Rozstaw osi** | $L$ | `3.60` | $\text{m}$ | Wheelbase bolidu F1 |
+| **Rozstaw kół** | $W$ | `1.80` | $\text{m}$ | Szerokość osi |
+| **Wysokość środka ciężkości** | $h_{CoG}$ | `0.32` | $\text{m}$ | Nisko położony środek masy bolidu F1 |
+| **Maks. kąt skrętu** | $\delta_{max}$ | `0.40` | $\text{rad}$ | $\approx 22.9^\circ$ |
+| **Opór toczenia** | $C_{rr}$ | `0.012` | $-$ | Opory toczenia opon |
 
 ---
 
-## 4. Sztuczna Inteligencja (AI) i Algorytmy Uczenia
+### 2.2 Równania Masowe i Dynamika Paliwa
 
-### A. Architektura Sieci Neuronowej (`NeuralNetwork.ts`)
-Sieć neuronowa każdego kierowcy to wielowarstwowy perceptron (MLP) o architekturze:
-- **Warstwa Wejściowa ($N_{rays} + 5$ neuronów)**:
-  - 15–35 znormalizowanych promieni raycastingu badających odległość do krawędzi toru,
-  - Znormalizowana prędkość bolidu,
-  - Prędkość kątowa,
-  - Kąt odchylenia od trajektorii toru (*heading error*),
-  - Informacja o zbliżającej się krzywiźnie toru,
-  - Wskaźnik bezpiecznej prędkości / dohamowania (*overspeedDelta*).
-- **Warstwy Ukryte**: Warstwy gęste (18 i 14 neuronów) z funkcjami aktywacji $\tanh$.
-- **Warstwa Wyjściowa (3 neurony)**:
-  - `Steering` $[-1.0 \dots 1.0]$: Kąt skrętu kół,
-  - `Throttle` $[0.0 \dots 1.0]$: Otwarcie przepustnicy,
-  - `Brake` $[0.0 \dots 1.0]$: Siła nacisku na hamulec.
+Całkowita masa bolidu w chwili $t$:
+$$m(t) = m_{dry} + m_{fuel}(t)$$
 
-### B. Bufor Powtórek (Experience Replay Buffer)
-Bolidy w trakcie jazdy gromadzą próbki kluczowych sytuacji na torze:
-- Zapisywane są strefy dohamowań, wejścia w apexy zakrętów oraz **pełne otwarcie gazu na prostych**.
-- Uczenie online odbywa się za pomocą wstecznej propagacji błędu (*Backpropagation*) ze stabilnym krokiem uczącym ($\eta = 0.001$).
-- Nagroda w buforze bazuje na osiąganej prędkości liniowej (`reward: this.speedKmh`), co premiuje szybką, płynną jazdę bez zwalniania.
+Zużycie paliwa w czasie $\Delta t$:
+$$\frac{dm_{fuel}}{dt} = \dot{m}_{base} + \dot{m}_{load} \cdot u_{throttle} \cdot \left(0.30 + 0.70 \cdot \frac{v}{95.0}\right)$$
+gdzie:
+- $\dot{m}_{base} = 0.004\text{ kg/s}$ (bieg jałowy / toczenie),
+- $\dot{m}_{load} = 0.062\text{ kg/s}$ (spalanie przy pełnym obciążeniu silnika),
+- $u_{throttle} \in [0.0, 1.0]$ to sygnał otwarcia przepustnicy.
 
-### C. Kooperacyjny Coaching Telemetryczny
-Gdy którykolwiek z bolidów ustanowi absolutny rekord sesji (*Global Best Lap*), jego profil prędkości na każdym punkcie toru jest rejestrowany jako wzorzec telemetryczny. Pozostałe bolidy wykorzystują te dane, by podnosić swoje tempo w sekcjach, w których tracą czas do lidera.
+Gdy $m_{fuel} \le 0.001\text{ kg}$, włącza się tryb awaryjny (*Limp Mode*): przepustnica zostaje ograniczona do $8\%$, pozwalając na powolne doczołganie się do boksu ($\sim 18\text{ km/h}$).
 
 ---
 
-## 5. Kluczowe Rozwiązania Inżynieryjne i Diagnoza Problemów
+### 2.3 Model Aerodynamiczny (Docisk i Opór Powietrza)
 
-W toku rozwoju projektu zdiagnozowano i wyeliminowano dwa krytyczne problemy algorytmiczne:
+1. **Siła oporu powietrza (Drag)**:
+   $$F_{drag} = -\frac{1}{2} \cdot \rho \cdot (C_D \cdot A) \cdot k_{drag} \cdot v^2 \cdot \operatorname{sgn}(v_{forward})$$
+   gdzie $k_{drag} \in [0.985, 1.015]$ to losowa fluktuacja osiągów bolidu w danej sesji.
 
-### A. Eliminacja blokady prędkości 280 km/h na prostych
-* **Problem**: Bolidy na długich prostych nie osiągały 400 km/h, lecz zatrzymywały się przy prędkości ok. 280 km/h.
-* **Diagnoza**:
-  1. Algorytm weryfikował zakręty 16 punktów do przodu (ok. 224 metry).
-  2. Gdy bolid znajdował się nawet 200 m przed zakrętem 1 na długiej prostej, algorytm widział zakręt na horyzoncie i przedwcześnie wyłączał status otwartej prostej (`isOpenStraight`).
-  3. Po wyłączeniu tego statusu przepustnica wracała do wyjścia sieci neuronowej, która podawała zaledwie ok. 28% otwarcia gazu.
-  4. Z praw aerodynamiki bolidu F1, przy mocy 1000 KM i 28% gazu opór powietrza równoważy napęd przy **dokładnie 280 km/h**.
-* **Rozwiązanie**:
-  - Wprowadzono bezwzględną zasadę: jeśli bolid nie znajduje się w strefie dohamowania (`overspeedDelta <= 0`) i koła są wyprostowane (`|steer| < 0.35`), **przepustnica wynosi zawsze 100% (1.0), a hamulec 0.0**.
-  - W rezultacie na prostych bolidy bez przeszkód osiągają prędkości rzędu **387–422 km/h**.
+2. **Docisk aerodynamiczny (Downforce)**:
+   $$F_{downforce} = \frac{1}{2} \cdot \rho \cdot (C_L \cdot A) \cdot v^2$$
+   Docisk rośnie z kwadratem prędkości. Przy $v = 111.1\text{ m/s}$ ($400\text{ km/h}$):
+   $$F_{downforce} = \frac{1}{2} \cdot 1.225 \cdot 3.20 \cdot (111.1)^2 \approx 24\ 197\text{ N} \approx 2466\text{ kg docisku!}$$
+   To ponad trzykrotność masy własnej bolidu!
 
-### B. Rozwiązanie problemu degradacji osiągów po setkach okrążeń (L800+)
-* **Problem**: Po kilkuset okrążeniach (np. 800+ okrążeń) bolidy jeździły o 15 sekund wolniej (czasy z 01:17 spadały do 01:32).
-* **Diagnoza**:
-  1. Po ukończeniu każdego okrążenia kod wykonywał `car.brain.mutate(0.012, 0.035)`, dodając losowy szum do wag sieci. Po 800 okrążeniach sieć przeszła **800 losowych mutacji w ciemno**, co całkowicie zdegenerowało jej umiejętności (*catastrophic drift*).
-  2. Zmienna `fitness` rosła nieustannie wraz z przejechanym dystansem, więc warunek `car.fitness > record.bestFitness` był spełniony w każdej klatce. W ten sposób `record.bestBrain` był stale nadpisywany zdegenerowaną siecią zamiast zachować mózg z rekordowego okrążenia 01:17.
-* **Rozwiązanie**:
-  1. **Usunięto ślepe mutacje** po ukończeniu okrążenia.
-  2. Zapis mistrzowskiego mózgu (`record.bestBrain`) odbywa się **wyłącznie wtedy, gdy kierowca rzeczywiście pobije swój rekord życiowy**.
-  3. **Mechanizm samonaprawczy (*Performance Guard*)**: Jeśli bolid pojedzie okrążenie wolniejsze o ponad 2.5s od swojego rekordu życiowego, jego mózg jest natychmiast przywracany z kopii zapasowej `bestBrain.clone()`.
-  4. Dzięki temu czasy pozostają stabilne przez tysiące okrążeń.
-
-### C. Trwałość mózgów AI i ochrona przed niepożądanym resetem
-Zgodnie z założeniami projektowymi, raz wyuczona wiedza sieci neuronowej nie może zostać utracona przez przypadkowe kliknięcie:
-- Zatrzymanie wyścigu (`STOP_RACE`), pauza oraz przycisk `Stop` **nie kasują sieci neuronowych**.
-- Wyłącznymi akcjami, które resetują mózgi, są: narysowanie nowego toru, wczytanie nowego toru z pliku/presetu lub kliknięcie przycisku `Nowa Gen` / `Zresetuj AI`.
+3. **Całkowity nacisk pionowy na podłoże ($F_z$)**:
+   $$F_z = m \cdot g + F_{downforce}$$
 
 ---
 
-## 6. Tryby Symulacji
+### 2.4 Dynamiczny Transfer Mas (Wzdłużny i Poprzeczny)
 
-### A. Tryb Treningu i Ciągłej Ewolucji
-- Ciągła jazda testowa 10 zespołów.
-- W przypadku wypadnięcia z toru bolid odradza się w boksie po krótkiej karze czasowej.
-- Pomiary sektorów, linii wyścigowej i prędkości maksymalnych.
+#### Transfer wzdłużny (Pitch – pochylenie nadwozia)
+Statyczny rozkład mas wynosi $46\%$ na przód i $54\%$ na tył. Pod wpływem przyspieszenia wzdłużnego $a_x$:
+$$\Delta F_{z,pitch} = m \cdot (-a_x) \cdot \frac{h_{CoG}}{L}$$
+Naciski na osie wynoszą:
+$$F_{z,front} = \max\left(100\text{ N}, 0.46 \cdot F_z + \Delta F_{z,pitch}\right)$$
+$$F_{z,rear} = \max\left(100\text{ N}, 0.54 \cdot F_z - \Delta F_{z,pitch}\right)$$
 
-### B. Tryb Wyścigu Grand Prix (50–100 Okrążeń)
-- **Procedura Startowa**: Ustawienie na polach startowych (Grid) według kwalifikacji, sekwencja 5 czerwonych świateł zapalanych co 1 sekundę i start po ich zgaśnięciu (*Lights Out*).
-- **Reguła DNF (Did Not Finish)**: W wyścigu uderzenie w barierę trwale eliminuje bolid z rywalizacji.
-- **Klasyfikacja na żywo**: Liczenie strat do lidera w sekundach lub zdublowanych okrążeniach (`+1 OKR`).
-
-### C. Strategia Pit-Stopów i Zużycie Paliwa
-- Zbiornik mieści $105\text{ kg}$ paliwa.
-- Spalanie zależy od otwarcia przepustnicy i prędkości obrotowej.
-- Gdy poziom paliwa spadnie poniżej $12\text{ kg}$, bolid autonomicznie planuje zjazd do boksu (`BOX THIS LAP`). Gracz może wywołać zjazd klawiszem `[P]`.
-- Zjazd w aleję serwisową zatrzymuje bolid na $3.2\text{ s}$ w dedykowanym stanowisku serwisowym (*Pit Box*), dotankowując paliwo.
+#### Transfer poprzeczny (Roll – przechył boczny w zakręcie)
+Pod wpływem przyspieszenia odśrodkowego $a_y$:
+$$\Delta F_{z,roll} = m \cdot a_y \cdot \frac{h_{CoG}}{W}$$
+Przeniesienie obciążenia na opony zewnętrzne powoduje stratę efektywnej przyczepności bocznej o wartość:
+$$\Delta\mu_{roll} = \min\left(0.08, \frac{|\Delta F_{z,roll}|}{F_z} \cdot 0.15\right)$$
 
 ---
 
-## 7. System Pomiaru Czasów i Telemetria F1
+### 2.5 Napęd, Hamowanie Carbon-Ceramic i Przeciążenia 5G
 
-Panel boczny udostępnia zestaw wskaźników telewizyjnych Formuły 1:
+#### Napęd na tylną oś (RWD)
+Moc silnika przekłada się na siłę napędową:
+$$F_{engine} = \frac{P_{max} \cdot u_{throttle} \cdot k_{power}}{\max(12.0, v_{forward})}$$
+Maksymalna siła napędowa jest limitowana przyczepnością tylnej osi (trakcja):
+$$F_{traction,max} = \mu_{base} \cdot k_{grip} \cdot F_{z,rear}$$
+$$F_{drive} = \min\left(F_{traction,max}, F_{engine}\right)$$
 
-- **BEST**: Nienaruszalny rekord życiowy danego kierowcy w bieżącej sesji.
-- **LAST**: Czas ostatnio ukończonego okrążenia, umożliwiający bieżącą ocenę tempa wyścigowego.
-- **TERAZ**: Czas bieżącego kółka lub statusy bolidu (`PIT (3.2s)`, `[BOX]`, `💥 DNF`).
-- **4 Bramki Pomiarowe (Sektory TimingGates)**:
-  - 🟣 **Fioletowy (*Purple Sector*)**: Absolutny rekord sesji w danym sektorze,
-  - 🟢 **Zielony (*Personal Best*)**: Poprawa własnego najlepszego międzyczasu,
-  - 🔴 **Czerwony**: Czas gorszy od rekordu.
-- **Wskaźniki Telemetrii**:
-  - Cyfrowy prędkościomierz (km/h),
-  - Wskaźnik przeciążeń bocznych i wzdłużnych G-Force,
-  - Procentowy nacisk na oś przednią i tylną (Pitch),
-  - Wizualizacja wag i połączeń sieci neuronowej w czasie rzeczywistym.
-
----
-
-## 8. Edytor Torów i Interpolacja Spline'ami
-
-- **Krzywe Catmull-Rom**: Punkty wprowadzane przez użytkownika myszką są automatycznie interpolowane gładką krzywą składaną (*closed spline*).
-- **Generowanie Geometrii**:
-  - Wyliczanie wektorów normalnych i stycznych w każdym punkcie,
-  - Tworzenie krawędzi lewej, prawej, tarek wyścigowych (*kerbs*) oraz linii środkowej,
-  - Siatka przestrzenna (*Uniform Grid*) dzieląca tor na komórki do błyskawicznej detekcji kolizji promieni LiDAR ($O(1)$ zamiast $O(N)$).
-- **Automatyczna alokacja sektorów**: Rozmieszczenie 4 bramek pomiarowych co $25\%$, $50\%$, $75\%$ i $100\%$ długości toru.
+#### Hamowanie Carbon-Ceramic z dociskiem aero
+Balans hamulców wynosi $56\%$ przód, $44\%$ tył. Układ hamulcowy wykorzystuje agresywny docisk pionowy:
+$$F_{brake,max} = u_{brake} \cdot \mu_{base} \cdot 1.60 \cdot (F_{z,front} + F_{z,rear})$$
+Przy $400\text{ km/h}$ z dociskiem $24\text{ kN}$ opóźnienie hamowania osiąga:
+$$a_x = \frac{F_{brake} + F_{drag}}{m} \approx \frac{42\ 000\text{ N}}{850\text{ kg}} \approx 49.4\text{ m/s}^2 \approx \mathbf{5.04\text{ G}!}$$
+Pozwala to wyhamować bolid z $400\text{ km/h}$ do $120\text{ km/h}$ na odcinku zaledwie **110–120 metrów**.
 
 ---
 
-## 9. Struktura Kodu Źródłowego
+### 2.6 Model Przyczepności Opon, Koło Kamma i Uślizgi
 
-```text
-f1/
-├── index.html              # Interfejs użytkownika, panele HUD i Canvas
-├── style.css               # Ciemny motyw wyścigowy F1, telemetria, responsywność
-├── package.json            # Zależności i konfiguracja Vite / TypeScript
-├── tsconfig.json           # Ścisłe reguły kompilatora TypeScript
-├── README.md               # Podstawowy opis repozytorium GitHub
-├── opis.md                 # Pełna dokumentacja techniczna systemu
-└── src/
-    ├── main.ts             # Główny kontroler aplikacji, pętla renderowania, obsługa UI
-    ├── ai/
-    │   ├── NeuralNetwork.ts # Perceptron wielowarstwowy, wagi, backprop, mutacja
-    │   └── Population.ts   # 10 zespołów, algorytm genetyczny, selekcja, coaching
-    ├── physics/
-    │   └── Car.ts          # Silnik dynamiki bolidu, docisk aero, sensory, opony
-    ├── rendering/
-    │   └── Renderer.ts     # Rysowanie toru, bramek czasowych, bolidów i efektów
-    ├── track/
-    │   ├── Track.ts        # Geometria toru, grid przestrzenny, bramki czasowe
-    │   └── Presets.ts      # Predefiniowane tory wyścigowe (Grand Prix, Owal)
-    ├── math/
-    │   ├── Vector2.ts      # Wektorowa biblioteka matematyczna 2D
-    │   └── Spline.ts       # Interpolacja krzywych Catmull-Rom
-    └── workers/
-        ├── sim.worker.ts   # Wątek roboczy symulacji fizyki i wyścigu
-        └── SimBridge.ts    # Komunikacja asynchroniczna z Web Workerem
+Wektor przyspieszenia w układzie pojazdu podlega ograniczeniu elipsy przyczepności Kamma (*Kamm's Friction Circle*):
+$$\left(\frac{F_x}{F_{x,max}}\right)^2 + \left(\frac{F_y}{F_{y,max}}\right)^2 \le 1.0$$
+- Jeśli kierowca wciska hamulec w zakręcie na $100\%$, siła boczna $F_y$ drastycznie spada, generując podsterowność (*lock-up*).
+- Kąty poślizgu kół przednich ($\alpha_f$) i tylnych ($\alpha_r$) określają uślizg:
+  $$\text{understeerSlip} = \max(0, |\alpha_f| - |\alpha_r|)$$
+  $$\text{oversteerSlip} = \max(0, |\alpha_r| - |\alpha_f|)$$
+- Gdy uślizg przekracza próg $0.35$, opony wchodzą w poślizg kinetyczny, generując dym i ślady spalonej gumy (*skid marks*).
+
+---
+
+## 3. Specyfikacja Sztucznej Inteligencji i Sieci Neuronowych
+
+### 3.1 Topologia Wielowarstwowego Perceptronu (MLP)
+
+Każdy bolid posiada w pełni połączoną sieć neuronową o strukturze:
+$$\text{Wejście } (N_{inputs}) \longrightarrow \text{Ukryta 1 } (18) \longrightarrow \text{Ukryta 2 } (14) \longrightarrow \text{Wyjście } (3)$$
+gdzie $N_{inputs} = N_{rays} + 5$. Przy domyślnej liczbie 25 promieni LiDAR, warstwa wejściowa liczy **30 neuronów**.
+
+Wszystkie warstwy ukryte i wyjściowa używają funkcji aktywacji tangensa hiperbolicznego:
+$$f(x) = \tanh(x) = \frac{e^x - e^{-x}}{e^x + e^{-x}}, \quad f'(x) = 1 - \tanh^2(x)$$
+
+---
+
+### 3.2 Wektor Wejściowy i Sensory LiDAR (Raycasting)
+
+Wektor wejściowy składa się z 30 wartości znormalizowanych do zakresu $[-1.0, 1.0]$ lub $[0.0, 1.0]$:
+
+```
+Inputs = [
+  r_0, r_1, ..., r_24,   // 25 odczytów promieni LiDAR (odległość / 240m)
+  v_norm,                 // Znormalizowana prędkość: min(1.0, v / 95.0 m/s)
+  omega_norm,             // Prędkość kątowa: clamp(-1.0, 1.0, omega * 1.5)
+  cpAngleDiff,            // Kąt odchylenia wektora jazdy od osi toru [-1.0, 1.0]
+  curvatureInput,         // Zbliżająca się krzywizna toru: min(1.0, maxK * 24.0)
+  overspeedDelta          // Wskaźnik konieczności dohamowania [-1.0, 1.0]
+]
+```
+
+Kąty promieni LiDAR pokrywają wachlarz od $-85^\circ$ do $+85^\circ$ względem osi wzdłużnej bolidu, ze szczególnym zagęszczeniem w strefie czołowej.
+
+---
+
+### 3.3 Warstwa Wyjściowa i Mapowanie Sygnałów Sterujących
+
+Neurony wyjściowe generują sygnały w zakresie $[-1.0, 1.0]$:
+1. **$y_0$ (Steering)**: Bezpośredni kąt skrętu kierownicy:
+   $$u_{steer} = \operatorname{clamp}(-1.0, 1.0, y_0)$$
+2. **$y_1$ (Throttle Raw)**:
+   $$u_{throttle,raw} = \operatorname{clamp}(0.0, 1.0, (y_1 + 0.3) \cdot 1.12)$$
+3. **$y_2$ (Brake Raw)**:
+   $$u_{brake,raw} = y_2 > 0.05 \ ? \ \min(1.0, (y_2 - 0.05) \cdot 1.35) \ : \ 0.0$$
+
+---
+
+### 3.4 Uczenie Online (Backpropagation & Replay Buffer)
+
+Bolidy zbierają próbki do bufora `replayBuffer` (pojemność 40 próbek). 
+- Co 90 kroków fizyki (1.5 sekundy) losowane są 3 próbki o najwyższej nagrodzie `reward = speedKmh`.
+- Wsteczna propagacja błędu aktualizuje wagi:
+  $$\delta_o = (a_o - t_o) \cdot (1 - a_o^2)$$
+  $$\delta_h^{(l)} = \left(\sum_{k} \delta_k^{(l+1)} \cdot W_{kh}^{(l+1)}\right) \cdot (1 - (a_h^{(l)})^2)$$
+  $$W_{ij} \leftarrow \operatorname{clamp}\left(-3.0, 3.0, W_{ij} - \eta \cdot \delta_i \cdot a_j\right)$$
+  gdzie $\eta = 0.001$ (bezpieczny krok uczący zapobiegający rozmywaniu wag).
+
+---
+
+### 3.5 Algorytm Genetyczny, Selekcja i Simulated Annealing
+
+- **Krzyżowanie (Uniform Crossover)**: Połączenie cech kierowcy z sesyjnym liderem P1 (`championBrain`).
+- **Mutacja wag**: Do wybranych wag dodawana jest losowa zmienna gaussowska:
+  $$W_{ij} \leftarrow W_{ij} + \mathcal{N}(0, \sigma^2)$$
+- **Adaptacyjne chłodzenie (Simulated Annealing)**:
+  - Gdy kierowca pobije swój rekord życiowy, współczynnik mutacji jest schładzany:
+    $$\text{mutRate} \leftarrow \max(0.025, \text{mutRate} \cdot 0.85)$$
+  - Utrwala to zwycięską linię jazdy i zapobiega destabilizacji bolidu.
+
+---
+
+## 4. Polityka Sterowania i Autonomiczny Kierowca Wyścigowy
+
+### 4.1 Szacowanie Prędkości Dopuszczalnej i Stref Dohamowań
+
+Algorytm skanuje trasę naprzód na odległość $K$ punktów kontrolnych ($K = \operatorname{clamp}(5, 16, \lceil v / 5.2 \rceil)$):
+
+Dla każdego punktu w horyzoncie obliczana jest maksymalna dopuszczalna prędkość pokonania łuku o promieniu $R = \frac{1}{\kappa}$:
+$$v_{safe} = \sqrt{R \cdot g \cdot \mu_{eff} \cdot 0.88}$$
+Z równania ruchu jednostajnie opóźnionego wyznaczana jest maksymalna prędkość, z której bolid zdoła wyhamować do $v_{safe}$ na dystansie $d$:
+$$v_{allowed} = \sqrt{v_{safe}^2 + 2 \cdot a_{brake} \cdot d}$$
+Wskaźnik konieczności hamowania wynosi:
+$$\text{overspeedDelta} = \max_{k} \left(\frac{v - v_{allowed,k}}{20.0}\right)$$
+
+---
+
+### 4.2 Polityka 100% Pełnego Gazu na Prostych i Wyjściach
+
+Wyeliminowano problem zwalniania do 280 km/h za pomocą bezwzględnej reguły logicznej:
+
+```ts
+if (overspeedDelta > 0.0) {
+  // STREFA DOHAMOWANIA:
+  throttle = 0.0;
+  brake = Math.max(0.40, Math.min(1.0, 0.40 + overspeedDelta * 1.5));
+} else {
+  // STREFA PRZYSPIESZANIA / JAZDY:
+  brake = 0.0; // Absolutny zakaz dotykania hamulca!
+  
+  if (minCenterClearance > 0.18) {
+    if (Math.abs(steer) < 0.35) {
+      // Proste, łuki i wyjścia z zakrętów: 100% PEŁEN GAZ!
+      throttle = 1.0;
+    } else {
+      // Wierzchołek ciasnego zakrętu: kontrola trakcji
+      const steerExcess = Math.abs(steer) - 0.35;
+      throttle = Math.max(0.50, 1.0 - steerExcess * 0.80);
+    }
+  }
+}
+```
+
+Dzięki temu bolidy osiągają pełną moc 1000 KM na każdej prostej, bez oporów rozpędzając się do **390–422 km/h**.
+
+---
+
+### 4.3 Telemetry Coaching (Kooperacja z Liderem Sesji)
+
+Gdy bolid jedzie wolniej od zarejestrowanego rekordu lidera w danym punkcie toru o więcej niż $8\text{ km/h}$, algorytm natychmiast wymusza otwarcie przepustnicy na $100\%$, wymuszając agresywną jazdę na poziomie mistrza sesji.
+
+---
+
+### 4.4 Performance Guard (Mechanizm Samonaprawczy Mózgów AI)
+
+Aby zapobiec degradacji osiągów po setkach okrążeń (L800+):
+1. Mózg mistrzowski `record.bestBrain` jest zapisywany **wyłącznie w chwili pobicia rekordu życiowego**.
+2. Usunięto destrukcyjną losową mutację po ukończeniu okrążenia.
+3. Jeśli bolid przejedzie okrążenie wolniejsze o $> 2.5\text{ s}$ od swojego rekordu życiowego (np. w wyniku kolizji lub poślizgu), jego wagi sieci są natychmiast przywracane z `bestBrain.clone()`.
+
+---
+
+## 5. Geometria Toru i Przyspieszenie Przestrzenne
+
+### 5.1 Interpolacja Krzywymi Składanymi Catmull-Rom
+
+Dowolny zestaw punktów kontrolnych $P_0, P_1, \dots, P_{N-1}$ narysowany przez gracza tworzy zamkniętą pętlę wygładzaną funkcją:
+$$C(t) = \frac{1}{2} \begin{bmatrix} 1 & t & t^2 & t^3 \end{bmatrix} \begin{bmatrix} 0 & 2 & 0 & 0 \\ -1 & 0 & 1 & 0 \\ 2 & -5 & 4 & -1 \\ -1 & 3 & -3 & 1 \end{bmatrix} \begin{bmatrix} P_{i-1} \\ P_i \\ P_{i+1} \\ P_{i+2} \end{bmatrix}$$
+Dla każdego wyliczonego punktu osi środkowej wyznaczane są:
+- Wektor styczny $\vec{T} = \frac{C'(t)}{\|C'(t)\|}$,
+- Wektor normalny $\vec{N} = (-T_y, T_x)$,
+- Krawędź lewa $P_{left} = C(t) - \vec{N} \cdot \frac{W_{track}}{2}$,
+- Krawędź prawa $P_{right} = C(t) + \vec{N} \cdot \frac{W_{track}}{2}$,
+- Krzywizna $\kappa = \frac{x' y'' - y' x''}{(x'^2 + y'^2)^{3/2}}$.
+
+---
+
+### 5.2 Siatka Przestrzenna (Uniform Spatial Grid $O(1)$)
+
+Dla toru o długości kilku kilometrów test kolizji 25 promieni dla 10 bolidów (250 promieni na klatkę $\times$ setki segmentów toru) w złożoności $O(N)$ zużywałby za dużo mocy obliczeniowej.
+
+Zastosowano **Uniform Spatial Grid** z rozmiarem komórki $80\text{ px}$:
+- Wszystkie segmenty barier toru są przypisywane do komórek siatki przy inicjalizacji toru.
+- Algorytm raycastingu bada wyłącznie komórki leżące na trasie promienia za pomocą szybkiego algorytmu DDA (*Digital Differential Analyzer*).
+- Złożoność raycastingu wynosi **$O(1)$**.
+
+---
+
+### 5.3 Sektory i Bramki Pomiarowe (TimingGates)
+
+Tor jest automatycznie dzielony na 4 strefy czasowe:
+- **CP 1 (Sektor 1)**: $25\%$ długości toru,
+- **CP 2 (Sektor 2)**: $50\%$ długości toru,
+- **CP 3 (Sektor 3)**: $75\%$ długości toru,
+- **CP 4 / META (Sektor 4)**: $100\%$ (linia start/meta).
+
+Każda bramka rejestruje precyzyjny międzyczas przecięcia promienia przez przód bolidu z dokładnością do $1\text{ ms}$.
+
+---
+
+## 6. Maszyna Stanów Wyścigu Grand Prix i Pit-Stopy
+
+```
+       [IDLE] ─── (Kliknięcie "Rozpocznij Wyścig") ───┐
+         ▲                                            ▼
+         │                                      [GRID_START]
+         │                              (5 czerwonych świateł zapalanych
+         │                               co 1s, start po zgaśnięciu)
+         │                                            │
+         │                                            ▼
+   [Przerwij Wyścig]                              [RACING]
+         │                               (Okrążenia 1..N, pit-stopy,
+         │                                zużycie paliwa, reguła DNF)
+         │                                            │
+         │                                            ▼
+         └────────────────────────────────────── [FINISHED]
+                                           (Podium, klasyfikacja)
+```
+
+### Zasady Wyścigu:
+1. **Reguła DNF**: W wyścigu bolid, który uderzy w barierę, zostaje trwale wyeliminowany (`💥 DNF`). Nie ma respawnów.
+2. **Pit-Stop**:
+   - Bolid zjeżdża do alei serwisowej po wciśnięciu `[P]` lub automatycznie przy $m_{fuel} < 12\text{ kg}$.
+   - Zatrzymanie w boksie trwa $3.2\text{ s}$.
+   - Paliwo tankowane jest z prędkością $28\text{ kg/s}$ do poziomu $105\text{ kg}$.
+
+---
+
+## 7. Protokoły Komunikacyjne i Interfejs Danych (SimSnapshot)
+
+Struktura obiektu `SimSnapshot` przesyłana z workera do wątku głównego:
+
+```typescript
+export interface SimSnapshot {
+  cars: SerializedCar[];                  // Stany 10 bolidów AI
+  playerCar: SerializedCar | null;        // Stan bolidu gracza (WASD)
+  bestRacingLine: TrajectoryPoint[];      // Rekordowa linia wyścigowa sesji
+  leaderCheckpointSpeeds: number[];       // Profil prędkości mistrza
+  teamStandings: LapLeaderboardEntry[];   // Tabela z czasami BEST, LAST, TERAZ
+  learningHistory: LearningPoint[];       // Dane wykresu postępów w czasie
+  aliveCount: number;                     // Liczba aktywnych bolidów
+  globalBestLap: number | null;           // Rekord absolutny sesji
+  generation: number;                     // Numer generacji ewolucyjnej
+  maxFitness: number;                     // Najwyższy wskaźnik przystosowania
+  speedMultiplier: number | 'max';        // Prędkość symulacji (1x..MAX)
+  timingGates: TimingGate[];              // Współrzędne 4 sektorów F1
+  sessionBestSplits: (number | null)[];   // Najlepsze międzyczasy sesji
+  raceState: RaceState;                   // IDLE | GRID_START | RACING | FINISHED
+  raceTotalLaps: number;                  // Liczba okrążeń wyścigu (50..100)
+  raceCurrentLap: number;                 // Bieżące okrążenie lidera
+  raceStartLights: number;                // 0..5 (czerwone światła), -1 (start)
+  raceWinner: string | null;              // Nazwisko zwycięzcy wyścigu
+  raceStandings: RaceStanding[];          // Kolejność i straty czasowe / duble
+}
 ```
 
 ---
 
-## 10. Instrukcja Uruchomienia i Budowania
+## 8. Podsumowanie Zaimplementowanych Poprawek Inżynieryjnych
 
-### Wymagania
-- Środowisko **Node.js** (wersja $\ge 18$)
-- Menedżer pakietów **npm**
-
-### Uruchomienie lokalne
-```bash
-# 1. Instalacja zależności
-npm install
-
-# 2. Uruchomienie serwera deweloperskiego
-npm run dev
-
-# Dostęp w przeglądarce pod adresem: http://localhost:5173
-```
-
-### Budowanie wersji produkcyjnej
-```bash
-npm run build
-```
-Zoptymalizowany pakiet produkcyjny zostanie wygenerowany w katalogu `dist/`.
+| Problem | Przyczyna źródłowa | Rozwiązanie inżynieryjne | Skutek |
+| :--- | :--- | :--- | :--- |
+| **Prędkość 280 km/h zamiast 400 km/h** | Zbyt daleki horyzont `isOpenStraight` (224m) wyłączał pełen gaz na prostej. | Bezwzględna reguła: 100% gazu i 0% hamulca, gdy bolid nie jest w strefie hamowania. | Bolidy osiągają **390–422 km/h** na każdej długiej prostej. |
+| **Degradacja czasów o 15s po 800 okrążeniach** | Ślepa mutacja `mutate(0.012, 0.035)` co okrążenie i nadpisywanie `bestBrain` przez monotoniczny fitness. | Usunięcie ślepych mutacji, zapis `bestBrain` tylko przy rekordzie, dodanie *Performance Guard*. | Czasy okrążeń pozostają idealnie stabilne przez tysiące okrążeń. |
+| **Brak synchronizacji bramek przy nowym torze** | Flaga w `main.ts` blokowała aktualizację bramek, gdy tor miał już bramki. | Automatyczna synchronizacja `timingGates` przy każdej zmianie geometrii toru. | Wszystkie 4 sektory zawsze idealnie pokrywają nowo narysowany tor. |
+| **Wyświetlanie ostatniego czasu okrążenia** | Tabela pokazywała tylko czas najlepszy i bieżący. | Dodanie kolumny `LAST` obok `BEST` bez naruszania wielkości fontów. | Pełny podgląd tempa wyścigowego każdego kierowcy w czasie rzeczywistym. |
