@@ -914,10 +914,12 @@ input[type="range"] {
   white-space: nowrap;
 }
 
+.time-row,
 .time-row-best,
 .time-row-curr {
   display: flex;
   align-items: baseline;
+  justify-content: flex-end;
   gap: 5px;
   white-space: nowrap;
 }
@@ -927,6 +929,25 @@ input[type="range"] {
   font-size: 9px;
   font-weight: 700;
   color: var(--text-muted);
+}
+
+.gap-leader-val {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--f1-cyan);
+}
+
+.gap-prev-val {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--f1-papaya);
+}
+
+.time-dnf {
+  color: #ff5252;
+  font-weight: 700;
 }
 
 .time-main {

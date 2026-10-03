@@ -134,13 +134,13 @@
               </div>
               <div class="bars-box">
                 <div class="gauge-row">
-                  <span class="gauge-label">PRZEPUSTNICA</span>
+                  <span class="gauge-label">PRZEPUSTNICA <span id="tele-throttle-pct" style="color:var(--f1-cyan);">0%</span> <span id="tele-throttle-demand" style="color:var(--f1-papaya); font-size:10px; display:none;"></span></span>
                   <div class="gauge-track">
                     <div class="gauge-fill throttle" id="gauge-throttle" style="width: 0%"></div>
                   </div>
                 </div>
                 <div class="gauge-row">
-                  <span class="gauge-label">HAMULEC (CARBON) <span id="tele-brake-agg" style="color:var(--f1-papaya);">(Styl: 100%)</span></span>
+                  <span class="gauge-label">HAMULEC (CARBON) <span id="tele-brake-pct" style="color:var(--f1-red);">0%</span> <span id="tele-brake-agg" style="color:var(--f1-papaya);">(Styl: 100%)</span></span>
                   <div class="gauge-track">
                     <div class="gauge-fill brake" id="gauge-brake" style="width: 0%"></div>
                   </div>
@@ -368,6 +368,24 @@
             </div>
 
             <div class="settings-group">
+              <div class="setting-row">
+                <label for="select-topology">Topologia Sieci AI:</label>
+                <select id="select-topology" class="f1-select" style="background: rgba(20, 25, 35, 0.9); color: var(--text-main); border: 1px solid rgba(255, 255, 255, 0.15); border-radius: 4px; padding: 5px 8px; font-size: 11px; outline: none; width: 100%;">
+                  <option value="Small">Small [12, 8] – Szybka ewolucja</option>
+                  <option value="Standard" selected>Standard [18, 14] – Domyślna F1</option>
+                  <option value="Deep">Deep [24, 18, 12] – Głęboka</option>
+                  <option value="Large">Large [32, 24, 16] – Duża pojemność</option>
+                </select>
+              </div>
+              <div class="setting-row">
+                <label for="select-compute-profile">Profil Mocy Obliczeniowej:</label>
+                <select id="select-compute-profile" class="f1-select" style="background: rgba(20, 25, 35, 0.9); color: var(--text-main); border: 1px solid rgba(255, 255, 255, 0.15); border-radius: 4px; padding: 5px 8px; font-size: 11px; outline: none; width: 100%;">
+                  <option value="eco">Eco (Oszczędny / 30 Hz)</option>
+                  <option value="balanced" selected>Balanced (Standard / 60 Hz)</option>
+                  <option value="performance">Performance (5x / 30 Hz)</option>
+                  <option value="turbo">Turbo (Headless / 50x / 5 Hz)</option>
+                </select>
+              </div>
               <div class="setting-row">
                 <label class="checkbox-label">
                   <input type="checkbox" id="check-racing-line" checked /> 🏁 Pokaż optymalną nitkę toru

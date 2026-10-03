@@ -117,10 +117,19 @@ export class Spline {
       const tangent = next.sub(prev).normalize();
       const normal = tangent.normal(); // points to the left
 
-      // Curvature approximation
-      const v1 = curr.sub(prev).normalize();
-      const v2 = next.sub(curr).normalize();
-      const curvature = v1.cross(v2); // positive = left turn, negative = right turn
+      // Physical curvature calculation: kappa = signed heading delta / local arc distance (1/meter)
+      const v1 = curr.sub(prev);
+      const v2 = next.sub(curr);
+      const d1 = v1.mag();
+      const d2 = v2.mag();
+      const u1 = d1 > 0.0001 ? v1.div(d1) : tangent;
+      const u2 = d2 > 0.0001 ? v2.div(d2) : tangent;
+
+      const crossVal = u1.cross(u2);
+      const dotVal = Math.max(-1.0, Math.min(1.0, u1.dot(u2)));
+      const deltaHeading = Math.atan2(crossVal, dotVal); // positive = left turn, negative = right turn
+      const localArcDist = Math.max(0.5, (d1 + d2) * 0.5);
+      const curvature = deltaHeading / localArcDist; // rad/meter (1/meter)
 
       const halfW = trackWidth / 2;
       const left = curr.add(normal.mul(halfW));

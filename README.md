@@ -1,5 +1,8 @@
 # 🏎️ F1 AI Simulator
 
+> **Projekt w całości stworzony i rozwijany przez Gemini Antigravity (Google DeepMind)** 🚀
+> Zaawansowany autonomiczny agent inżynieryjny AI zaprojektował architekturę, fizykę 2D, sieci neuronowe, algorytmy genetyczne oraz interfejs graficzny symulatora.
+
 Zaawansowany symulator bolidów Formuły 1 działający w przeglądarce w czasie rzeczywistym, napędzany **autonomicznymi sieciami neuronowymi**, **algorytmami genetycznymi** oraz **zaawansowanym modelem fizyki pojazdu 2D**.
 
 Projekt łączy symulację wyścigową z uczeniem maszynowym: 10 zespołów i kierowców rywalizuje na torze, stopniowo optymalizując tor jazdy, punkty dohamowań i prędkości w zakrętach, a także mierzy się w pełnym trybie wyścigowym Grand Prix ze strategią pit-stopów i zużyciem paliwa.
@@ -17,6 +20,7 @@ Projekt łączy symulację wyścigową z uczeniem maszynowym: 10 zespołów i ki
 8. [Sterowanie Graczem](#-sterowanie-graczem)
 9. [Struktura Projektu](#-struktura-projektu)
 10. [Instalacja i Uruchomienie](#-instalacja-i-uruchomienie)
+11. [Twórca & Technologie AI (Gemini Antigravity)](#-twórca--technologie-ai)
 
 ---
 
@@ -210,7 +214,7 @@ f1/
 ## 🚀 Instalacja i Uruchomienie
 
 ### Wymagania
-- [Node.js](https://nodejs.org/) (wersja 18 lub nowsza)
+- [Node.js](https://nodejs.org/) (wersja 20.19 lub nowsza; alternatywnie 22.12+)
 - Menedżer pakietów `npm`
 
 ### Krok po kroku
@@ -237,6 +241,18 @@ f1/
    npm run build
    ```
    Zoptymalizowane pliki produkcyjne trafią do folderu `dist/`.
+
+---
+
+## 🤖 Twórca & Technologie AI
+
+Projekt **F1 AI Simulator** został w całości stworzony, zaprojektowany i zaimplementowany przez **Gemini Antigravity** – zaawansowane środowisko autonomicznego asystenta agentowego AI autorstwa **Google DeepMind**.
+
+W ramach prac Gemini Antigravity zrealizowało m.in.:
+- **Kompletną architekturę wielowątkową**: separację obliczeń fizyki i sieci w dedykowanym Web Workerze z synchroniczną komunikacją w 60 FPS przez `SimBridge`.
+- **Zaawansowaną fizykę bolidu (Vehicle Dynamics 2D)**: realistyczny docisk aerodynamiczny rosnący z kwadratem prędkości ($F_{downforce} \sim v^2$ do 2.4 t przy 400 km/h), opory aero, transfer mas wzdłużny (pitch) i poprzeczny (roll), hamulce karbonowo-ceramiczne o opóźnieniu do 5G, koło tarcia Kamma oraz autorski system Kontroli Trakcji i Stabilności (TCS).
+- **Sztuczną Inteligencję i Sieci Neuronowe**: wielowarstwowe perceptrony (MLP) z dynamicznymi aktywacjami Tanh, hybrydowe sterowanie (geometryczny Pure Pursuit + LiDAR wall repulsion + sieć neuronowa), bufor powtórek (Experience Replay) z douczaniem online oraz algorytmy genetyczne z elitaryzmem.
+- **Ożywioną wizualizację Mózgu AI**: dynamiczne pulsowanie neuronów wejściowych (odczyty LiDAR, prędkość, przeciążenia), stanów warstw ukrytych oraz animowane fotonowe impulsy decyzyjne przemieszczające się po synapsach w czasie rzeczywistym.
 
 ---
 

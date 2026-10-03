@@ -5,7 +5,7 @@ import { Presets } from './track/Presets';
 import { Population, LapLeaderboardEntry } from './ai/Population';
 import { Car, CarControl } from './physics/Car';
 import { Renderer } from './rendering/Renderer';
-import { SimBridge } from './workers/SimBridge';
+import { SimBridge, type ComputeProfile, type TopologySpecifier } from './workers/SimBridge';
 import type { SimSnapshot } from './workers/sim.worker';
 
 class App {
@@ -96,7 +96,26 @@ class App {
         car.speedKmh = sc.speedKmh;
         car.isAlive = sc.isAlive;
         car.isManual = sc.isManual;
-        if (sc.ctrl) car.manualControl = sc.ctrl;
+
+        const rawCtrl = sc.ctrl;
+        const validCtrl: CarControl = {
+          steer: typeof rawCtrl?.steer === 'number' && Number.isFinite(rawCtrl.steer)
+            ? Math.max(-1, Math.min(1, rawCtrl.steer))
+            : 0,
+          throttle: typeof rawCtrl?.throttle === 'number' && Number.isFinite(rawCtrl.throttle)
+            ? Math.max(0, Math.min(1, rawCtrl.throttle))
+            : 0,
+          brake: typeof rawCtrl?.brake === 'number' && Number.isFinite(rawCtrl.brake)
+            ? Math.max(0, Math.min(1, rawCtrl.brake))
+            : 0,
+        };
+        car.currentControl = validCtrl;
+        car.effectiveThrottle = typeof sc.effectiveThrottle === 'number' && Number.isFinite(sc.effectiveThrottle)
+          ? Math.max(0, Math.min(1, sc.effectiveThrottle))
+          : 0;
+        if (car.isManual) {
+          car.manualControl = { ...validCtrl };
+        }
         car.fitness = sc.fitness;
         car.currentLap = sc.currentLap;
         car.lapTime = sc.lapTime;
@@ -191,6 +210,24 @@ class App {
         }
       }
 
+      // Set currentLeader to car indicated by teamStandings[0].carColor or highest fitness
+      let leaderCar: Car | undefined;
+      if (snapshot.teamStandings && snapshot.teamStandings.length > 0 && snapshot.teamStandings[0].carColor) {
+        leaderCar = this.population.cars.find(c => c.color === snapshot.teamStandings[0].carColor);
+      }
+      if (!leaderCar) {
+        let maxFit = -Infinity;
+        for (const c of this.population.cars) {
+          if (c.fitness > maxFit) {
+            maxFit = c.fitness;
+            leaderCar = c;
+          }
+        }
+      }
+      if (leaderCar) {
+        this.population.currentLeader = leaderCar;
+      }
+
       if (this.playerCar && snapshot.playerCar) {
         const sp = snapshot.playerCar;
         this.playerCar.pos.x = sp.x;
@@ -198,6 +235,23 @@ class App {
         this.playerCar.heading = sp.angle;
         this.playerCar.speedKmh = sp.speedKmh;
         this.playerCar.isAlive = sp.isAlive;
+        const rawPlayerCtrl = sp.ctrl;
+        const validPlayerCtrl: CarControl = {
+          steer: typeof rawPlayerCtrl?.steer === 'number' && Number.isFinite(rawPlayerCtrl.steer)
+            ? Math.max(-1, Math.min(1, rawPlayerCtrl.steer))
+            : 0,
+          throttle: typeof rawPlayerCtrl?.throttle === 'number' && Number.isFinite(rawPlayerCtrl.throttle)
+            ? Math.max(0, Math.min(1, rawPlayerCtrl.throttle))
+            : 0,
+          brake: typeof rawPlayerCtrl?.brake === 'number' && Number.isFinite(rawPlayerCtrl.brake)
+            ? Math.max(0, Math.min(1, rawPlayerCtrl.brake))
+            : 0,
+        };
+        this.playerCar.currentControl = validPlayerCtrl;
+        this.playerCar.effectiveThrottle = typeof sp.effectiveThrottle === 'number' && Number.isFinite(sp.effectiveThrottle)
+          ? Math.max(0, Math.min(1, sp.effectiveThrottle))
+          : 0;
+        this.playerCar.manualControl = { ...validPlayerCtrl };
         this.playerCar.fuelKg = sp.fuelKg;
         this.playerCar.currentLap = sp.currentLap;
         this.playerCar.lapTime = sp.lapTime;
@@ -226,6 +280,36 @@ class App {
           try {
             activeCar.brain.fromJSON(snapshot.activeCarBrainJson);
           } catch (e) {}
+        }
+      }
+
+      if (snapshot.computeProfile) {
+        const selectProfile = document.getElementById('select-compute-profile') as HTMLSelectElement | null;
+        if (selectProfile && document.activeElement !== selectProfile && selectProfile.value !== snapshot.computeProfile) {
+          selectProfile.value = snapshot.computeProfile;
+        }
+      }
+
+      const isRacing = snapshot.raceState === 'GRID_START' || snapshot.raceState === 'RACING';
+      const selectTop = document.getElementById('select-topology') as HTMLSelectElement | null;
+      if (selectTop) {
+        selectTop.disabled = isRacing;
+      }
+
+      if (snapshot.topology && typeof snapshot.topology === 'string') {
+        if (selectTop && document.activeElement !== selectTop && selectTop.value !== snapshot.topology) {
+          selectTop.value = snapshot.topology;
+        }
+        if (this.population.topology !== snapshot.topology) {
+          const prevSelectedColor = this.selectedCar ? this.selectedCar.color : null;
+          this.population.topology = snapshot.topology;
+          if (prevSelectedColor) {
+            if (this.playerCar && this.playerCar.color === prevSelectedColor) {
+              this.selectedCar = this.playerCar;
+            } else {
+              this.selectedCar = this.population.cars.find(c => c.color === prevSelectedColor) || null;
+            }
+          }
         }
       }
     };
@@ -595,7 +679,7 @@ class App {
       const dims = Car.getDimensionsForTrackWidth(this.trackWidth);
       this.track = Presets.createGrandPrixTrack(dims.effectiveTrackWidth);
       this.rawDrawnPoints = Presets.GRAND_PRIX_POINTS.map(p => p.clone());
-      this.population = new Population(10, this.track, this.population.rayCount);
+      this.population = new Population(10, this.track, this.population.rayCount, this.population.topology);
       this.bridge.setPreset('gp');
       if (this.selectedCar) {
         const color = this.selectedCar.color;
@@ -611,7 +695,7 @@ class App {
       const dims = Car.getDimensionsForTrackWidth(this.trackWidth);
       this.track = Presets.createOvalTrack(dims.effectiveTrackWidth);
       this.rawDrawnPoints = Presets.OVAL_POINTS.map(p => p.clone());
-      this.population = new Population(10, this.track, this.population.rayCount);
+      this.population = new Population(10, this.track, this.population.rayCount, this.population.topology);
       this.bridge.setPreset('oval');
       if (this.selectedCar) {
         const color = this.selectedCar.color;
@@ -708,6 +792,41 @@ class App {
       this.renderer.showRacingLine = checkRacingLine.checked;
     });
 
+    // AI Topology select
+    const selectTopology = document.getElementById('select-topology') as HTMLSelectElement | null;
+    if (selectTopology) {
+      selectTopology.addEventListener('change', () => {
+        if (this.latestRaceState === 'GRID_START' || this.latestRaceState === 'RACING') {
+          return;
+        }
+        const topology = selectTopology.value as TopologySpecifier;
+        const prevSelectedColor = this.selectedCar ? this.selectedCar.color : null;
+        this.population.setTopology(topology, this.track);
+        this.bridge.setTopology(topology);
+        if (prevSelectedColor) {
+          if (this.playerCar && this.playerCar.color === prevSelectedColor) {
+            this.selectedCar = this.playerCar;
+          } else {
+            this.selectedCar = this.population.cars.find(c => c.color === prevSelectedColor) || null;
+          }
+          this.bridge.setActiveCarColor(this.selectedCar ? this.selectedCar.color : null);
+        }
+        if (this.playerCar) {
+          this.playerCar.reset(this.track.startPosition, this.track.startAngle, true);
+          this.playerCar.updateDimensionsForTrackWidth(this.trackWidth);
+        }
+      });
+    }
+
+    // Compute profile select
+    const selectComputeProfile = document.getElementById('select-compute-profile') as HTMLSelectElement | null;
+    if (selectComputeProfile) {
+      selectComputeProfile.addEventListener('change', () => {
+        const profile = selectComputeProfile.value as ComputeProfile;
+        this.bridge.setComputeProfile(profile);
+      });
+    }
+
     // Model export & import
     document.getElementById('btn-save-model')!.addEventListener('click', async () => {
       let modelsPayload: any = null;
@@ -731,6 +850,7 @@ class App {
             brain: car.brain ? JSON.parse(car.brain.toJSON()) : null,
             bestBrain: record?.bestBrain ? JSON.parse(record.bestBrain.toJSON()) : null,
             bestLapTime: record?.bestLapTime || car.bestLapTime,
+            bestLapSplits: record?.bestLapSplits ? [...record.bestLapSplits] : (car.bestLapSplits ? [...car.bestLapSplits] : null),
             bestFitness: record?.bestFitness || car.fitness,
             baseBrakingAggression: car.baseBrakingAggression,
             brakingAggression: car.brakingAggression,
@@ -913,6 +1033,10 @@ class App {
     this.selectedRaceLaps = totalLaps;
     this.bridge.startRace(totalLaps);
     this.isPaused = false;
+    const selectTopology = document.getElementById('select-topology') as HTMLSelectElement | null;
+    if (selectTopology) {
+      selectTopology.disabled = true;
+    }
     document.getElementById('btn-start-race')?.classList.add('hidden');
     document.getElementById('btn-stop-race')?.classList.remove('hidden');
     document.getElementById('race-info-banner')?.classList.remove('hidden');
@@ -927,6 +1051,10 @@ class App {
 
   public stopRace(): void {
     this.bridge.stopRace();
+    const selectTopology = document.getElementById('select-topology') as HTMLSelectElement | null;
+    if (selectTopology) {
+      selectTopology.disabled = false;
+    }
     document.getElementById('btn-start-race')?.classList.remove('hidden');
     document.getElementById('btn-stop-race')?.classList.add('hidden');
     document.getElementById('race-info-banner')?.classList.add('hidden');
@@ -1116,7 +1244,11 @@ class App {
       const data = JSON.parse(content);
       if (data.type === 'F1_ALL_MODELS' || (Array.isArray(data.drivers) && data.drivers.length > 0)) {
         if (this.bridge && this.bridge.isReady) {
-          await this.bridge.loadAllModels(data);
+          const loaded = await this.bridge.loadAllModels(data);
+          if (!loaded) {
+            alert('Nie udało się załadować modeli AI do workera.');
+            return false;
+          }
         }
 
         for (let i = 0; i < this.population.cars.length; i++) {
@@ -1138,17 +1270,30 @@ class App {
               car.bestLapTime = driverData.bestLapTime;
               if (record) record.bestLapTime = driverData.bestLapTime;
             }
+            if (Array.isArray(driverData.bestLapSplits) && driverData.bestLapSplits.length === 4) {
+              car.bestLapSplits = [...driverData.bestLapSplits];
+              if (record) record.bestLapSplits = [...driverData.bestLapSplits];
+            } else {
+              car.bestLapSplits = [null, null, null, null];
+              if (record) record.bestLapSplits = [null, null, null, null];
+            }
           }
         }
         if (data.generation) this.population.generation = data.generation;
-        if (data.globalBestLap) this.population.globalBestLap = data.globalBestLap;
+        if (Object.prototype.hasOwnProperty.call(data, 'globalBestLap')) {
+          this.population.globalBestLap = typeof data.globalBestLap === 'number' ? data.globalBestLap : null;
+        }
         this.resetCarPositions();
         this.bridge.resetCarPositions();
         alert(`Załadowano modele AI wszystkich kierowców (Gen ${data.generation || 1})!`);
         return true;
       } else if (data.layers || data.weights) {
         if (this.bridge && this.bridge.isReady) {
-          await this.bridge.loadBrain(content);
+          const loaded = await this.bridge.loadBrain(content);
+          if (!loaded) {
+            alert('Nie udało się załadować modelu AI do workera.');
+            return false;
+          }
         }
         for (let i = 0; i < 5; i++) {
           if (this.population.cars[i]?.brain) {
@@ -1222,7 +1367,7 @@ class App {
 
       this.track = new Track(splinePoints, dims.effectiveTrackWidth);
       this.rawDrawnPoints = parsedPoints;
-      this.population = new Population(10, this.track, this.population.rayCount);
+      this.population = new Population(10, this.track, this.population.rayCount, this.population.topology);
       this.selectedCar = null;
       this.bridge.setCustomTrack(parsedPoints.map(p => ({ x: p.x, y: p.y })), this.trackWidth);
 
@@ -1258,7 +1403,7 @@ class App {
     const splinePoints = Spline.generateClosedTrack(this.rawDrawnPoints, dims.effectiveTrackWidth, 18);
     if (splinePoints.length >= 8) {
       this.track = new Track(splinePoints, dims.effectiveTrackWidth);
-      this.population = new Population(10, this.track, this.population.rayCount);
+      this.population = new Population(10, this.track, this.population.rayCount, this.population.topology);
       this.bridge.setCustomTrack(this.rawDrawnPoints.map(p => ({ x: p.x, y: p.y })), this.trackWidth);
       if (this.playerCar) {
         this.playerCar.reset(this.track.startPosition, this.track.startAngle, true);
@@ -1509,6 +1654,9 @@ class App {
             generation: this.population.generation,
             isPlayer: rs.isPlayer,
             hasFinishedLap: rs.bestLap !== null,
+            gap: rs.gap,
+            gapToLeader: rs.gapToLeader || rs.gap || '—',
+            gapToPrevious: rs.gapToPrevious || '—',
           };
         })
       : ((this.latestStandings && this.latestStandings.length > 0)
@@ -1553,12 +1701,17 @@ class App {
         const lastTimeStr = (lastTimeVal && lastTimeVal > 0) ? this.formatLapTime(lastTimeVal) : '--:--.---';
 
         // 1. Czas najlepszy (Personal Best) lub pozycja/strata w wyścigu
+        const isRace = this.latestRaceState !== 'IDLE';
         let bestTimeStr: string;
         let deltaStr: string;
+        let gapToLeader = '—';
+        let gapToPrevious = '—';
 
-        if (this.latestRaceState !== 'IDLE') {
+        if (isRace) {
           const rs = this.latestRaceStandings.find(s => s.carColor === entry.carColor);
           bestTimeStr = bestTimeVal ? this.formatLapTime(bestTimeVal) : '--:--.---';
+          gapToLeader = rs?.gapToLeader || rs?.gap || (entry as any).gapToLeader || '—';
+          gapToPrevious = rs?.gapToPrevious || (entry as any).gapToPrevious || '—';
           deltaStr = rs ? rs.gap : '';
         } else if (bestTimeVal !== null) {
           bestTimeStr = this.formatLapTime(bestTimeVal);
@@ -1580,7 +1733,7 @@ class App {
           currentTimeStr = `PIT (${car.pitTimer.toFixed(1)}s)`;
         } else if (car && !car.isAlive) {
           if (this.latestRaceState !== 'IDLE') {
-            currentTimeStr = '<span style="color:#ff5252; font-weight:700;">💥 DNF</span>';
+            currentTimeStr = '<span class="time-dnf">💥 DNF</span>';
           } else {
             currentTimeStr = 'PIT (RESPAWN)';
           }
@@ -1629,24 +1782,50 @@ class App {
                   <span>⛽ ${entry.fuelRemaining} kg</span>
                   ${car && car.pitStopsCount > 0 ? `<span style="color:#ffd700">🛑 ${car.pitStopsCount} PIT</span>` : ''}
                   ${this.latestRaceState !== 'IDLE' && car ? `<span>🏁 L${car.raceLapsCompleted}/${this.latestRaceTotalLaps}</span>` : (car && car.currentLap > 0 ? `<span>🏁 L${car.currentLap}</span>` : '')}
-                  ${car && !car.isAlive && this.latestRaceState !== 'IDLE' ? '<span style="color:#ff5252; font-weight:700;">💥 DNF (ROZBITY)</span>' : ''}
+                  ${car && !car.isAlive && this.latestRaceState !== 'IDLE' ? '<span class="time-dnf">💥 DNF (ROZBITY)</span>' : ''}
                   ${car ? `<span>🛑 ${Math.round(car.brakingAggression * 100)}%</span>` : ''}
                 </div>
               </div>
             </div>
             <div class="time-details">
-              <div class="time-row-best">
-                <span class="time-lbl">BEST</span>
-                <span class="time-main">${bestTimeStr}</span>
-                <span class="time-lbl" style="margin-left: 8px;">LAST</span>
-                <span class="time-last-val">${lastTimeStr}</span>
-                ${deltaStr ? `<span class="time-delta">${deltaStr}</span>` : ''}
-              </div>
-              <div class="time-row-curr">
-                <span class="time-lbl">TERAZ</span>
-                <span class="time-curr-val">${currentTimeStr}</span>
-                ${cpBadgeHtml}
-              </div>
+              ${isRace ? `
+                <div class="time-row">
+                  <span class="time-lbl">DO LIDERA</span>
+                  <span class="gap-leader-val">${gapToLeader}</span>
+                </div>
+                <div class="time-row">
+                  <span class="time-lbl">DO POPRZ.</span>
+                  <span class="gap-prev-val">${gapToPrevious}</span>
+                </div>
+                <div class="time-row">
+                  <span class="time-lbl">BEST</span>
+                  <span class="time-main">${bestTimeStr}</span>
+                </div>
+                <div class="time-row">
+                  <span class="time-lbl">LAST</span>
+                  <span class="time-last-val">${lastTimeStr}</span>
+                </div>
+                <div class="time-row">
+                  <span class="time-lbl">TERAZ</span>
+                  <span class="time-curr-val">${currentTimeStr}</span>
+                  ${cpBadgeHtml}
+                </div>
+              ` : `
+                <div class="time-row">
+                  <span class="time-lbl">BEST</span>
+                  <span class="time-main">${bestTimeStr}</span>
+                  ${deltaStr ? `<span class="time-delta">${deltaStr}</span>` : ''}
+                </div>
+                <div class="time-row">
+                  <span class="time-lbl">LAST</span>
+                  <span class="time-last-val">${lastTimeStr}</span>
+                </div>
+                <div class="time-row">
+                  <span class="time-lbl">TERAZ</span>
+                  <span class="time-curr-val">${currentTimeStr}</span>
+                  ${cpBadgeHtml}
+                </div>
+              `}
             </div>
           </div>
         `;
@@ -1676,22 +1855,70 @@ class App {
       document.getElementById('gauge-fuel')!.style.width = `${Math.round(fuelPct)}%`;
       document.getElementById('tele-mass')!.textContent = `${Math.round(activeCar.totalMass)} kg`;
 
-      let ctrl: CarControl;
+      let demandCtrl: CarControl;
       if (activeCar.isManual || activeCar === this.playerCar) {
-        ctrl = this.getPlayerControl();
+        demandCtrl = this.getPlayerControl();
       } else {
-        ctrl = activeCar.getAIControl(this.track, this.population.leaderCheckpointSpeeds);
+        demandCtrl = activeCar.currentControl;
       }
 
-      document.getElementById('gauge-throttle')!.style.width = `${Math.round(ctrl.throttle * 100)}%`;
-      document.getElementById('gauge-brake')!.style.width = `${Math.round(ctrl.brake * 100)}%`;
+      const validDemandThrottle = typeof demandCtrl.throttle === 'number' && Number.isFinite(demandCtrl.throttle)
+        ? Math.max(0, Math.min(1, demandCtrl.throttle))
+        : 0;
+      const validDemandBrake = typeof demandCtrl.brake === 'number' && Number.isFinite(demandCtrl.brake)
+        ? Math.max(0, Math.min(1, demandCtrl.brake))
+        : 0;
+
+      const demandThrottlePct = Math.round(validDemandThrottle * 100);
+      const brakePct = Math.round(validDemandBrake * 100);
+
+      // Effective throttle: reflects drive-by-wire brake cut, fuel depletion, and limp mode; zeroed when inactive or in pit
+      let effectiveThrottleVal: number;
+      if (!activeCar.isAlive || activeCar.isPitting) {
+        effectiveThrottleVal = 0;
+      } else if (typeof activeCar.effectiveThrottle === 'number' && Number.isFinite(activeCar.effectiveThrottle)) {
+        effectiveThrottleVal = activeCar.effectiveThrottle;
+      } else if (activeCar.isManual || activeCar === this.playerCar) {
+        const brakeOverrideCut = Math.max(0, 1.0 - validDemandBrake * 1.4);
+        effectiveThrottleVal = validDemandThrottle * brakeOverrideCut;
+      } else {
+        effectiveThrottleVal = validDemandThrottle;
+      }
+      effectiveThrottleVal = Math.max(0, Math.min(1, effectiveThrottleVal));
+      const effectiveThrottlePct = Math.round(effectiveThrottleVal * 100);
+
+      document.getElementById('gauge-throttle')!.style.width = `${effectiveThrottlePct}%`;
+      document.getElementById('gauge-brake')!.style.width = `${brakePct}%`;
+
+      const teleThrottlePct = document.getElementById('tele-throttle-pct');
+      if (teleThrottlePct) {
+        teleThrottlePct.textContent = `${effectiveThrottlePct}%`;
+      }
+
+      const teleThrottleDemand = document.getElementById('tele-throttle-demand');
+      if (teleThrottleDemand) {
+        if (Math.abs(demandThrottlePct - effectiveThrottlePct) >= 1) {
+          teleThrottleDemand.textContent = `(Żądanie: ${demandThrottlePct}%)`;
+          teleThrottleDemand.style.display = 'inline';
+        } else {
+          teleThrottleDemand.textContent = '';
+          teleThrottleDemand.style.display = 'none';
+        }
+      }
+
+      const teleBrakePct = document.getElementById('tele-brake-pct');
+      if (teleBrakePct) {
+        teleBrakePct.textContent = `${brakePct}%`;
+      }
       const teleBrakeAgg = document.getElementById('tele-brake-agg');
       if (teleBrakeAgg) {
         teleBrakeAgg.textContent = `(Styl: ${Math.round(activeCar.brakingAggression * 100)}%)`;
       }
       this.renderer.renderGMeter(activeCar, this.gMeterCanvas);
       const totalG = Math.hypot(activeCar.lateralG, activeCar.longitudinalG);
-      document.getElementById('tele-g-total')!.textContent = `${totalG.toFixed(1)} G`;
+      const teleGTotal = document.getElementById('tele-g-total')!;
+      teleGTotal.textContent = `${totalG.toFixed(1)} G`;
+      teleGTotal.title = `Boczne: ${activeCar.lateralG.toFixed(1)} G | Wzdłużne: ${activeCar.longitudinalG.toFixed(1)} G`;
       const frontPct = Math.round(activeCar.weightFrontRatio * 100);
       const rearPct = 100 - frontPct;
       document.getElementById('gauge-weight')!.style.width = `${frontPct}%`;
