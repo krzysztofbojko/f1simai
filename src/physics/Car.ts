@@ -41,27 +41,22 @@ export class Car {
   public static readonly METERS_PER_PIXEL: number = 1.0;
   public static readonly GRAVITY: number = 9.81; // m/s^2
 
-  // Mass & Fuel Specifications (FIA Regulations)
+  // Simulation mass and fuel parameters
   public static readonly BASE_DRY_MASS: number = 798; // kg
-  public static readonly MAX_FUEL_CAPACITY: number = 110; // kg (FIA standard tank)
+  public static readonly MAX_FUEL_CAPACITY: number = 110; // kg (simulation tank capacity)
   public fuelKg: number = 105.0; // kg (realistic race fuel load)
   public fuelBurnRatePerSec: number = 0; // kg/s
   public totalFuelConsumed: number = 0; // kg
 
   // Physical specifications (F1 Dimensions & Weights)
-  public length: number = 30; // Visual length (px)
-  public width: number = 14;  // Visual width (px)
+  public length: number = 9; // Visual length (px)
+  public width: number = 3;  // Visual width (px)
 
   public static getDimensionsForTrackWidth(trackWidthMeters: number): { width: number; length: number; effectiveTrackWidth: number } {
-    // trackWidthMeters is in realistic 5m - 20m range
-    // Maps meters to simulation pixel geometry (5m -> 32px, 14m -> 76px, 20m -> 106px)
-    const clampedMeters = Math.max(5, Math.min(20, trackWidthMeters));
-    const effectiveTrackWidth = Math.max(28, Math.round(clampedMeters * 5.4));
-
-    // Keep car prominent and clearly visible even on narrow tracks
-    const scale = clampedMeters <= 8 ? 1.15 : 1.0;
-    const width = Math.round(14 * scale);
-    const length = Math.round(30 * scale);
+    // World geometry is in meters. The small enlarged marker is visual only.
+    const effectiveTrackWidth = Math.max(5, Math.min(20, trackWidthMeters));
+    const width = 3;
+    const length = 9;
 
     return { width, length, effectiveTrackWidth };
   }
@@ -77,11 +72,10 @@ export class Car {
   public readonly maxEnginePower: number = 750000; // 750 kW (~1000 HP)
   public readonly launchTractionForce: number = 12500; // N
   public readonly maxSteerAngle: number = 0.40; // ~23 degrees
-  public readonly dragCoeff: number = 1.00; // Cd * A [m^2] (typowo ~1.0-1.4 dla F1; 0.70 dawalo Vmax ~425 km/h)
+  public readonly dragCoeff: number = 1.00; // Cd * A [m^2]
   public readonly airDensity: number = 1.225; // kg/m^3
-  public readonly downforceCoeff: number = 3.10; // Cl * A [m^2] (~2.4 t docisku przy 400 km/h)
+  public readonly downforceCoeff: number = 3.10; // Cl * A [m^2]
   public readonly baseTireGrip: number = 1.85; // Peak friction coefficient mu
-  public readonly brakeGripMultiplier: number = 1.10; // hamowanie moze uzyc nieco wiecej tarcia niz boczne (1.6 dawalo mu=2.96 i ~10 G)
 
   // Organic Performance Variations
   public lapPowerFactor: number = 1.0;
@@ -300,10 +294,37 @@ export class Car {
     }
 
     const n = track.checkpoints.length;
-    // 1. Pure pursuit steering lookahead along the centerline
-    const targetCp = track.checkpoints[(this.currentCheckpointIdx + 2) % n];
-
-    const toTarget = targetCp.center.sub(this.pos).normalize();
+    // Project onto nearby centerline segments and aim a short physical distance
+    // ahead. A whole checkpoint of lookahead cuts across narrow hairpins.
+    let nearestDistance = Infinity;
+    let segmentIndex = (this.currentCheckpointIdx - 1 + n) % n;
+    let segmentFraction = 0;
+    for (let offset = -3; offset <= 3; offset++) {
+      const index = (this.currentCheckpointIdx + offset + n) % n;
+      const start = track.checkpoints[index].center;
+      const end = track.checkpoints[(index + 1) % n].center;
+      const edge = end.sub(start);
+      const fraction = Math.max(0, Math.min(1, this.pos.sub(start).dot(edge) / Math.max(0.001, edge.magSq())));
+      const distance = this.pos.distSq(start.add(edge.mul(fraction)));
+      if (distance < nearestDistance) { nearestDistance = distance; segmentIndex = index; segmentFraction = fraction; }
+    }
+    let remaining = Math.max(5, Math.min(12, 4 + this.speed * 0.25));
+    let targetPosition = track.checkpoints[segmentIndex].center;
+    for (let step = 0; step < n; step++) {
+      const start = track.checkpoints[segmentIndex].center;
+      const end = track.checkpoints[(segmentIndex + 1) % n].center;
+      const length = start.dist(end);
+      const available = length * (1 - segmentFraction);
+      if (remaining <= available) {
+        targetPosition = Vector2.lerp(start, end, segmentFraction + remaining / Math.max(0.001, length));
+        break;
+      }
+      remaining -= available;
+      segmentIndex = (segmentIndex + 1) % n;
+      segmentFraction = 0;
+      targetPosition = end;
+    }
+    const toTarget = targetPosition.sub(this.pos).normalize();
     const headingVec = Vector2.fromAngle(this.heading);
     const cpAngleDiff = Math.atan2(headingVec.cross(toTarget), headingVec.dot(toTarget)) / Math.PI;
 
@@ -316,14 +337,14 @@ export class Car {
     let maxUpcomingCurvature = 0;
 
     // Corner safe lateral grip uses base tire friction with margin (~1.5G usable before aero)
-    const safeLatGrip = this.baseTireGrip * Car.GRAVITY * 0.82;
+    const safeLatGrip = this.baseTireGrip * Car.GRAVITY * 0.45;
     // Achievable braking deceleration with margin (12.0 m/s^2 provides ample runway and settling buffer)
-    const aBrake = 12.0 * this.brakingAggression;
+    const aBrake = 6.0 * this.brakingAggression;
 
     let accumulatedDist = 0;
     let prevPos = this.pos;
 
-    for (let k = 1; k <= lookaheadSteps; k++) {
+    for (let k = 0; k <= lookaheadSteps; k++) {
       const cp = track.checkpoints[(this.currentCheckpointIdx + k) % n];
       accumulatedDist += prevPos.dist(cp.center);
       prevPos = cp.center;
@@ -371,14 +392,17 @@ export class Car {
     const rightRayAvg = this.rayDistances.slice(midRay + 1).reduce((a, b) => a + b, 0) / Math.max(1, midRay);
     const wallRepulsion = (rightRayAvg - leftRayAvg) * 0.8;
 
-    const idealSteer = Math.max(-1, Math.min(1, cpAngleDiff * 1.4 + wallRepulsion * 0.7 - this.angularVelocity * 0.15));
-    const steer = Math.max(-1, Math.min(1, outputs[0] * 0.45 + idealSteer * 0.55));
+    const lookaheadDistance = Math.max(5, targetPosition.dist(this.pos));
+    const pursuitAngle = Math.atan2(2 * this.wheelbase * Math.sin(cpAngleDiff * Math.PI), lookaheadDistance);
+    const idealSteer = Math.max(-1, Math.min(1, pursuitAngle / this.maxSteerAngle + wallRepulsion * 0.1));
+    // Learned steering is a bounded correction to a geometrically valid path.
+    const steer = Math.max(-1, Math.min(1, idealSteer + outputs[0] * 0.025));
 
     // Check forward clearance using central LiDAR rays
     const forwardDistNorm = this.rayDistances[midRay] ?? 1.0;
     const leftForwardNorm = this.rayDistances[Math.max(0, midRay - 1)] ?? 1.0;
     const rightForwardNorm = this.rayDistances[Math.min(this.rayDistances.length - 1, midRay + 1)] ?? 1.0;
-    const minCenterClearance = Math.min(forwardDistNorm, leftForwardNorm, rightForwardNorm);
+    const minCenterClearance = Math.min(forwardDistNorm, leftForwardNorm, rightForwardNorm) * (76 / Math.max(5, track.width));
 
     // 3. F1 Racing Throttle & Braking Policy:
     let throttle: number;
@@ -463,9 +487,8 @@ export class Car {
   }
 
   /**
-   * Advanced vehicle dynamics step:
-   * Simulates gravity, aerodynamic downforce, centrifugal force,
-   * longitudinal & lateral dynamic weight transfer, and Kamm's friction circle.
+   * Hybrid vehicle dynamics step with SI forces, bounded tire friction,
+   * signed telemetry and a finite kinematic steering response.
    */
   updatePhysics(control: CarControl, dt: number, track: Track): LapFinishEvent | null {
     if (!this.isAlive) {
@@ -475,13 +498,22 @@ export class Car {
       return null;
     }
 
+    if (!Number.isFinite(dt) || dt <= 0) return null;
+    control = {
+      throttle: Math.max(0, Math.min(1, Number.isFinite(control.throttle) ? control.throttle : 0)),
+      brake: Math.max(0, Math.min(1, Number.isFinite(control.brake) ? control.brake : 0)),
+      steer: Math.max(-1, Math.min(1, Number.isFinite(control.steer) ? control.steer : 0)),
+    };
     this.currentControl = { ...control };
 
     if (this.isPitting) {
       this.effectiveThrottle = 0;
+      this.fuelBurnRatePerSec = 0;
       this.lateralG = 0;
       this.longitudinalG = 0;
-      this.pitTimer -= dt;
+      const serviceDt = Math.min(dt, Math.max(0, this.pitTimer));
+      this.pitTimer = Math.max(0, this.pitTimer - dt);
+      this.lapTime += dt;
       if (!this.isFinishedRace) {
         this.totalRaceTime += dt;
       }
@@ -490,12 +522,12 @@ export class Car {
       this.speed = 0;
       this.speedKmh = 0;
       // Refueling during pit stop
-      this.fuelKg = Math.min(Car.MAX_FUEL_CAPACITY, this.fuelKg + 28.0 * dt);
+      this.fuelKg = Math.min(Car.MAX_FUEL_CAPACITY, this.fuelKg + 28.0 * serviceDt);
       if (this.pitTimer <= 0) {
         this.isPitting = false;
         this.wantsToPit = false;
         this.isOutOfFuel = false;
-        this.fuelKg = Math.min(Car.MAX_FUEL_CAPACITY, Math.max(55.0, this.fuelKg));
+        this.fuelKg = Math.min(Car.MAX_FUEL_CAPACITY, this.fuelKg);
       }
       return null;
     }
@@ -519,14 +551,14 @@ export class Car {
     if (this.fuelKg <= 0.001) {
       this.fuelKg = 0;
       this.isOutOfFuel = true;
-      // Limp mode: can only crawl to the pit lane (~18 km/h)
-      actualThrottle = Math.min(0.08, actualThrottle);
+      // No propulsive energy remains once the tank is empty.
+      actualThrottle = 0;
       this.fuelBurnRatePerSec = 0;
     } else {
       const baseBurn = 0.004;
       const loadBurn = 0.062 * actualThrottle * (0.30 + 0.70 * (this.speed / 95));
       this.fuelBurnRatePerSec = baseBurn + loadBurn;
-      const fuelConsumed = this.fuelBurnRatePerSec * dt;
+      const fuelConsumed = Math.min(this.fuelKg, this.fuelBurnRatePerSec * dt);
       this.fuelKg = Math.max(0, this.fuelKg - fuelConsumed);
       this.totalFuelConsumed += fuelConsumed;
     }
@@ -548,164 +580,82 @@ export class Car {
     const downforceMag = 0.5 * this.airDensity * this.downforceCoeff * (speedMag * speedMag);
     const totalNormalLoadZ = gravityForce + downforceMag; // Gravity + Aero Downforce
 
-    // Aero Drag
-    const effectiveDragCoeff = this.dragCoeff * this.lapDragFactor;
-    const aeroDragMag = 0.5 * this.airDensity * effectiveDragCoeff * (speedMag * speedMag);
-    const aeroDragForce = -aeroDragMag * (forwardSpeed >= 0 ? 1 : -1);
+    // Aerodynamic drag opposes the entire velocity relative to still air.
+    const dragMagnitude = 0.5 * this.airDensity * this.dragCoeff * this.lapDragFactor * speedMag * speedMag;
+    const dragScale = speedMag > 0 ? Math.min(dragMagnitude / speedMag, currentMass / dt) : 0;
+    const dragForward = -forwardSpeed * dragScale;
+    const dragLateral = -lateralSpeed * dragScale;
 
-    // 4. Longitudinal Forces & Dynamic Pitch Weight Transfer
-    // Static distribution: 46% Front, 54% Rear
-    // Dynamic weight transfer: Delta Fz = m * a_x * (h / L)
-    const prevAccelX = this.longitudinalG * Car.GRAVITY;
-    const dynamicPitchTransfer = currentMass * (-prevAccelX) * (this.cogHeight / this.wheelbase);
+    // Keep axle loads positive without inventing extra total normal load.
+    const pitchTransfer = -currentMass * this.longitudinalG * Car.GRAVITY * this.cogHeight / this.wheelbase;
+    const frontLoad = Math.max(totalNormalLoadZ * 0.05, Math.min(totalNormalLoadZ * 0.95, totalNormalLoadZ * 0.46 + pitchTransfer));
+    const rearLoad = totalNormalLoadZ - frontLoad;
+    this.weightFrontRatio = frontLoad / totalNormalLoadZ;
+    const rollTransfer = currentMass * this.lateralG * Car.GRAVITY * this.cogHeight / this.trackWidthMeters;
+    const rollGripLoss = Math.min(0.08, Math.abs(rollTransfer) / totalNormalLoadZ * 0.15);
+    const mu = this.baseTireGrip * this.lapGripFactor * (1 - rollGripLoss);
+    const frontLimit = mu * frontLoad;
+    const rearLimit = mu * rearLoad;
 
-    const normalLoadFront = Math.max(100, (0.46 * totalNormalLoadZ) + dynamicPitchTransfer);
-    const normalLoadRear = Math.max(100, (0.54 * totalNormalLoadZ) - dynamicPitchTransfer);
-    this.weightFrontRatio = normalLoadFront / totalNormalLoadZ;
+    // Rolling resistance and braking share each axle's longitudinal tire budget.
+    const rollingFront = Math.min(frontLimit, 0.012 * frontLoad);
+    const rollingRear = Math.min(rearLimit, 0.012 * rearLoad);
+    const engineForce = actualThrottle > 0.005
+      ? this.maxEnginePower * actualThrottle * this.lapPowerFactor / Math.max(12, Math.abs(forwardSpeed)) : 0;
+    const driveForce = Math.min(Math.max(0, rearLimit - rollingRear), engineForce);
+    const brakeDemand = control.brake * (frontLimit + rearLimit);
+    const brakeFront = Math.min(Math.max(0, frontLimit - rollingFront), brakeDemand * 0.56);
+    const brakeRear = Math.min(Math.max(0, rearLimit - rollingRear), brakeDemand * 0.44);
+    const vStar = forwardSpeed + (driveForce + dragForward) / currentMass * dt;
+    const resistance = brakeFront + brakeRear + rollingFront + rollingRear;
+    const resistanceScale = resistance > 0 ? Math.min(1, currentMass * Math.abs(vStar) / (dt * resistance)) : 0;
+    const resistanceSign = Math.sign(vStar);
+    const frontFx = -resistanceSign * (brakeFront + rollingFront) * resistanceScale;
+    const rearFx = Math.max(-rearLimit, Math.min(rearLimit, driveForce - resistanceSign * (brakeRear + rollingRear) * resistanceScale));
+    const longitudinalForce = frontFx + rearFx + dragForward;
 
-    // Visual pitch angle (nose dive under braking, squat under acceleration)
-    this.pitchAngle = Math.max(-0.06, Math.min(0.06, -this.longitudinalG * 0.015));
+    // Remaining lateral force is computed from the same friction circle on each axle.
+    const frontLateral = Math.sqrt(Math.max(0, frontLimit * frontLimit - frontFx * frontFx));
+    const rearLateral = Math.sqrt(Math.max(0, rearLimit * rearLimit - rearFx * rearFx));
+    const lateralLimit = frontLateral + rearLateral;
+    const nextForwardSpeed = forwardSpeed + longitudinalForce / currentMass * dt;
+    const targetYaw = nextForwardSpeed / this.wheelbase * Math.tan(control.steer * this.maxSteerAngle);
+    // Finite steering response; this remains a bounded hybrid, not a yaw-inertia solver.
+    const requestedYaw = this.angularVelocity + (targetYaw - this.angularVelocity) * (1 - Math.exp(-dt / 0.05));
+    const turnForce = currentMass * nextForwardSpeed * requestedYaw;
+    // Turning and slide correction act in the SAME axis and must be summed algebraically.
+    const slideForce = -currentMass * lateralSpeed * Math.min(12, 1 / dt);
+    const requestedLateral = turnForce + slideForce;
+    const lateralForce = Math.max(-lateralLimit, Math.min(lateralLimit, requestedLateral));
+    const yawLimit = Math.abs(nextForwardSpeed) > 0.001 ? lateralLimit / (currentMass * Math.abs(nextForwardSpeed)) : 0;
+    this.angularVelocity = Math.max(-yawLimit, Math.min(yawLimit, requestedYaw));
+    const slipRatio = Math.abs(requestedLateral) > 0 ? Math.max(0, 1 - lateralLimit / Math.abs(requestedLateral)) : 0;
+    this.isSkidding = slipRatio > 0.01 || (Math.abs(lateralSpeed) > 4.5 && speedMag > 18);
+    this.understeerSlip = frontLateral / Math.max(1, frontLoad) < rearLateral / Math.max(1, rearLoad) ? slipRatio : 0;
+    this.oversteerSlip = this.understeerSlip > 0 ? 0 : slipRatio;
 
-    // Longitudinal Engine Force (Traction on rear wheels)
-    let driveForceMag = 0;
-    if (actualThrottle > 0.005) {
-      const effectivePower = this.maxEnginePower * actualThrottle * this.lapPowerFactor;
-      const powerForce = effectivePower / Math.max(12.0, forwardSpeed);
-      // Rear traction limit governed by dynamic rear vertical load: F = mu * Fz_rear
-      const rearTractionLimit = this.baseTireGrip * this.lapGripFactor * normalLoadRear;
-      driveForceMag = Math.min(rearTractionLimit, powerForce);
-    }
-
-    // Braking Force (carbon-carbon brakes, F1) (Brake bias ~56% front, 44% rear)
-    let maxBrakeMag = 0;
-    let brakeFrontForce = 0;
-    let brakeRearForce = 0;
-    if (control.brake > 0.01) {
-      const maxBrakeFront = this.baseTireGrip * this.brakeGripMultiplier * normalLoadFront;
-      const maxBrakeRear = this.baseTireGrip * this.brakeGripMultiplier * normalLoadRear;
-      brakeFrontForce = control.brake * maxBrakeFront;
-      brakeRearForce = control.brake * maxBrakeRear;
-      maxBrakeMag = brakeFrontForce + brakeRearForce;
-    }
-
-    // Velocity before resistance forces
-    const vStar = forwardSpeed + ((driveForceMag + aeroDragForce) / currentMass) * dt;
-
-    // Rolling resistance acts only against motion or when drive is engaged
-    const maxRollingResist = (Math.abs(vStar) > 0.001 || driveForceMag > 0) ? 0.012 * totalNormalLoadZ : 0;
-    const maxResistMag = maxBrakeMag + maxRollingResist;
-
-    // Resistive forces can only bring vehicle to a stop, never accelerate backwards
-    const forceToStop = (currentMass * Math.abs(vStar)) / dt;
-    const actualResistMag = Math.min(maxResistMag, forceToStop);
-    const netResistForce = -Math.sign(vStar) * actualResistMag;
-
-    const netLongitudinalForce = driveForceMag + aeroDragForce + netResistForce;
-    const accelForward = netLongitudinalForce / currentMass;
-    const rawLongG = accelForward / Car.GRAVITY;
-    this.longitudinalG = Number.isFinite(rawLongG) ? Math.max(-8.0, Math.min(4.0, rawLongG)) : 0;
-
-    let newForwardSpeed = vStar + (netResistForce / currentMass) * dt;
-    if (Math.abs(newForwardSpeed) < 1e-6) {
-      newForwardSpeed = 0;
-    }
-
-    // 5. Steering, Centrifugal Force & Kamm's Circle
-    const steerAngle = control.steer * this.maxSteerAngle;
-    const idealYawRate = (newForwardSpeed / this.wheelbase) * Math.tan(steerAngle);
-
-    // Dynamic Lateral Weight Transfer (Roll onto outside wheels)
-    // Delta Fz_roll = m * a_y * (h / W)
-    const prevAccelY = this.lateralG * Car.GRAVITY;
-    const dynamicRollTransfer = currentMass * prevAccelY * (this.cogHeight / this.trackWidthMeters);
-    const rollGripLoss = Math.min(0.08, (Math.abs(dynamicRollTransfer) / totalNormalLoadZ) * 0.15);
-    // Visual roll angle
-    this.rollAngle = Math.max(-0.08, Math.min(0.08, this.lateralG * 0.018));
-
-    // Kamm's Circle of Forces (Friction Circle):
-    // If tire is braking heavily, remaining lateral grip is reduced:
-    // F_y_avail = F_y_max * sqrt(1 - (F_x / F_x_max)^2)
-    const frontLongitudinalUsage = Math.min(0.98, brakeFrontForce / Math.max(1, this.baseTireGrip * normalLoadFront));
-    const rearLongitudinalUsage = Math.min(0.98, Math.max(brakeRearForce, driveForceMag) / Math.max(1, this.baseTireGrip * normalLoadRear));
-
-    const frontGripFactor = Math.sqrt(Math.max(0.05, 1.0 - frontLongitudinalUsage * frontLongitudinalUsage));
-    const rearGripFactor = Math.sqrt(Math.max(0.05, 1.0 - rearLongitudinalUsage * rearLongitudinalUsage));
-
-    // Maximum cornering force supported by front and rear axles
-    const effectiveTireMu = this.baseTireGrip * this.lapGripFactor * (1.0 - rollGripLoss);
-    const frontMaxLateralForce = effectiveTireMu * normalLoadFront * frontGripFactor;
-    const rearMaxLateralForce = effectiveTireMu * normalLoadRear * rearGripFactor;
-    const totalMaxLateralForce = frontMaxLateralForce + rearMaxLateralForce;
-
-    // Outward Centrifugal Force: F_cf = m * v * omega = m * v^2 / R
-    const centrifugalForceMag = currentMass * Math.abs(newForwardSpeed * idealYawRate);
-    // The ideal steering path can demand more lateral force than the tires can supply.
-    // Report tire-supported lateral acceleration, not the unconstrained demand.
-    const actualLateralForce = Math.min(centrifugalForceMag, totalMaxLateralForce);
-
-    let actualYawRate = idealYawRate;
-
-    // Check if Centrifugal Force exceeds Total Tire Grip limit:
-    if (centrifugalForceMag > totalMaxLateralForce && Math.abs(newForwardSpeed) > 10) {
-      // Over the limit: Centrifugal force breaks tire adhesion!
-      const gripRatio = Math.max(0, Math.min(1, totalMaxLateralForce / centrifugalForceMag));
-      // Actual yaw rate is bounded by physically available tire lateral force: omega = F_lat_avail / (m * v)
-      actualYawRate = idealYawRate * gripRatio;
-      this.isSkidding = true;
-
-      // Tire scrub: sliding dissipates forward velocity
-      newForwardSpeed *= (1.0 - 0.09 * dt);
-
-      // Understeer vs Oversteer balance
-      if (frontGripFactor < rearGripFactor) {
-        this.understeerSlip = 1.0 - gripRatio; // Front washes out
-      } else {
-        this.oversteerSlip = 1.0 - gripRatio;  // Rear steps out
-      }
-    } else {
-      this.isSkidding = Math.abs(lateralSpeed) > 4.5 && speedMag > 18;
-      this.understeerSlip = 0;
-      this.oversteerSlip = 0;
-    }
-
-    // Safety check in race mode: if car experiences severe instability or critical oversteer, rollback brain to safe baseline
-    if (this.isRaceMode && this.safeBrainBackup && this.brain && this.isSkidding && (this.oversteerSlip > 0.45 || Math.abs(actualYawRate) > 3.2)) {
+    if (this.isRaceMode && this.safeBrainBackup && this.brain && this.isSkidding && (this.oversteerSlip > 0.45 || Math.abs(this.angularVelocity) > 3.2)) {
       this.brain = this.safeBrainBackup.clone();
       this.replayBuffer = [];
     }
-
     if (this.isSkidding && Math.random() < 0.28) {
       this.skidMarks.push(this.pos.clone());
       if (this.skidMarks.length > 60) this.skidMarks.shift();
     }
 
-    // 6. Update Heading & Velocity
-    this.angularVelocity = actualYawRate;
+    // Integrate global velocity exactly once from the resultant force. Rotating
+    // the body does not rotate momentum or introduce an extra lateral impulse.
+    const acceleration = forwardDir.mul(longitudinalForce / currentMass)
+      .add(rightDir.mul((lateralForce + dragLateral) / currentMass));
+    const previousVelocity = this.vel.clone();
+    this.vel.addMut(acceleration.mul(dt));
     this.heading += this.angularVelocity * dt;
-
     const newForwardDir = Vector2.fromAngle(this.heading);
-    const newRightDir = newForwardDir.normal();
-
-    // Shared lateral force budget: slide damping uses residual tire force after turning force
-    const residualLateralForce = Math.sqrt(Math.max(0, totalMaxLateralForce * totalMaxLateralForce - actualLateralForce * actualLateralForce));
-    const maxSlideDampAccel = residualLateralForce / currentMass;
-    let outwardSlideAccel = 0;
-    let slideDampForce = 0;
-    if (Math.abs(lateralSpeed) > 0.001) {
-      const desiredDampAccel = Math.min(Math.abs(lateralSpeed) / dt, Math.abs(lateralSpeed) * 12.0);
-      const actualDampAccelMag = Math.min(desiredDampAccel, maxSlideDampAccel);
-      outwardSlideAccel = -Math.sign(lateralSpeed) * actualDampAccelMag;
-      slideDampForce = actualDampAccelMag * currentMass;
-    }
-    let newLateralSpeed = lateralSpeed + outwardSlideAccel * dt;
-
-    // Combined lateral G reflects total lateral acceleration (turning + slide damping) without exceeding tire limit
-    const totalCombinedLateralForce = Math.min(totalMaxLateralForce, Math.hypot(actualLateralForce, slideDampForce));
-    const rawLatG = totalCombinedLateralForce / (currentMass * Car.GRAVITY);
-    this.lateralG = Number.isFinite(rawLatG) ? Math.max(0, Math.min(8.0, rawLatG)) : 0;
-
-    // Recompose global velocity vector
-    this.vel = newForwardDir.mul(newForwardSpeed).add(newRightDir.mul(newLateralSpeed));
+    const measuredAcceleration = this.vel.sub(previousVelocity).div(dt);
+    this.longitudinalG = measuredAcceleration.dot(forwardDir) / Car.GRAVITY;
+    this.lateralG = measuredAcceleration.dot(rightDir) / Car.GRAVITY;
+    this.pitchAngle = Math.max(-0.06, Math.min(0.06, -this.longitudinalG * 0.015));
+    this.rollAngle = Math.max(-0.08, Math.min(0.08, this.lateralG * 0.018));
 
     // 7. Position & Distance Update (1 px = 1 meter)
     const stepDelta = this.vel.mul(dt);
@@ -776,7 +726,7 @@ export class Car {
 
     // Penalty for skidding and loss of adhesion
     if (this.isSkidding) {
-      const slipMagnitude = Math.abs(newLateralSpeed) + (this.understeerSlip + this.oversteerSlip) * 14.0;
+      const slipMagnitude = Math.abs(this.vel.dot(newForwardDir.normal())) + (this.understeerSlip + this.oversteerSlip) * 14.0;
       const skidPenalty = (45.0 + slipMagnitude * 6.0) * dt;
       this.fitness = Math.max(0, this.fitness - skidPenalty);
     }
@@ -808,7 +758,12 @@ export class Car {
     if (this.fitness > this.peakFitness) {
       this.peakFitness = this.fitness;
     }
-    if (track.isOutOfBounds(this.pos)) {
+    // A physical 5.5 x 1.8 m footprint, independent of the enlarged marker.
+    const bodyForward = Vector2.fromAngle(this.heading);
+    const bodySide = bodyForward.normal();
+    const corners = [-1, 1].flatMap(front => [-1, 1].map(side =>
+      this.pos.add(bodyForward.mul(front * 2.75)).add(bodySide.mul(side * 0.9))));
+    if (track.isOutOfBounds(this.pos) || corners.some(corner => track.isOutOfBounds(corner))) {
       this.isAlive = false;
       this.effectiveThrottle = 0;
       this.lateralG = 0;
@@ -872,7 +827,7 @@ export class Car {
       crossedGate = segmentsIntersect(this.prevPos, this.pos, nextCp.p1, nextCp.p2);
     }
 
-    const isNearCp = distToCp < Math.max(12, track.width * 0.75);
+    const isNearCp = clearedCpIdx !== 0 && distToCp < Math.min(3, track.width * 0.2);
     // (1) Checkpoint zaliczaj tylko przy ruchu zgodnym z tangentem toru
     const isMovingForwardAlongTrack = this.vel.dot(nextCp.tangent) > 0.5;
 
@@ -975,7 +930,7 @@ export class Car {
           // Trigger pit stop upon crossing start/finish line if requested
           if (this.wantsToPit) {
             this.isPitting = true;
-            this.pitTimer = 3.2; // 3.2s stationary pit stop
+            this.pitTimer = Math.max(3.2, (Car.MAX_FUEL_CAPACITY - this.fuelKg) / 28);
             this.pitStopsCount++;
           }
 

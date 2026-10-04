@@ -289,6 +289,6 @@ export class Track {
       return true;
     }
 
-    return minDist > Math.max(1.1, this.width * 0.54);
+    return minDist > Math.max(1.1, this.width * 0.5);
   }
 }

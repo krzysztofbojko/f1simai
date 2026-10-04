@@ -1,3 +1,5 @@
+DOKUMENT HISTORYCZNY: opisuje wcześniejszą implementację. Aktualna fizyka, parametry i ograniczenia są opisane w PHYSICS.md (04.10.2026).
+
 # 🏎️ Pełna Specyfikacja Techniczna Systemu F1 AI Simulator
 
 Dokument stanowi wyczerpującą specyfikację inżynieryjną, matematyczną i architektoniczną projektu **F1 AI Simulator**. Zawiera pełny opis modeli fizycznych, równań różniczkowych, wag i topologii sieci neuronowych, algorytmów uczenia, struktur danych, protokołów komunikacji wątkowej oraz mechanizmów bezpieczeństwa numerycznego.

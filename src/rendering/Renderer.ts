@@ -81,7 +81,7 @@ export class Renderer {
     // 2. Main Asphalt track ribbon
     ctx.beginPath();
     ctx.strokeStyle = '#25262B'; // Fresh Dark Asphalt
-    ctx.lineWidth = Math.max(12, track.width);
+    ctx.lineWidth = track.width;
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';
     for (let i = 0; i <= pts.length; i++) {
@@ -484,9 +484,9 @@ export class Renderer {
 
     // 1. Wheels (Pirelli Slicks)
     ctx.fillStyle = '#1A1A1A';
-    const scale = Math.max(0.75, width / 14);
-    const wheelW = Math.max(2.8, 3.8 * scale);
-    const wheelL = Math.max(6.0, 8.5 * scale);
+    const scale = width / 14;
+    const wheelW = 3.8 * scale;
+    const wheelL = 8.5 * scale;
 
     // Front wheels (steered with steer angle)
     ctx.save();
@@ -1081,8 +1081,7 @@ export class Renderer {
 
     // 3. G-Force Dot (Longitudinal G: up/down, Lateral centrifugal G: left/right)
     const maxG = 5.0;
-    const turnDirection = Math.sign(car.angularVelocity);
-    const latG = car.lateralG * turnDirection;
+    const latG = car.lateralG;
     const longG = car.longitudinalG;
 
     const dotX = cx + (latG / maxG) * radius;

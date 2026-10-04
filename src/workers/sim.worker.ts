@@ -485,30 +485,24 @@ function createSnapshot(): SimSnapshot {
   };
 }
 
-// Simulation step execution
+// Simulation step execution: elapsed-time accumulator keeps 1x tied to real time.
+let lastPhysicsTick = performance.now();
+let physicsAccumulator = 0;
 function runSimulationSteps(): void {
-  if (isPaused) return;
-  if (raceState === 'FINISHED') return;
+  const now = performance.now();
+  const elapsed = Math.max(0, Math.min(0.25, (now - lastPhysicsTick) / 1000));
+  lastPhysicsTick = now;
+  if (isPaused || raceState === 'FINISHED') { physicsAccumulator = 0; return; }
 
-  let steps: number;
-  if (currentProfile === 'balanced') {
-    // Exact legacy compatibility: speedMultiplier controls steps
-    steps = (speedMultiplier === 'max')
-      ? 200
-      : (typeof speedMultiplier === 'number' ? Math.max(1, Math.round(speedMultiplier)) : 1);
-  } else {
-    // In eco, performance, turbo:
-    if (speedMultiplier === 'max') {
-      steps = currentProfileConfig.maxSubStepsBudget;
-    } else if (typeof speedMultiplier === 'number' && speedMultiplier > 1) {
-      steps = Math.round(currentProfileConfig.stepsPerTick * speedMultiplier);
-    } else {
-      steps = currentProfileConfig.stepsPerTick;
-    }
-    steps = Math.max(1, Math.min(currentProfileConfig.maxSubStepsBudget, steps));
-  }
+  let steps = speedMultiplier === 'max' ? currentProfileConfig.maxSubStepsBudget : 0;
 
   const fixedDt = 1 / 60;
+  if (speedMultiplier !== 'max') {
+    const rate = (currentProfile === 'balanced' ? 1 : currentProfileConfig.stepsPerTick)
+      * (typeof speedMultiplier === 'number' ? speedMultiplier : 1);
+    physicsAccumulator = Math.min(currentProfileConfig.maxSubStepsBudget * fixedDt, physicsAccumulator + elapsed * rate);
+    steps = Math.min(currentProfileConfig.maxSubStepsBudget, Math.floor((physicsAccumulator + 1e-9) / fixedDt));
+  } else physicsAccumulator = 0;
   const tickStartTime = performance.now();
   const MAX_TICK_EXECUTION_TIME_MS = 35; // Safe boundary limit to prevent starving worker event loop
 
@@ -518,6 +512,7 @@ function runSimulationSteps(): void {
         break;
       }
     }
+    if (speedMultiplier !== 'max') physicsAccumulator = Math.max(0, physicsAccumulator - fixedDt);
     if (raceState === 'GRID_START') {
       raceStartTimer += fixedDt;
       if (raceStartTimer < 0.8) {

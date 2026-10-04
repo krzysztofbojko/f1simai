@@ -1,3 +1,5 @@
+DOKUMENT HISTORYCZNY: opisuje wcześniejszą implementację. Aktualna fizyka, parametry i ograniczenia są opisane w PHYSICS.md (04.10.2026).
+
 ================================================================================
           F1 AI RACING SIMULATOR - KOMPLEKSOWA SPECYFIKACJA SYSTEMU
           Architektura, Interfejs, Panel Boczny, Fizyka i Uczenie AI
