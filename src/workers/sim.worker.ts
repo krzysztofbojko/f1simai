@@ -802,7 +802,7 @@ self.onmessage = (e: MessageEvent) => {
           }
           car.isRaceMode = true;
           const slot = track.getGridSlot(i);
-          car.reset(slot.pos, slot.heading, true, slot.checkpointIdx);
+          car.reset(slot.pos, slot.heading, true, (slot.checkpointIdx + 1) % track.checkpoints.length);
           car.updateDimensionsForTrackWidth(track.width);
           car.fuelKg = 50.0;
           car.pitStopsCount = 0;
@@ -817,7 +817,7 @@ self.onmessage = (e: MessageEvent) => {
       if (playerCar) {
         const slot = track.getGridSlot(9);
         playerCar.isRaceMode = true;
-        playerCar.reset(slot.pos, slot.heading, true, slot.checkpointIdx);
+        playerCar.reset(slot.pos, slot.heading, true, (slot.checkpointIdx + 1) % track.checkpoints.length);
         playerCar.updateDimensionsForTrackWidth(track.width);
         playerCar.fuelKg = 50.0;
         playerCar.pitStopsCount = 0;

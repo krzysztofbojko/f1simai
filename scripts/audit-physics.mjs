@@ -9,7 +9,7 @@ import { pathToFileURL } from 'node:url';
 
 const output = await mkdtemp(join(tmpdir(), 'f1-physics-'));
 try {
-  await build({ configFile: false, logLevel: 'silent', plugins: [{ name: 'audit-worker-access', transform(code, id) { if (id.endsWith('/src/workers/sim.worker.ts')) return code + '\nexport function auditCars() { return population.cars; }'; } }], build: {
+  await build({ configFile: false, logLevel: 'silent', plugins: [{ name: 'audit-worker-access', transform(code, id) { if (id.endsWith('/src/workers/sim.worker.ts')) return code + '\nexport function auditCars() { return population.cars; } export function auditRace() { return { raceState, raceWinner }; }'; } }], build: {
     outDir: output, emptyOutDir: true, minify: false,
     lib: { entry: { car: resolve('src/physics/Car.ts'), population: resolve('src/ai/Population.ts'), presets: resolve('src/track/Presets.ts'), worker: resolve('src/workers/sim.worker.ts') }, formats: ['es'], fileName: (_, name) => name + '.mjs' },
   } });
@@ -158,6 +158,17 @@ try {
       self.onmessage({ data: { type: 'SET_PAUSED', isPaused: false } });
       for (let i = 0; i < 50; i++) { time += 20; tick(); }
       close(worker.auditCars()[0].timeAlive, 2);
+      for (const c of worker.auditCars()) c.isManual = false;
+      self.onmessage({ data: { type: 'START_RACE', totalLaps: 10 } });
+      for (let i = 0; i < 10; i++) assert.equal(worker.auditCars()[i].currentCheckpointIdx, (gp.getGridSlot(i).checkpointIdx + 1) % gp.checkpoints.length);
+      self.onmessage({ data: { type: 'SET_SPEED', speed: 100 } });
+      for (let i = 0; i < 1000 && worker.auditRace().raceState !== 'FINISHED'; i++) { time += 20; tick(); }
+      assert.equal(worker.auditRace().raceState, 'FINISHED');
+      assert.ok(!worker.auditRace().raceWinner.startsWith('BRAK'), 'race must produce a finisher');
+      const finishTime = worker.auditCars()[0].totalRaceTime;
+      time += 20; tick(); close(worker.auditCars()[0].totalRaceTime, finishTime);
+      self.onmessage({ data: { type: 'STOP_RACE' } });
+      assert.equal(worker.auditRace().raceState, 'IDLE');
     } finally {
       globalThis.self = savedSelf; globalThis.setInterval = savedInterval;
       Object.defineProperty(globalThis, 'performance', performanceDescriptor);

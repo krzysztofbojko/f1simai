@@ -35,6 +35,6 @@ Brak kontaktów samochód–samochód, impulsów zderzeń z barierą, modelu zaw
 
 ## Weryfikacja
 
-`npm test` sprawdza limity sił, hamowanie od spoczynku i w obu kierunkach, telemetrię, jazdę bokiem, brak paliwa, tankowanie i zegary, skalę, obrys oraz ukończenie okrążeń GP przez AI. Test workera z kontrolowanym zegarem sprawdza 1× przy tickerach 16 ms i 20 ms oraz pauzę. `npm run audit:physics` wypisuje wyniki numeryczne; `npm run build` sprawdza TypeScript i bundlowanie.
+`npm test` sprawdza limity sił, hamowanie od spoczynku i w obu kierunkach, telemetrię, jazdę bokiem, brak paliwa, tankowanie i zegary, skalę, obrys oraz ukończenie okrążeń GP przez AI. Test workera z kontrolowanym zegarem sprawdza 1× przy tickerach 16 ms i 20 ms oraz pauzę. Dodatkowo sprawdza checkpointy pól startowych, ukończenie 10-okrążeniowego wyścigu przez AI, zamrożenie czasu po mecie i powrót do treningu. `npm run audit:physics` wypisuje wyniki numeryczne; `npm run build` sprawdza TypeScript i bundlowanie.
 
 `AUDIT_PHYSICS.md` zachowuje dowody stanu sprzed napraw. Poprawiono osiem opisanych tam problemów i akumulator czasu; pełna dynamika yaw, zderzenia i fizyczna aleja serwisowa pozostają ograniczeniami modelu.
