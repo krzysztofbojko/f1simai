@@ -14,7 +14,7 @@ export class Renderer {
     this.ctx = ctx;
   }
 
-  clear(width: number, height: number): void {
+  clear(width: number, height: number, zoom: number = 1): void {
     const ctx = this.ctx;
 
     // Dark motorsport asphalt / grass background
@@ -42,7 +42,7 @@ export class Renderer {
     ctx.save();
     ctx.fillStyle = 'rgba(255, 255, 255, 0.45)';
     ctx.font = '10px JetBrains Mono, monospace';
-    ctx.fillText('📏 1 KRATKA = 50 METRÓW (SKALA 1:1 m/px)', 16, height - 16);
+    ctx.fillText(`📏 50 px = ${(50 / zoom).toFixed(1)} METRÓW`, 16, height - 16);
     ctx.strokeStyle = 'rgba(0, 210, 190, 0.6)';
     ctx.lineWidth = 2;
     ctx.beginPath();

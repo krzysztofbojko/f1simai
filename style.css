@@ -1487,3 +1487,11 @@ input[type="range"] {
 }
 
 
+
+/* Track camera controls */
+.camera-controls { position: absolute; top: 12px; left: 12px; right: 12px; z-index: 15; width: fit-content; max-width: calc(100% - 24px); padding: 8px 10px; background: rgba(12, 16, 23, .92); border: 1px solid rgba(255,255,255,.15); border-radius: 8px; }
+.camera-buttons { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
+.camera-buttons .f1-btn { width: auto; margin: 0; padding: 6px 10px; }
+#camera-zoom-value { min-width: 48px; text-align: center; font-variant-numeric: tabular-nums; }
+#camera-status { margin-top: 6px; font-size: 11px; color: #a9b5c5; }
+#sim-canvas { touch-action: none; }

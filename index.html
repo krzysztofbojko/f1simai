@@ -44,6 +44,16 @@
         <!-- Canvas wrapper -->
         <div class="canvas-wrapper" id="canvas-wrapper">
           <canvas id="sim-canvas"></canvas>
+          <div class="camera-controls" role="group" aria-label="Kamera toru">
+            <div class="camera-buttons">
+              <button id="btn-zoom-out" class="f1-btn" aria-label="Oddal tor">−</button>
+              <output id="camera-zoom-value" aria-live="polite">100%</output>
+              <button id="btn-zoom-in" class="f1-btn" aria-label="Przybliż tor">+</button>
+              <button id="btn-camera-fit" class="f1-btn">Cały tor</button>
+              <button id="btn-camera-follow" class="f1-btn" aria-pressed="false">Śledź zawodnika</button>
+            </div>
+            <div id="camera-status">Kółko: zoom • Przeciągnij: przesuń • Kliknij zawodnika w tabeli</div>
+          </div>
 
           <!-- Notification / Prompt overlay for drawing -->
           <div id="draw-banner" class="draw-banner hidden">

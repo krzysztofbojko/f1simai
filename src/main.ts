@@ -27,6 +27,12 @@ class App {
   private isPlayerDriving: boolean = false;
   private selectedCar: Car | null = null;
 
+  private cameraZoom = 1;
+  private cameraOffset = new Vector2(0, 0);
+  private followSelected = false;
+  private panStart: { x: number; y: number; offset: Vector2 } | null = null;
+  private didPan = false;
+
   // Drawing state
   private isDrawMode: boolean = false;
   private isMouseDown: boolean = false;
@@ -373,6 +379,49 @@ class App {
   private setupUIEvents(): void {
     const canvas = this.canvas;
 
+    document.getElementById('btn-zoom-in')!.addEventListener('click', () => this.setCameraZoom(this.cameraZoom * 1.25));
+    document.getElementById('btn-zoom-out')!.addEventListener('click', () => this.setCameraZoom(this.cameraZoom / 1.25));
+    document.getElementById('btn-camera-fit')!.addEventListener('click', () => {
+      this.followSelected = false;
+      const rect = canvas.getBoundingClientRect();
+      const xs = this.track.points.map(p => p.center.x), ys = this.track.points.map(p => p.center.y);
+      const minX = Math.min(...xs), maxX = Math.max(...xs);
+      const minY = Math.min(...ys), maxY = Math.max(...ys);
+      this.cameraZoom = Math.max(0.25, Math.min(8, Math.min(rect.width / (maxX - minX + 100), rect.height / (maxY - minY + 100))));
+      this.cameraOffset = new Vector2(rect.width / 2 - (minX + maxX) / 2 * this.cameraZoom, rect.height / 2 - (minY + maxY) / 2 * this.cameraZoom);
+    });
+    document.getElementById('btn-camera-follow')!.addEventListener('click', () => {
+      this.followSelected = !this.followSelected;
+      if (this.followSelected && !this.selectedCar) {
+        this.selectedCar = this.population.currentLeader || this.population.cars[0];
+        this.bridge.setActiveCarColor(this.selectedCar?.color || null);
+      }
+    });
+    canvas.addEventListener('wheel', e => {
+      if (this.isDrawMode) return;
+      e.preventDefault();
+      const rect = canvas.getBoundingClientRect();
+      this.setCameraZoom(this.cameraZoom * Math.exp(-e.deltaY * 0.0015), new Vector2(e.clientX - rect.left, e.clientY - rect.top));
+    }, { passive: false });
+    canvas.addEventListener('pointerdown', e => {
+      if (this.isDrawMode || e.button !== 0) return;
+      this.didPan = false;
+      this.panStart = { x: e.clientX, y: e.clientY, offset: this.cameraOffset.clone() };
+      canvas.setPointerCapture(e.pointerId);
+    });
+    canvas.addEventListener('pointermove', e => {
+      if (!this.panStart) return;
+      const dx = e.clientX - this.panStart.x, dy = e.clientY - this.panStart.y;
+      if (Math.hypot(dx, dy) > 4) this.didPan = true;
+      if (this.didPan) {
+        this.followSelected = false;
+        this.cameraOffset = new Vector2(this.panStart.offset.x + dx, this.panStart.offset.y + dy);
+      }
+    });
+    const endPan = () => { this.panStart = null; };
+    canvas.addEventListener('pointerup', endPan);
+    canvas.addEventListener('pointercancel', endPan);
+
     // Drawing mouse events
     canvas.addEventListener('mousedown', (e) => {
       if (!this.isDrawMode) return;
@@ -415,10 +464,10 @@ class App {
 
     // Canvas click to select a car on track
     canvas.addEventListener('click', (e) => {
-      if (this.isDrawMode) return;
+      if (this.isDrawMode || this.didPan) return;
       const clickPos = this.getCanvasMousePos(e);
       let closestCar: Car | null = null;
-      let minDist = 36; // 36px click tolerance radius
+      let minDist = 24 / this.cameraZoom; // Constant screen-space selection radius
 
       for (const car of this.population.cars) {
         if (!car.isAlive) continue;
@@ -451,7 +500,8 @@ class App {
 
     // Leaderboard item click to select driver
     const leaderboardContainer = document.getElementById('leaderboard-list');
-    leaderboardContainer?.addEventListener('click', (e) => {
+    leaderboardContainer?.addEventListener('pointerdown', (e) => {
+      if (e.button !== 0) return;
       const item = (e.target as HTMLElement).closest('.leaderboard-item') as HTMLElement | null;
       if (!item) return;
 
@@ -521,6 +571,9 @@ class App {
     btnDraw.addEventListener('click', () => {
       this.isDrawMode = !this.isDrawMode;
       if (this.isDrawMode) {
+        this.followSelected = false;
+        this.cameraZoom = 1;
+        this.cameraOffset = new Vector2(0, 0);
         btnDraw.classList.add('active');
         btnDraw.innerHTML = '<span class="btn-icon">✅</span> Zakończ Rysowanie';
         drawBanner.classList.remove('hidden');
@@ -1393,7 +1446,16 @@ class App {
 
   private getCanvasMousePos(e: MouseEvent): Vector2 {
     const rect = this.canvas.getBoundingClientRect();
-    return new Vector2(e.clientX - rect.left, e.clientY - rect.top);
+    return new Vector2((e.clientX - rect.left - this.cameraOffset.x) / this.cameraZoom, (e.clientY - rect.top - this.cameraOffset.y) / this.cameraZoom);
+  }
+
+  private setCameraZoom(zoom: number, anchor?: Vector2): void {
+    const rect = this.canvas.getBoundingClientRect();
+    const point = anchor || new Vector2(rect.width / 2, rect.height / 2);
+    const next = Math.max(0.25, Math.min(8, zoom));
+    const ratio = next / this.cameraZoom;
+    this.cameraOffset = new Vector2(point.x - (point.x - this.cameraOffset.x) * ratio, point.y - (point.y - this.cameraOffset.y) * ratio);
+    this.cameraZoom = next;
   }
 
   private finishDrawnTrack(): void {
@@ -1463,7 +1525,21 @@ class App {
     }
 
     // Render frame
-    this.renderer.clear(width, height);
+    if (this.followSelected && !this.selectedCar) this.followSelected = false;
+    if (this.followSelected && this.selectedCar) {
+      this.cameraOffset = new Vector2(width / 2 - this.selectedCar.pos.x * this.cameraZoom, height / 2 - this.selectedCar.pos.y * this.cameraZoom);
+    }
+    document.querySelector('.camera-controls')!.classList.toggle('hidden', this.isDrawMode);
+    const followButton = document.getElementById('btn-camera-follow')!;
+    followButton.classList.toggle('active', this.followSelected);
+    followButton.setAttribute('aria-pressed', String(this.followSelected));
+    document.getElementById('camera-zoom-value')!.textContent = `${Math.round(this.cameraZoom * 100)}%`;
+    document.getElementById('camera-status')!.textContent = this.followSelected && this.selectedCar
+      ? `Śledzenie: ${this.selectedCar.driverName}` : 'Kółko: zoom • Przeciągnij: przesuń • Kliknij zawodnika w tabeli';
+    this.renderer.clear(width, height, this.cameraZoom);
+    this.ctx.save();
+    this.ctx.translate(this.cameraOffset.x, this.cameraOffset.y);
+    this.ctx.scale(this.cameraZoom, this.cameraZoom);
     this.renderer.renderTrack(this.track);
     this.renderer.renderSkidMarks(this.population.cars);
 
@@ -1496,6 +1572,8 @@ class App {
         this.renderer.renderCar(this.playerCar, false, true, isPlayerSelected, hasSelected);
       }
 
+      this.ctx.restore();
+
       // Render 5 F1 Start Lights during countdown
       this.renderer.renderStartLights(this.latestRaceStartLights, this.latestRaceState);
 
@@ -1504,6 +1582,8 @@ class App {
         this.renderer.renderChequeredFlagBanner(this.latestRaceWinner);
       }
     }
+
+    if (this.isDrawMode) this.ctx.restore();
 
     // Update Telemetry & UI
     this.updateHUD();
@@ -1686,7 +1766,7 @@ class App {
       .filter((t): t is number => typeof t === 'number' && t > 0);
     const sessionFastestLap = sessionBests.length > 0 ? Math.min(...sessionBests) : null;
 
-    leaderboardContainer.innerHTML = standings
+    const leaderboardHtml = standings
       .map((entry) => {
         const car = this.population.cars.find(c => c.color === entry.carColor)
           || (this.playerCar && this.playerCar.color === entry.carColor ? this.playerCar : null);
@@ -1831,6 +1911,21 @@ class App {
         `;
       })
       .join('');
+    // Keep each driver's row stable while live timings and ranking change.
+    const template = document.createElement('template');
+    template.innerHTML = leaderboardHtml;
+    const existingRows = new Map(Array.from(leaderboardContainer.children).map(row => [row.getAttribute('data-car-color'), row]));
+    Array.from(template.content.children).forEach((freshRow, index) => {
+      const row = existingRows.get(freshRow.getAttribute('data-car-color')) || freshRow;
+      if (row !== freshRow) {
+        row.className = freshRow.className;
+        if (row.innerHTML !== freshRow.innerHTML) row.innerHTML = freshRow.innerHTML;
+        row.setAttribute('data-is-player', freshRow.getAttribute('data-is-player') || 'false');
+      }
+      if (leaderboardContainer.children[index] !== row) leaderboardContainer.insertBefore(row, leaderboardContainer.children[index] || null);
+      existingRows.delete(freshRow.getAttribute('data-car-color'));
+    });
+    existingRows.forEach(row => row.remove());
 
     // Telemetry panel
     if (activeCar) {

@@ -56,3 +56,5 @@ npm run preview        # podgląd zbudowanej wersji
 - `opis.md` i `opis.txt` — archiwalne opisy wcześniejszej implementacji.
 
 Projekt pierwotnie rozwijano przy użyciu Gemini Antigravity.
+
+Widok toru: przyciski +/− lub kółko myszy zmieniają zoom (25–800%). Przeciągnięcie przesuwa widok i wyłącza śledzenie. „Cały tor” dopasowuje trasę do okna. Wybierz zawodnika w tabeli lub kliknij auto, następnie włącz „Śledź zawodnika”; kamera podąża za wybranym autem także po zmianie generacji. Bez wcześniejszego wyboru przycisk wybiera aktualnego lidera.
