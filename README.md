@@ -4,7 +4,7 @@ Przeglądarkowy symulator wyścigów 2D w TypeScript i Vite. Dziesięć bolidów
 
 ## Funkcje
 
-- Trening AI, ewolucja populacji, import i eksport modeli.
+- Ciągły trening AI bez restartowania sprawdzonych bolidów przy automatycznej zmianie generacji; ochrona modeli najlepszych okrążeń, import i eksport.
 - Wyścig Grand Prix z procedurą startową, klasyfikacją, paliwem i uproszczonym postojem serwisowym.
 - Tory Grand Prix i owal, rysowanie własnej trasy oraz zapis i odczyt JSON.
 - Telemetria prędkości, przyspieszeń, paliwa, obciążeń osi i czasów okrążeń.
@@ -31,7 +31,8 @@ npm run dev
 Vite wyświetli lokalny adres aplikacji, domyślnie `http://localhost:5173`.
 
 ```bash
-npm test               # regresje fizyki i integracja treningu
+npm test               # regresje fizyki, wyścigu i ciągłego treningu
+npm run test:learning  # ochrona wiedzy AI i zmiany generacji
 npm run audit:physics  # wyniki prób numerycznych
 npm run build          # TypeScript i produkcyjne dist/
 npm run preview        # podgląd zbudowanej wersji

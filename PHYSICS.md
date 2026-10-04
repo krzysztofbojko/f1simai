@@ -25,6 +25,8 @@ Worker używa stałego kroku 1/60 s i akumulatora rzeczywistego czasu. Tryb Bala
 
 ## AI, paliwo i postój
 
+Poprawka treningu z 05.10.2026: po ukończeniu pierwszego okrążenia rekordowa sieć zespołu jest nadpisywana tylko po poprawie czasu PB, a nie przy wzroście kumulowanego fitness. Automatyczne cykle generacji zachowują jadące bolidy z ukończonym okrążeniem, wraz z pozycją, prędkością, paliwem, aktywną siecią i bieżącym okrążeniem. Ręczna „Nowa Gen” nadal rozpoczyna jazdę ze startu, zachowując zapisane rekordowe modele. Po przywróceniu modelu z PB usuwane są próbki nieudanej próby z replay buffer. Profil prędkości lidera jest przypisywany do przestrzennie odpowiadających checkpointów.
+
 AI śledzi krótką trajektorię wzdłuż osi toru zamiast celować o całe checkpointy naprzód przez wąskie zakręty. Sieć wnosi ograniczoną korektę skrętu. Progi sensorów zależą od szerokości drogi, a plan hamowania jest konserwatywną heurystyką, nie dokładnym solverem maksymalnego tempa.
 
 Tankowanie ma przepływ 28 kg/s, cel 110 kg i czas co najmniej 3,2 s. Końcowy krok nalicza tylko pozostały czas tankowania. Postój wlicza się do czasu okrążenia i wyścigu. Początek postoju następuje przy zaliczeniu mety po zgłoszeniu zjazdu; brak fizycznego przejazdu aleją serwisową pozostaje uproszczeniem gry.
@@ -35,6 +37,8 @@ Brak kontaktów samochód–samochód, impulsów zderzeń z barierą, modelu zaw
 
 ## Weryfikacja
 
-`npm test` sprawdza limity sił, hamowanie od spoczynku i w obu kierunkach, telemetrię, jazdę bokiem, brak paliwa, tankowanie i zegary, skalę, obrys oraz ukończenie okrążeń GP przez AI. Test workera z kontrolowanym zegarem sprawdza 1× przy tickerach 16 ms i 20 ms oraz pauzę. Dodatkowo sprawdza checkpointy pól startowych, ukończenie 10-okrążeniowego wyścigu przez AI, zamrożenie czasu po mecie i powrót do treningu. `npm run audit:physics` wypisuje wyniki numeryczne; `npm run build` sprawdza TypeScript i bundlowanie.
+`npm run test:learning` sprawdza ochronę modeli PB, odzyskiwanie po rozbiciu, ciągłość generacji, czyszczenie nieudanych próbek i mapowanie telemetrii lidera; zawiera test 400 sekund rzeczywistej pętli treningowej.
+
+`npm test` uruchamia ten zestaw oraz sprawdza limity sił, hamowanie od spoczynku i w obu kierunkach, telemetrię, jazdę bokiem, brak paliwa, tankowanie i zegary, skalę, obrys oraz ukończenie okrążeń GP przez AI. Test workera z kontrolowanym zegarem sprawdza 1× przy tickerach 16 ms i 20 ms oraz pauzę. Dodatkowo sprawdza checkpointy pól startowych, ukończenie 10-okrążeniowego wyścigu przez AI, zamrożenie czasu po mecie i powrót do treningu. `npm run audit:physics` wypisuje wyniki numeryczne; `npm run build` sprawdza TypeScript i bundlowanie.
 
 `AUDIT_PHYSICS.md` zachowuje dowody stanu sprzed napraw. Poprawiono osiem opisanych tam problemów i akumulator czasu; pełna dynamika yaw, zderzenia i fizyczna aleja serwisowa pozostają ograniczeniami modelu.

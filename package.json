@@ -6,7 +6,8 @@
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
-    "test": "node scripts/audit-physics.mjs --test",
+    "test": "node scripts/audit-physics.mjs --test && node scripts/test-learning.mjs",
+    "test:learning": "node scripts/test-learning.mjs",
     "audit:physics": "node scripts/audit-physics.mjs"
   },
   "devDependencies": {

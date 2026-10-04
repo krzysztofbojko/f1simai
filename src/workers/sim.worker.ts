@@ -569,7 +569,7 @@ function runSimulationSteps(): void {
         playerCar.updateSensors(track);
         const lapEvent = playerCar.updatePhysics(playerControl, fixedDt, track);
         if (lapEvent) {
-          population.recordLap(lapEvent, playerCar, true);
+          population.recordLap(lapEvent, playerCar, true, track);
         }
       }
     }

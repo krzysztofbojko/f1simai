@@ -192,13 +192,22 @@ export class Population {
     return this.cars.filter(c => c.isAlive).length;
   }
 
-  recordLap(lapEvent: LapFinishEvent, car: Car, isPlayer: boolean = false): void {
+  recordLap(lapEvent: LapFinishEvent, car: Car, isPlayer: boolean = false, track?: Track): void {
     if (!this.globalBestLap || lapEvent.lapTime < this.globalBestLap) {
       this.globalBestLap = lapEvent.lapTime;
       if (lapEvent.trajectory.length > 5) {
         this.bestRacingLine = [...lapEvent.trajectory];
-        // Point 1: AI Telemetry Coaching - map leader trajectory speeds
-        this.leaderCheckpointSpeeds = lapEvent.trajectory.map(p => p.speed);
+        // Trajectory samples and checkpoints have different spacing. Index
+        // coaching by the checkpoint's actual position, not sample number.
+        this.leaderCheckpointSpeeds = track ? track.checkpoints.map(checkpoint => {
+          let nearest = lapEvent.trajectory[0];
+          let distance = Infinity;
+          for (const point of lapEvent.trajectory) {
+            const candidate = (point.x - checkpoint.center.x) ** 2 + (point.y - checkpoint.center.y) ** 2;
+            if (candidate < distance) { distance = candidate; nearest = point; }
+          }
+          return nearest.speed;
+        }) : [];
       }
     }
 
@@ -222,6 +231,9 @@ export class Population {
       } else if (t.bestBrain && lapEvent.lapTime > t.bestLapTime + 2.5) {
         // PERFORMANCE GUARD: If car suffered degradation or slow lap, restore its proven championship brain!
         car.brain = t.bestBrain.clone();
+        car.safeBrainBackup = t.bestBrain.clone();
+        car.replayBuffer = [];
+        car.replayStepTimer = 0;
       }
     }
 
@@ -335,7 +347,7 @@ export class Population {
         const lapEvent = car.updatePhysics(control, dt, track);
 
         if (lapEvent) {
-          this.recordLap(lapEvent, car, car.isManual);
+          this.recordLap(lapEvent, car, car.isManual, track);
           this.carGenerationLaps[i] = (this.carGenerationLaps[i] || 0) + 1;
           if (this.carGenerationLaps[i] > this.generationMaxLaps) {
             this.generationMaxLaps = this.carGenerationLaps[i];
@@ -386,7 +398,7 @@ export class Population {
             const lastSnap = this.lastSnapshotFitness[i] ?? 0;
             const isSignificantProgress = (car.fitness - lastSnap) >= 300;
             const isCheckpoint = car.framesSinceLastCheckpoint === 0;
-            if (car.brain && (isSignificantProgress || isCheckpoint || lapEvent || !record.bestBrain)) {
+            if (record.bestLapTime === null && car.brain && (isSignificantProgress || isCheckpoint || !record.bestBrain)) {
               record.bestBrain = car.brain.clone();
               this.lastSnapshotFitness[i] = car.fitness;
             }
@@ -411,8 +423,10 @@ export class Population {
             const peakFit = Math.max(car.fitness, car.peakFitness || 0);
             if (record && peakFit > record.bestFitness && car.brain) {
               record.bestFitness = peakFit;
-              record.bestBrain = car.brain.clone();
-              this.lastSnapshotFitness[i] = peakFit;
+              if (record.bestLapTime === null) {
+                record.bestBrain = car.brain.clone();
+                this.lastSnapshotFitness[i] = peakFit;
+              }
             }
 
             if (peakFit > this.currentGenerationBestFitness) {
@@ -439,6 +453,8 @@ export class Population {
 
             car.brain = newBrain;
             car.safeBrainBackup = newBrain.clone();
+            car.replayBuffer = [];
+            car.replayStepTimer = 0;
           }
 
           const nextCpIdx = (slot.checkpointIdx + 1) % track.checkpoints.length;
@@ -471,7 +487,7 @@ export class Population {
       // 1. Awaryjne zakończenie przy śmierci wszystkich aut (działa przed i po 1. okrążeniu)
       const isAllDeadEmergency = this.allDeadTimer >= this.allDeadMaxTime && this.generationTimer >= this.generationMinTime;
       if (isAllDeadEmergency) {
-        this.evolve(track);
+        this.evolve(track, true);
         return;
       }
 
@@ -482,7 +498,7 @@ export class Population {
       this.stagnationTimer += dt;
       const isStagnatedEmergency = this.stagnationTimer >= this.stagnationMaxTime && this.generationTimer >= this.generationMinTime;
       if (isStagnatedEmergency) {
-        this.evolve(track);
+        this.evolve(track, true);
         return;
       }
 
@@ -506,14 +522,14 @@ export class Population {
           this.cars.every(c => !c.isAlive || (this.carGenerationLaps[this.cars.indexOf(c)] || 0) >= this.generationTargetLaps);
 
         if (this.graceTimer >= this.graceMaxTime || aliveCount === 0 || allLivingFinishedTarget) {
-          this.evolve(track);
+          this.evolve(track, true);
           return;
         }
       }
     }
   }
 
-  evolve(track: Track): void {
+  evolve(track: Track, preserveProvenCars: boolean = false): void {
     if (this.isRaceMode) {
       return;
     }
@@ -526,7 +542,7 @@ export class Population {
         const peakFit = Math.max(car.fitness, car.peakFitness || 0);
         if (peakFit > record.bestFitness) {
           record.bestFitness = peakFit;
-          if (car.brain) {
+          if (record.bestLapTime === null && car.brain) {
             record.bestBrain = car.brain.clone();
             this.lastSnapshotFitness[i] = peakFit;
           }
@@ -569,6 +585,13 @@ export class Population {
       const def = Population.F1_TEAMS[i % Population.F1_TEAMS.length];
       const record = this.teamRecords[i];
       const slot = track.getGridSlot(i);
+      const existingCar = this.cars[i];
+      // Automatic training cycles must not teleport a proven driver or replace
+      // its active network, velocity, fuel, replay buffer or in-progress lap.
+      if (preserveProvenCars && existingCar?.isAlive && (record.bestLapTime !== null || existingCar.isManual)) {
+        newCars.push(existingCar);
+        continue;
+      }
 
       let teamBrain: NeuralNetwork;
 
@@ -614,7 +637,7 @@ export class Population {
 
     this.cars = newCars;
     this.generation++;
-    this.resetGenerationCounters(track);
+    this.resetGenerationCounters();
     this.currentLeader = (eliteTeamIndex >= 0 && this.cars[eliteTeamIndex]) ? this.cars[eliteTeamIndex] : this.cars[0];
   }
 

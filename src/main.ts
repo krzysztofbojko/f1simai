@@ -1452,7 +1452,7 @@ class App {
             const control = this.getPlayerControl();
             const lapEvent = this.playerCar.updatePhysics(control, fixedDt, this.track);
             if (lapEvent) {
-              this.population.recordLap(lapEvent, this.playerCar, true);
+              this.population.recordLap(lapEvent, this.playerCar, true, this.track);
             }
           }
         }
