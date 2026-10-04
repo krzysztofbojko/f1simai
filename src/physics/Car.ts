@@ -77,10 +77,11 @@ export class Car {
   public readonly maxEnginePower: number = 750000; // 750 kW (~1000 HP)
   public readonly launchTractionForce: number = 12500; // N
   public readonly maxSteerAngle: number = 0.40; // ~23 degrees
-  public readonly dragCoeff: number = 0.70; // Cd * A
+  public readonly dragCoeff: number = 1.00; // Cd * A [m^2] (typowo ~1.0-1.4 dla F1; 0.70 dawalo Vmax ~425 km/h)
   public readonly airDensity: number = 1.225; // kg/m^3
-  public readonly downforceCoeff: number = 2.65; // Cl * A
+  public readonly downforceCoeff: number = 3.10; // Cl * A [m^2] (~2.4 t docisku przy 400 km/h)
   public readonly baseTireGrip: number = 1.85; // Peak friction coefficient mu
+  public readonly brakeGripMultiplier: number = 1.10; // hamowanie moze uzyc nieco wiecej tarcia niz boczne (1.6 dawalo mu=2.96 i ~10 G)
 
   // Organic Performance Variations
   public lapPowerFactor: number = 1.0;
@@ -575,13 +576,13 @@ export class Car {
       driveForceMag = Math.min(rearTractionLimit, powerForce);
     }
 
-    // Braking Force with Carbon-Ceramic deceleration (Brake bias ~56% front, 44% rear)
+    // Braking Force (carbon-carbon brakes, F1) (Brake bias ~56% front, 44% rear)
     let maxBrakeMag = 0;
     let brakeFrontForce = 0;
     let brakeRearForce = 0;
     if (control.brake > 0.01) {
-      const maxBrakeFront = this.baseTireGrip * 1.60 * normalLoadFront;
-      const maxBrakeRear = this.baseTireGrip * 1.60 * normalLoadRear;
+      const maxBrakeFront = this.baseTireGrip * this.brakeGripMultiplier * normalLoadFront;
+      const maxBrakeRear = this.baseTireGrip * this.brakeGripMultiplier * normalLoadRear;
       brakeFrontForce = control.brake * maxBrakeFront;
       brakeRearForce = control.brake * maxBrakeRear;
       maxBrakeMag = brakeFrontForce + brakeRearForce;
