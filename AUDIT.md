@@ -2,7 +2,7 @@
 
 Badana rewizja: `a3d266631f1641446b63826065ab3686eae75f98`.
 
-Audyt zlecono dwóm istniejącym agentom Antigravity w Herdr: `w1:p2` (fizyka, AI, geometria, wyścig) oraz `w1:p3` (UI, worker, import/eksport, konfiguracja). Koordynator zweryfikował poniższe problemy w kodzie i ukierunkowanych reprodukcjach. Nie wprowadzano napraw kodu aplikacji.
+Audyt obejmował fizykę, AI, geometrię toru, wyścig, UI, worker, import/eksport oraz konfigurację. Poniższe problemy zweryfikowano w kodzie i ukierunkowanych reprodukcjach. Nie wprowadzano napraw kodu aplikacji.
 
 P1 oznacza wysoki priorytet: utratę wiedzy AI lub blokadę podstawowego procesu. P2 oznacza błąd funkcjonalny wymagający naprawy w następnej kolejności.
 
