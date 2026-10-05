@@ -85,6 +85,14 @@ try {
  const waiting=car(150,0,25), slow=car(172,0,18), left=car(160,3.2,18), right=car(160,-3.2,18);
  planRaceLine(waiting,[waiting,slow,left,right],circuit,1/60);
  assert.equal(waiting.raceLineOffset,0);assert.equal(waiting.overtakingTargetName,'');
+ // Future lane reservations behind the queue leader cannot deadlock a wreck bypass.
+ const queueLeader=car(150,0),follower=car(140,0),queueWreck=car(180,0),occupiedLeft=car(165,-3.2);
+ queueLeader.yellowFlag=follower.yellowFlag=true;queueWreck.isAlive=false;
+ planRaceLine(follower,[follower,queueWreck],circuit,1/60);
+ assert.ok(follower.raceLineOffset>0);
+ planRaceLine(queueLeader,[queueLeader,follower,queueWreck,occupiedLeft],circuit,1/60);
+ assert.ok(queueLeader.raceLineOffset>0,'rear reservation blocked the only physically free bypass');
+ assert.equal(queueLeader.overtakingTargetName,'');
  // A real yellow-flag approach may avoid a wreck, but cannot pass a moving rival.
  const cautious=car(250,0,28), pace=car(270,0,18), wreck=car(400,0);
  cautious.brain=NeuralNetwork.createTrainedDriverNetwork(25);cautious.currentCheckpointIdx=3;cautious.mistakesEnabled=false;

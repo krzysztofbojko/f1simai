@@ -67,7 +67,9 @@ export function planRaceLine(car: Car, cars: Car[], track: Track, dt: number): v
       const distance = gap(track, car.pos, other.pos);
       const lateral = track.sampleSurface(other.pos).lateral;
       const reserved = plans.get(other);
-      if (other !== target && reserved && (other.raceLineOffset !== 0 || other.overtakingTargetName) && Math.abs(distance) < 22 && Math.abs(reserved.lane - lane) < 2.8) return false;
+      // A follower's future lane cannot block the queue leader from bypassing a wreck.
+      // Actual occupied lanes remain protected by the physical clearance check below.
+      if (other !== target && reserved && (other.raceLineOffset !== 0 || other.overtakingTargetName) && distance > -5.5 && distance < 22 && Math.abs(reserved.lane - lane) < 2.8) return false;
       return Math.abs(distance) > (other === target ? 50 : 22) || Math.abs(lateral - lane) >= 2.8;
     });
   };

@@ -1,3 +1,4 @@
+import { loadDriverPressure, normalizePressure } from './ai/DriverPressure';
 import { captureMotion, resolveTraffic, avoidTraffic } from './physics/Traffic';
 import { Vector2 } from './math/Vector2';
 import { Spline } from './math/Spline';
@@ -63,6 +64,8 @@ class App {
   // Input states for manual driving
   private keys: Record<string, boolean> = {};
 
+  private driverPressure = loadDriverPressure();
+
   constructor() {
     this.canvas = document.getElementById('sim-canvas') as HTMLCanvasElement;
     this.ctx = this.canvas.getContext('2d')!;
@@ -75,6 +78,7 @@ class App {
     this.track = Presets.createGrandPrixTrack(initDims.effectiveTrackWidth);
     this.rawDrawnPoints = Presets.GRAND_PRIX_POINTS.map(p => p.clone());
     this.population = new Population(10, this.track, 25);
+    this.population.setDriverPressure(this.driverPressure, true);
 
     this.bridge = new SimBridge();
     this.setupBridgeSync();
@@ -113,6 +117,9 @@ class App {
         car.battleOpponent = sc.battleOpponent;
         car.overtakingTargetName = sc.overtakingTargetName;
         car.racingLineLabel = sc.racingLineLabel;
+        car.driverPressure = sc.driverPressure;
+        car.effectiveDriverPressure = sc.effectiveDriverPressure;
+        car.bestLapPressure = sc.bestLapPressure;
         car.yellowFlag = sc.yellowFlag;
         car.wreckRemoved = sc.wreckRemoved;
         car.recoveryTimer = sc.recoveryTimer;
@@ -210,6 +217,7 @@ class App {
             if (standing.hasFinishedLap && standing.lapTime > 0) {
               if (!rec.bestLapTime || standing.lapTime < rec.bestLapTime) {
                 rec.bestLapTime = standing.lapTime;
+                rec.bestLapPressure = standing.bestLapPressure ?? 0;
               }
             }
             if (standing.lastLapTime !== undefined) {
@@ -764,6 +772,7 @@ class App {
       this.track = Presets.createGrandPrixTrack(dims.effectiveTrackWidth);
       this.rawDrawnPoints = Presets.GRAND_PRIX_POINTS.map(p => p.clone());
       this.population = new Population(10, this.track, this.population.rayCount, this.population.topology);
+      this.population.setDriverPressure(this.driverPressure, true);
       this.bridge.setPreset('gp');
       if (this.selectedCar) {
         const color = this.selectedCar.color;
@@ -780,6 +789,7 @@ class App {
       this.track = Presets.createOvalTrack(dims.effectiveTrackWidth);
       this.rawDrawnPoints = Presets.OVAL_POINTS.map(p => p.clone());
       this.population = new Population(10, this.track, this.population.rayCount, this.population.topology);
+      this.population.setDriverPressure(this.driverPressure, true);
       this.bridge.setPreset('oval');
       if (this.selectedCar) {
         const color = this.selectedCar.color;
@@ -828,6 +838,21 @@ class App {
       valFuel.textContent = f.toString();
       this.population.startingFuelKg = f;
       this.bridge.setFuel(f);
+    });
+
+    const pressureSlider = document.getElementById('slider-driver-pressure') as HTMLInputElement;
+    const pressureLabel = document.getElementById('val-driver-pressure')!;
+    const displayPressure = () => {
+      pressureSlider.value = String(this.driverPressure);
+      pressureLabel.textContent = `${this.driverPressure > 0 ? '+' : ''}${this.driverPressure} · ${this.driverPressure < 0 ? 'Spokojna' : this.driverPressure > 0 ? 'Atak' : 'Zrównoważona'}`;
+    };
+    displayPressure();
+    pressureSlider.addEventListener('input', () => {
+      this.driverPressure = normalizePressure(Number(pressureSlider.value));
+      displayPressure();
+      this.population.setDriverPressure(this.driverPressure);
+      this.bridge.setDriverPressure(this.driverPressure);
+      try { localStorage.setItem('f1_driver_pressure', String(this.driverPressure)); } catch {}
     });
 
     const mutSlider = document.getElementById('slider-mutation') as HTMLInputElement;
@@ -940,6 +965,7 @@ class App {
             brain: car.brain ? JSON.parse(car.brain.toJSON()) : null,
             bestBrain: record?.bestBrain ? JSON.parse(record.bestBrain.toJSON()) : null,
             bestLapTime: record?.bestLapTime || car.bestLapTime,
+            bestLapPressure: record?.bestLapPressure ?? car.bestLapPressure,
             bestLapSplits: record?.bestLapSplits ? [...record.bestLapSplits] : (car.bestLapSplits ? [...car.bestLapSplits] : null),
             bestFitness: record?.bestFitness || car.fitness,
             baseBrakingAggression: car.baseBrakingAggression,
@@ -1358,6 +1384,9 @@ class App {
             }
             if (typeof driverData.bestLapTime === 'number') {
               car.bestLapTime = driverData.bestLapTime;
+              car.bestLapPressure = normalizePressure(driverData.bestLapPressure ?? 0);
+              car.safeBrainPressure = car.bestLapPressure;
+              if (record) record.bestLapPressure = car.bestLapPressure;
               if (record) record.bestLapTime = driverData.bestLapTime;
             }
             if (Array.isArray(driverData.bestLapSplits) && driverData.bestLapSplits.length === 4) {
@@ -1456,6 +1485,7 @@ class App {
       document.getElementById('val-track-width')!.textContent = String(nextWidth);
       this.rawDrawnPoints = parsedPoints;
       this.population = new Population(10, this.track, this.population.rayCount, this.population.topology);
+      this.population.setDriverPressure(this.driverPressure, true);
       this.selectedCar = null;
       this.bridge.setCustomTrack(parsedPoints.map(p => ({ x: p.x, y: p.y })), this.trackWidth);
 
@@ -1507,6 +1537,7 @@ class App {
         return;
       }
       this.population = new Population(10, this.track, this.population.rayCount, this.population.topology);
+      this.population.setDriverPressure(this.driverPressure, true);
       this.selectedCar = null;
       this.bridge.setActiveCarColor(null);
       this.bridge.setCustomTrack(this.rawDrawnPoints.map(p => ({ x: p.x, y: p.y })), this.trackWidth);
@@ -1644,6 +1675,11 @@ class App {
     const surfaces = { asphalt: 'ASFALT', grass: 'TRAWA', gravel: 'ŻWIR' };
     const reasons = { car: 'WYPADEK Z INNYM BOLIDEM', barrier: 'UDERZENIE W BANDĘ', fuel: 'BRAK PALIWA', stuck: 'BRAK POSTĘPU', 'wrong-way': 'JAZDA POD PRĄD' };
     document.getElementById('tele-surface')!.textContent = activeCar ? surfaces[activeCar.surface] : '—';
+    const effectivePressure = activeCar?.effectiveDriverPressure ?? this.driverPressure;
+    const targetPressure = activeCar?.driverPressure ?? this.driverPressure;
+    const pressureText = (p: number) => `${p > 0 ? '+' : ''}${Math.round(p)}`;
+    document.getElementById('tele-pressure')!.textContent = activeCar?.isManual ? 'RĘCZNIE'
+      : `PRESJA ${pressureText(effectivePressure)}${Math.abs(targetPressure-effectivePressure) > .1 ? ` → ${pressureText(targetPressure)}` : ''}`;
     document.getElementById('tele-incident')!.textContent = activeCar?.eliminationReason
       ? activeCar.wreckRemoved ? 'DNF — BOLID USUNIĘTY' : reasons[activeCar.eliminationReason] : activeCar?.yellowFlag ? 'ŻÓŁTA FLAGA — ZAKAZ WYPRZEDZANIA' : activeCar?.incidentActive ? 'POMYŁKA KIEROWCY' : activeCar && activeCar.recoveryTimer > 0 ? 'ODZYSKIWANIE KONTROLI' : activeCar?.overtakingTargetName ? `WYPRZEDZANIE: ${activeCar.overtakingTargetName}` : activeCar?.battleOpponent ? `ATAK: ${activeCar.battleOpponent}` : activeCar?.racingLineLabel || 'JAZDA';
 
@@ -1784,6 +1820,7 @@ class App {
             generation: this.population.generation,
             isPlayer: rs.isPlayer,
             hasFinishedLap: rs.bestLap !== null,
+            bestLapPressure: matchingEntry?.bestLapPressure ?? car?.bestLapPressure ?? 0,
             gap: rs.gap,
             gapToLeader: rs.gapToLeader || rs.gap || '—',
             gapToPrevious: rs.gapToPrevious || '—',
@@ -1825,6 +1862,8 @@ class App {
 
         const bestTimeVal = this.getDriverTrueBest(entry.carColor, entry.lapTime, entry.hasFinishedLap);
         const teamRec = this.population.teamRecords.find(t => t.color === entry.carColor);
+        const bestPressure = entry.bestLapPressure ?? teamRec?.bestLapPressure ?? car?.bestLapPressure ?? 0;
+        const pressureBadge = bestTimeVal !== null ? `<span class="time-delta" title="Presja podczas rekordowego okrążenia">P ${bestPressure > 0 ? '+' : ''}${bestPressure}</span>` : '';
         const lastTimeVal = (entry as any).lastLapTime ?? teamRec?.lastLapTime ?? car?.lastLapTime ?? null;
         const lastTimeStr = (lastTimeVal && lastTimeVal > 0) ? this.formatLapTime(lastTimeVal) : '--:--.---';
 
@@ -1927,7 +1966,7 @@ class App {
                 </div>
                 <div class="time-row">
                   <span class="time-lbl">BEST</span>
-                  <span class="time-main">${bestTimeStr}</span>
+                  <span class="time-main">${bestTimeStr}</span>${pressureBadge}
                 </div>
                 <div class="time-row">
                   <span class="time-lbl">LAST</span>
@@ -1941,7 +1980,7 @@ class App {
               ` : `
                 <div class="time-row">
                   <span class="time-lbl">BEST</span>
-                  <span class="time-main">${bestTimeStr}</span>
+                  <span class="time-main">${bestTimeStr}</span>${pressureBadge}
                   ${deltaStr ? `<span class="time-delta">${deltaStr}</span>` : ''}
                 </div>
                 <div class="time-row">

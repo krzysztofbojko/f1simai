@@ -9,14 +9,14 @@ export class DriverMistakes {
   private lateBrake = false;
   constructor(private random: () => number = () => Math.random()) {}
 
-  static probability(risk: number, dt: number): number {
-    return -Math.expm1(-Math.max(0, Math.min(1, risk)) * Math.max(0, dt) / 600);
+  static probability(risk: number, dt: number, multiplier = 1): number {
+    return -Math.expm1(-Math.max(0, Math.min(1, risk)) * Math.max(0, dt) * Math.max(0, multiplier) / 600);
   }
 
-  step(control: CarControl, dt: number, risk: number, eligible: boolean): { control: CarControl; affected: boolean } {
+  step(control: CarControl, dt: number, risk: number, eligible: boolean, multiplier = 1): { control: CarControl; affected: boolean } {
     this.cooldown = Math.max(0, this.cooldown - dt);
     if (!eligible) { this.remaining = 0; return { control, affected: false }; }
-    if (this.remaining <= 0 && this.cooldown <= 0 && this.random() < DriverMistakes.probability(risk, dt)) {
+    if (this.remaining <= 0 && this.cooldown <= 0 && this.random() < DriverMistakes.probability(risk, dt, multiplier)) {
       this.remaining = 0.2 + this.random() * 0.4;
       this.lateBrake = this.random() < 0.5 && control.brake > 0.05;
       this.steerBias = (this.random() < 0.5 ? -1 : 1) * (0.08 + this.random() * 0.12);

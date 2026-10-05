@@ -1,3 +1,4 @@
+import { loadDriverPressure } from '../ai/DriverPressure';
 import type { SimSnapshot, ComputeProfile, ComputeProfileOptions, ComputeProfileConfig, TopologySpecifier } from './sim.worker';
 
 export type { ComputeProfile, ComputeProfileOptions, ComputeProfileConfig, TopologySpecifier };
@@ -143,7 +144,7 @@ export class SimBridge {
         this.rejectPending(err);
       };
 
-      this.worker.postMessage({ type: 'INIT', profile: this.currentComputeProfile, topology: this.currentTopology });
+      this.worker.postMessage({ type: 'INIT', profile: this.currentComputeProfile, topology: this.currentTopology, driverPressure: loadDriverPressure() });
     } catch (err) {
       console.warn('Web Worker could not be started in current environment:', err);
       this.worker = null;
@@ -188,6 +189,10 @@ export class SimBridge {
 
   public setCustomTrack(points: { x: number; y: number }[], trackWidth?: number): void {
     this.worker?.postMessage({ type: 'SET_CUSTOM_TRACK', points, trackWidth });
+  }
+
+  public setDriverPressure(value: number): void {
+    this.worker?.postMessage({type: 'SET_DRIVER_PRESSURE', value});
   }
 
   public setMutation(value: number): void {

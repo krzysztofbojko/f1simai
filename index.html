@@ -131,7 +131,7 @@
               <div class="live-indicator">LIVE</div>
             </div>
 
-            <div class="surface-telemetry"><span id="tele-surface">ASFALT</span> · <span id="tele-incident">JAZDA</span></div>
+            <div class="surface-telemetry"><span id="tele-surface">ASFALT</span> · <span id="tele-incident">JAZDA</span> · <span id="tele-pressure">PRESJA 0</span></div>
             <div class="telemetry-grid">
               <div class="speedo-box">
                 <div class="speed-num" id="tele-speed">0</div>
@@ -423,6 +423,11 @@
               <div class="setting-row">
                 <label for="slider-track-width">Szerokość Toru: <span id="val-track-width">14</span> m</label>
                 <input type="range" id="slider-track-width" min="5" max="20" value="14" step="1" />
+              </div>
+              <div class="setting-row">
+                <label for="slider-driver-pressure">Presja kierowców: <span id="val-driver-pressure">0 · Zrównoważona</span></label>
+                <input type="range" id="slider-driver-pressure" min="-10" max="10" step="1" value="0" />
+                <small>−10 spokojnie · 0 standard · +10 na granicy</small>
               </div>
               <div class="setting-row">
                 <label for="slider-mutation">Współczynnik Mutacji: <span id="val-mutation">9%</span></label>

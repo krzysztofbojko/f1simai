@@ -150,11 +150,20 @@ try {
       globalThis.setInterval = callback => { tick = callback; return 0; };
       Object.defineProperty(globalThis, 'performance', { configurable: true, value: { now: () => time } });
       const worker = await import(pathToFileURL(join(output, 'worker.mjs')));
+      // Live worker message must preserve cars/brains, interpolate in simulated time,
+      // and serialize both pressure and record context.
+      const pressureCar=worker.auditCars()[0],pressureBrain=pressureCar.brain;
+      self.onmessage({data:{type:'SET_DRIVER_PRESSURE',value:10}});
+      assert.equal(worker.auditCars()[0],pressureCar);assert.equal(pressureCar.brain,pressureBrain);
+      assert.equal(pressureCar.driverPressure,10);assert.equal(pressureCar.effectiveDriverPressure,0);
+      pressureCar.advanceDriverPressure(1);assert.equal(pressureCar.effectiveDriverPressure,5);
+      self.onmessage({data:{type:'SET_DRIVER_PRESSURE',value:0}});
+      pressureCar.advanceDriverPressure(2);assert.equal(pressureCar.effectiveDriverPressure,0);
       const originalTrack = worker.auditTrack();
       self.onmessage({ data: { type: 'SET_CUSTOM_TRACK', points: [{x:0,y:0},{x:200,y:200},{x:0,y:200},{x:200,y:0}], trackWidth:14 } });
       assert.equal(worker.auditTrack(), originalTrack, 'invalid custom track replaced the old circuit');
       assert.equal(messages.at(-1).type, 'TRACK_ERROR');
-      for (const c of worker.auditCars()) { c.isManual = true; c.manualControl = idle; }
+      for (const c of worker.auditCars()) { c.pressureLearningBlocked=false;c.lapCompromised=false;c.isManual = true; c.manualControl = idle; }
       self.onmessage({ data: { type: 'SET_PAUSED', isPaused: false } });
       for (let i = 0; i < 62; i++) { time += 16; tick(); }
       time = 1000; tick(); close(worker.auditCars()[0].timeAlive, 1);
@@ -217,6 +226,19 @@ try {
       assert.equal(safetySnapshot.cars[0].wreckRemoved,true);
       assert.equal(safetySnapshot.cars[1].wreckRemoved,true);
       assert.equal(safetySnapshot.cars[2].yellowFlag,false);
+      const liveIdentity=worker.auditCars()[2];
+      self.onmessage({data:{type:'SET_DRIVER_PRESSURE',value:-10}});
+      time+=20;tick();
+      const pressureSnapshot=messages.filter(m=>m.type==='SNAPSHOT').at(-1).snapshot;
+      assert.equal(worker.auditCars()[2],liveIdentity);
+      assert.equal(pressureSnapshot.driverPressure,-10);
+      assert.equal(pressureSnapshot.cars[2].driverPressure,-10);
+      assert.ok(pressureSnapshot.cars[2].effectiveDriverPressure<0 && pressureSnapshot.cars[2].effectiveDriverPressure>-10);
+      assert.equal(typeof pressureSnapshot.cars[2].bestLapPressure,'number');
+      self.onmessage({data:{type:'SET_PAUSED',isPaused:true}});
+      self.onmessage({data:{type:'SET_PRESET',preset:'oval'}});
+      assert.ok(worker.auditCars().every(c=>c.driverPressure===-10 && c.effectiveDriverPressure===-10));
+
 
 
     } finally {

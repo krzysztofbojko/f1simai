@@ -1,3 +1,4 @@
+import { normalizePressure, pressureProfile } from './DriverPressure';
 import { LineSearch } from './LineSearch';
 import { updateRaceSafety, planRaceLine } from './RaceTraffic';
 import { captureMotion, avoidTraffic, resolveTraffic } from '../physics/Traffic';
@@ -20,6 +21,7 @@ export interface TeamRecord {
   bestBrain: NeuralNetwork | null;
   bestFitness: number;
   bestLapTime: number | null;
+  bestLapPressure?: number;
   bestLapSplits: (number | null)[] | null;
   lastLapTime: number | null;
   avgSpeed: number;
@@ -43,6 +45,7 @@ export interface LapLeaderboardEntry {
   generation: number;
   isPlayer?: boolean;
   hasFinishedLap?: boolean;
+  bestLapPressure?: number;
 }
 
 export class Population {
@@ -55,6 +58,12 @@ export class Population {
   public bestCarEver: Car | null = null;
   public currentLeader: Car | null = null;
   public isRaceMode: boolean = false;
+  public driverPressure = 0;
+  setDriverPressure(value: number, immediate = false): void {
+    this.driverPressure = normalizePressure(value);
+    for (const car of this.cars) car.setDriverPressure(this.driverPressure, immediate);
+  }
+
 
   // Optimal Racing Line & Leaderboard
   public bestRacingLine: TrajectoryPoint[] = [];
@@ -184,11 +193,14 @@ export class Population {
         this.startingFuelKg,
         this.rayCount
       );
+      car.lineSearchSeed = i;
       car.lineSearch = new LineSearch(i);
+      car.lineSearchByPressure.set(0, car.lineSearch);
       car.currentCheckpointIdx = (slot.checkpointIdx + 1) % track.checkpoints.length;
       car.updateDimensionsForTrackWidth(track.width);
       this.cars.push(car);
     }
+    this.setDriverPressure(this.driverPressure, true);
     this.resetGenerationCounters(track);
   }
 
@@ -197,7 +209,9 @@ export class Population {
   }
 
   recordLap(lapEvent: LapFinishEvent, car: Car, isPlayer: boolean = false, track?: Track): void {
-    if (!this.isRaceMode && !isPlayer) car.lineSearch?.finish(lapEvent.lapTime, !lapEvent.compromised);
+    if (car.pressureLearningBlocked) lapEvent = {...lapEvent, compromised: true};
+    const lapPressure = lapEvent.pressure ?? car.driverPressure;
+    if (!this.isRaceMode && !isPlayer) car.lineSearchByPressure.get(lapPressure)?.finish(lapEvent.lapTime, !lapEvent.compromised);
     if (lapEvent.compromised) {
       const record = this.teamRecords.find(r => r.color === car.color);
       if (record) { record.lapsCount++; record.lastLapTime = lapEvent.lapTime; }
@@ -227,6 +241,8 @@ export class Population {
       t.lastLapTime = lapEvent.lapTime;
       if (!t.bestLapTime || lapEvent.lapTime < t.bestLapTime) {
         t.bestLapTime = lapEvent.lapTime;
+        t.bestLapPressure = lapPressure;
+        car.bestLapPressure = lapPressure;
         t.bestLapSplits = [...car.bestLapSplits];
         t.avgSpeed = lapEvent.avgSpeed;
         t.topSpeed = lapEvent.maxSpeed;
@@ -238,10 +254,12 @@ export class Population {
           t.bestBrain = car.brain.clone();
         }
         car.safeBrainBackup = car.brain ? car.brain.clone() : null;
-      } else if (t.bestBrain && lapEvent.lapTime > t.bestLapTime + 2.5) {
+        car.safeBrainPressure = lapPressure;
+      } else if ((t.bestLapPressure ?? 0) === lapPressure && t.bestBrain && lapEvent.lapTime > t.bestLapTime + 2.5) {
         // PERFORMANCE GUARD: If car suffered degradation or slow lap, restore its proven championship brain!
         car.brain = t.bestBrain.clone();
         car.safeBrainBackup = t.bestBrain.clone();
+        car.safeBrainPressure = lapPressure;
         car.replayBuffer = [];
         car.replayStepTimer = 0;
       }
@@ -300,6 +318,7 @@ export class Population {
         carColor: t.color,
         generation: this.generation,
         hasFinishedLap: hasLap,
+        bestLapPressure: t.bestLapPressure ?? 0,
       };
     });
 
@@ -351,6 +370,7 @@ export class Population {
       const car = this.cars[i];
       const record = this.teamRecords[i];
 
+      car.advanceDriverPressure(dt);
       if (car.isAlive) {
         planRaceLine(car, traffic, track, dt);
         const prevCp = this.lastCarCheckpointIdx[i] ?? car.currentCheckpointIdx;
@@ -366,7 +386,7 @@ export class Population {
           return ahead > 2 && ahead < 35 && Math.abs(offset.cross(tangent)) < track.width && Math.cos(other.heading - car.heading) > 0.9;
         }) : undefined;
         const eligible = this.isRaceMode && !car.yellowFlag && !car.isManual && !car.isPitting && !car.wantsToPit && !car.isFinishedRace && car.speed > 12 && car.surface === 'asphalt' && !car.isSkidding && !car.incidentActive && car.recoveryTimer <= 0;
-        car.battlePush.step(dt, rival?.driverName ?? null, eligible);
+        car.battlePush.step(dt, rival?.driverName ?? null, eligible, pressureProfile(car.effectiveDriverPressure).attacks);
         car.battleOpponent = car.battlePush.opponent;
         if (car.battlePush.remaining > 0) {
           // Race timing counts; tactical assistance is not a baseline model result.
@@ -424,7 +444,7 @@ export class Population {
             leader = car;
           }
 
-          if (record && !car.lapCompromised && car.fitness > record.bestFitness) {
+          if (record && !lapEvent?.compromised && !car.lapCompromised && car.fitness > record.bestFitness) {
             record.bestFitness = car.fitness;
 
             // Snapshot brain only upon significant progress (+300 pts), checkpoint clearing, lap completion, or initial brain
@@ -491,6 +511,7 @@ export class Population {
 
             car.brain = newBrain;
             car.safeBrainBackup = newBrain.clone();
+            car.safeBrainPressure = record?.bestBrain ? record.bestLapPressure ?? 0 : eliteRecord?.bestLapPressure ?? 0;
             car.replayBuffer = [];
             car.replayStepTimer = 0;
           }
@@ -671,7 +692,13 @@ export class Population {
         this.startingFuelKg,
         this.rayCount
       );
+      newCar.lineSearchSeed = this.cars[i]?.lineSearchSeed ?? i;
       newCar.lineSearch = this.cars[i]?.lineSearch ?? new LineSearch(i);
+      newCar.lineSearchByPressure = this.cars[i]?.lineSearchByPressure ?? new Map([[this.driverPressure, newCar.lineSearch]]);
+      newCar.driverPressure = this.driverPressure;
+      newCar.setDriverPressure(this.driverPressure, true);
+      newCar.bestLapPressure = record.bestLapPressure ?? 0;
+      newCar.safeBrainPressure = record.bestLapPressure ?? 0;
       newCar.currentCheckpointIdx = (slot.checkpointIdx + 1) % track.checkpoints.length;
       newCar.updateDimensionsForTrackWidth(track.width);
       newCar.bestLapTime = record.bestLapTime;
@@ -749,6 +776,10 @@ export class Population {
       this.cars[i].reset(slot.pos, slot.heading, true, nextCpIdx);
       this.cars[i].updateDimensionsForTrackWidth(track.width);
       this.cars[i].bestLapTime = null;
+      this.cars[i].bestLapPressure = 0;
+      this.cars[i].lineSearch = new LineSearch(i);
+      this.cars[i].lineSearchByPressure = new Map([[this.driverPressure, this.cars[i].lineSearch!]]);
+      this.cars[i].setDriverPressure(this.driverPressure, true);
       this.cars[i].bestLapSplits = [null, null, null, null];
       this.cars[i].currentLapSplits = [null, null, null, null];
       this.cars[i].lastLapTime = null;

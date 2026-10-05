@@ -1,3 +1,4 @@
+import { normalizePressure, pressureProfile } from '../ai/DriverPressure';
 import { LineSearch } from '../ai/LineSearch';
 import { Vector2, IntersectionResult, segmentsIntersect } from '../math/Vector2';
 import { BattlePush } from '../ai/BattlePush';
@@ -29,6 +30,7 @@ export interface TrajectoryPoint {
 
 export interface LapFinishEvent {
   compromised?: boolean;
+  pressure?: number;
   lapTime: number;
   trajectory: TrajectoryPoint[];
   maxSpeed: number;
@@ -146,6 +148,15 @@ export class Car {
   public battleOpponent = '';
   public raceLineOffset = 0;
   public lineSearch: LineSearch | null = null;
+  public lineSearchSeed = this.id % 5;
+  public lineSearchByPressure = new Map<number, LineSearch>();
+  public driverPressure = 0;
+  public effectiveDriverPressure = 0;
+  public bestLapPressure = 0;
+  public safeBrainPressure = 0;
+  public pressureLearningBlocked = false;
+  private pressureStart = 0;
+  private pressureElapsed = 2;
   public racingLineLabel = '';
   public overtakingTargetName = '';
   public yellowFlag = false;
@@ -262,7 +273,7 @@ export class Car {
     this.barrierImpactSpeed = 0;
     this.incidentActive = false;
     this.recoveryTimer = 0;
-    this.lapCompromised = false;
+    this.lapCompromised = this.pressureLearningBlocked;
     this.mistakes.reset();
     this.battlePush.reset();
     this.battleOpponent = '';
@@ -382,10 +393,12 @@ export class Car {
     let maxUpcomingCurvature = 0;
 
     // Corner safe lateral grip uses base tire friction with margin (~1.5G usable before aero)
-    const safeLatGrip = this.baseTireGrip * Car.GRAVITY * 0.45;
-    // Achievable braking deceleration with margin (12.0 m/s^2 provides ample runway and settling buffer)
+    const pressure = pressureProfile(this.yellowFlag || this.isPitting || this.recoveryTimer > 0 || this.surface !== 'asphalt'
+      ? Math.min(0, this.effectiveDriverPressure) : this.effectiveDriverPressure);
+    const safeLatGrip = this.baseTireGrip * Car.GRAVITY * pressure.cornerGrip;
+    // Estimated braking for planning; physical brake forces are unchanged.
     const pushing = this.battlePush.remaining > 0;
-    const aBrake = 6.0 * this.brakingAggression * (pushing ? 1.08 : 1);
+    const aBrake = 6.0 * this.brakingAggression * pressure.braking * (pushing ? 1.08 : 1);
 
     let accumulatedDist = 0;
     let prevPos = this.pos;
@@ -513,7 +526,7 @@ export class Car {
     this.currentControl = control;
 
     // Online learning via replay buffer
-    if (_enableLearning && !pushing && !this.incidentActive && this.recoveryTimer <= 0 && (!track.sampleSurface || !offRoad)) {
+    if (_enableLearning && !this.pressureLearningBlocked && !pushing && !this.incidentActive && this.recoveryTimer <= 0 && (!track.sampleSurface || !offRoad)) {
       this.replayStepTimer++;
 
       if (!this.isSkidding && (Math.abs(steer) > 0.08 || this.speed > 25)) {
@@ -540,6 +553,31 @@ export class Car {
     return control;
   }
 
+  /** Switch planning context without replacing the car or its brain. */
+  setDriverPressure(value: number, immediate = false): void {
+    const next = normalizePressure(value);
+    if (next === this.driverPressure && !immediate) return;
+    if (this.lineSearch) this.lineSearchByPressure.set(this.driverPressure, this.lineSearch);
+    this.lineSearch = this.lineSearchByPressure.get(next) ?? new LineSearch(this.lineSearchSeed);
+    this.lineSearchByPressure.set(next, this.lineSearch);
+    this.pressureStart = this.effectiveDriverPressure;
+    this.driverPressure = next;
+    this.pressureElapsed = immediate ? 2 : 0;
+    if (immediate) this.effectiveDriverPressure = next;
+    else if (!this.isManual) {
+      this.pressureLearningBlocked = true;
+      this.lapCompromised = true;
+      this.replayBuffer = [];
+      this.replayStepTimer = 0;
+    }
+  }
+
+  advanceDriverPressure(dt: number): void {
+    if (!Number.isFinite(dt) || dt <= 0) return;
+    this.pressureElapsed = Math.min(2, this.pressureElapsed + dt);
+    this.effectiveDriverPressure = this.pressureStart + (this.driverPressure - this.pressureStart) * this.pressureElapsed / 2;
+  }
+
   /**
    * Hybrid vehicle dynamics step with SI forces, bounded tire friction,
    * signed telemetry and a finite kinematic steering response.
@@ -560,7 +598,7 @@ export class Car {
     };
     const risk = Math.max(0, Math.min(1, (this.tireUtilization - 0.55) / 0.45));
     const incident = this.mistakes.step(control, dt, risk,
-      this.mistakesEnabled && !this.isManual && !!this.brain && !this.isPitting && !this.isFinishedRace && this.speed > 10 && (this.recoveryTimer <= 0 || this.mistakes.remaining > 0));
+      this.mistakesEnabled && !this.isManual && !!this.brain && !this.isPitting && !this.isFinishedRace && this.speed > 10 && !this.yellowFlag && !this.wantsToPit && this.surface === 'asphalt' && (this.recoveryTimer <= 0 || this.mistakes.remaining > 0), pressureProfile(this.effectiveDriverPressure).mistakes);
     control = incident.control;
     this.incidentActive = incident.affected;
     if (incident.affected) {
@@ -709,7 +747,7 @@ export class Car {
     this.understeerSlip = frontLateral / Math.max(1, frontLoad) < rearLateral / Math.max(1, rearLoad) ? slipRatio : 0;
     this.oversteerSlip = this.understeerSlip > 0 ? 0 : slipRatio;
 
-    if (!this.lapCompromised && this.isRaceMode && this.safeBrainBackup && this.brain && this.isSkidding && (this.oversteerSlip > 0.45 || Math.abs(this.angularVelocity) > 3.2)) {
+    if (!this.lapCompromised && this.safeBrainPressure === this.driverPressure && this.isRaceMode && this.safeBrainBackup && this.brain && this.isSkidding && (this.oversteerSlip > 0.45 || Math.abs(this.angularVelocity) > 3.2)) {
       this.brain = this.safeBrainBackup.clone();
       this.replayBuffer = [];
     }
@@ -1045,12 +1083,14 @@ export class Car {
           // Substantial lap completion reward inversely proportional to lapTime
           const lapTimeBonus = Math.round(150000 / Math.max(10, finishedLapTime));
           if (!this.lapCompromised) this.fitness += 30000 + lapTimeBonus;
-          const compromised = this.lapCompromised;
+          const compromised = this.lapCompromised || this.pressureLearningBlocked;
           if (!compromised && (!this.bestLapTime || finishedLapTime < this.bestLapTime)) {
             this.bestLapTime = finishedLapTime;
+            this.bestLapPressure = this.driverPressure;
             this.bestLapSplits = [...this.currentLapSplits];
             if (this.brain) {
               this.safeBrainBackup = this.brain.clone();
+              this.safeBrainPressure = this.driverPressure;
             }
           }
 
@@ -1061,7 +1101,8 @@ export class Car {
             this.pitStopsCount++;
           }
 
-          this.lapCompromised = this.incidentActive || this.recoveryTimer > 0;
+          this.pressureLearningBlocked = this.pressureElapsed < 2;
+          this.lapCompromised = this.incidentActive || this.recoveryTimer > 0 || this.pressureLearningBlocked;
           this.rollLapPerformanceVariation();
           this.currentLapTrajectory = [];
           this.maxSpeedInLap = 0;
@@ -1071,6 +1112,7 @@ export class Car {
 
           return {
             compromised,
+            pressure: this.driverPressure,
             lapTime: finishedLapTime,
             trajectory: finishedTrajectory,
             maxSpeed: finishedMaxSpeedKmh,

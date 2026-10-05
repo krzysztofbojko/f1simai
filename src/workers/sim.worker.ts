@@ -1,3 +1,4 @@
+import { normalizePressure } from '../ai/DriverPressure';
 import { captureMotion, resolveTraffic, avoidTraffic } from '../physics/Traffic';
 import { Track, TimingGate } from '../track/Track';
 import { Presets } from '../track/Presets';
@@ -98,6 +99,9 @@ export interface SerializedCar {
   battleOpponent: string;
   overtakingTargetName: string;
   racingLineLabel: string;
+  driverPressure: number;
+  effectiveDriverPressure: number;
+  bestLapPressure: number;
   yellowFlag: boolean;
   wreckRemoved: boolean;
   recoveryTimer: number;
@@ -131,6 +135,7 @@ export interface SerializedCar {
 }
 
 export interface SimSnapshot {
+  driverPressure: number;
   cars: SerializedCar[];
   playerCar: SerializedCar | null;
   bestRacingLine: TrajectoryPoint[];
@@ -196,6 +201,7 @@ function applyComputeProfile(profile: ComputeProfile, options?: ComputeProfileOp
 let trackWidth = 14;
 let rayCount = 25;
 let startingFuelKg = 105;
+let driverPressure = 0;
 let mutationRate = 0.09;
 let speedMultiplier: number | 'max' = 1;
 let isPaused = true;
@@ -213,6 +219,7 @@ let frozenRaceStandings: RaceStanding[] | null = null;
 let dims = Car.getDimensionsForTrackWidth(trackWidth);
 let track = Presets.createGrandPrixTrack(dims.effectiveTrackWidth);
 let population = new Population(10, track, rayCount, currentTopology);
+population.setDriverPressure(driverPressure, true);
 let playerCar: Car | null = null;
 let playerControl: CarControl = { steer: 0, throttle: 0, brake: 0 };
 let activeSelectedColor: string | null = null;
@@ -249,6 +256,9 @@ function serializeCar(car: Car, ctrl?: CarControl, isHeadless: boolean = false):
     battleOpponent: car.battleOpponent,
     overtakingTargetName: car.overtakingTargetName,
     racingLineLabel: car.racingLineLabel,
+    driverPressure: car.driverPressure,
+    effectiveDriverPressure: car.effectiveDriverPressure,
+    bestLapPressure: car.bestLapPressure,
     yellowFlag: car.yellowFlag,
     wreckRemoved: car.wreckRemoved,
     recoveryTimer: car.recoveryTimer,
@@ -481,6 +491,7 @@ function createSnapshot(): SimSnapshot {
   }
 
   return {
+    driverPressure: population.driverPressure,
     cars: serializedCars,
     playerCar: serializedPlayer,
     bestRacingLine: population.bestRacingLine.map(p => ({ ...p })),
@@ -659,6 +670,8 @@ self.onmessage = (e: MessageEvent) => {
 
   switch (data.type) {
     case 'INIT': {
+      driverPressure = normalizePressure(data.driverPressure ?? 0);
+      population.setDriverPressure(driverPressure, true);
       if (data.topology) {
         currentTopology = data.topology as TopologySpecifier;
         population.setTopology(currentTopology, track);
@@ -728,6 +741,7 @@ self.onmessage = (e: MessageEvent) => {
         track = Presets.createGrandPrixTrack(dims.effectiveTrackWidth);
       }
       population = new Population(10, track, rayCount, currentTopology);
+      population.setDriverPressure(driverPressure, true);
       if (playerCar) {
         playerCar.reset(track.startPosition, track.startAngle, true);
         playerCar.updateDimensionsForTrackWidth(trackWidth);
@@ -745,6 +759,7 @@ self.onmessage = (e: MessageEvent) => {
         const nextTrack = new Track(splinePoints, nextWidth);
         trackWidth = nextWidth; track = nextTrack;
         population = new Population(10, track, rayCount, currentTopology);
+        population.setDriverPressure(driverPressure, true);
         if (playerCar) {
           playerCar.reset(track.startPosition, track.startAngle, true);
           playerCar.updateDimensionsForTrackWidth(trackWidth);
@@ -752,6 +767,13 @@ self.onmessage = (e: MessageEvent) => {
       } catch (error) {
         self.postMessage({ type: 'TRACK_ERROR', message: error instanceof Error ? error.message : 'Niepoprawna geometria toru.' });
       }
+      break;
+    }
+
+    case 'SET_DRIVER_PRESSURE': {
+      driverPressure = normalizePressure(data.value);
+      population.setDriverPressure(driverPressure);
+      playerCar?.setDriverPressure(driverPressure);
       break;
     }
 
@@ -825,6 +847,7 @@ self.onmessage = (e: MessageEvent) => {
           if (record && record.bestBrain && !car.isManual) {
             car.brain = record.bestBrain.clone();
             car.safeBrainBackup = record.bestBrain.clone();
+            car.safeBrainPressure = record.bestLapPressure ?? 0;
           }
           car.isRaceMode = true;
           const slot = track.getGridSlot(i);
@@ -869,6 +892,7 @@ self.onmessage = (e: MessageEvent) => {
         if (record && record.bestBrain && !car.isManual) {
           car.brain = record.bestBrain.clone();
           car.safeBrainBackup = record.bestBrain.clone();
+          car.safeBrainPressure = record.bestLapPressure ?? 0;
         }
         const slot = track.getGridSlot(i);
         const nextCpIdx = (slot.checkpointIdx + 1) % track.checkpoints.length;
@@ -901,6 +925,7 @@ self.onmessage = (e: MessageEvent) => {
         if (record && record.bestBrain && !car.isManual) {
           car.brain = record.bestBrain.clone();
           car.safeBrainBackup = record.bestBrain.clone();
+          car.safeBrainPressure = record.bestLapPressure ?? 0;
         }
         const slot = track.getGridSlot(i);
         const nextCpIdx = (slot.checkpointIdx + 1) % track.checkpoints.length;
@@ -1056,6 +1081,7 @@ self.onmessage = (e: MessageEvent) => {
           brain: car.brain ? JSON.parse(car.brain.toJSON()) : null,
           bestBrain: record?.bestBrain ? JSON.parse(record.bestBrain.toJSON()) : null,
           bestLapTime: record?.bestLapTime || car.bestLapTime,
+          bestLapPressure: record?.bestLapPressure ?? car.bestLapPressure,
           bestLapSplits: record?.bestLapSplits ? [...record.bestLapSplits] : (car.bestLapSplits ? [...car.bestLapSplits] : null),
           bestFitness: record?.bestFitness || car.fitness,
           baseBrakingAggression: car.baseBrakingAggression,
@@ -1113,6 +1139,9 @@ self.onmessage = (e: MessageEvent) => {
               }
               if (typeof driverData.bestLapTime === 'number') {
                 car.bestLapTime = driverData.bestLapTime;
+                car.bestLapPressure = normalizePressure(driverData.bestLapPressure ?? 0);
+                car.safeBrainPressure = car.bestLapPressure;
+                if (record) record.bestLapPressure = car.bestLapPressure;
                 if (record) record.bestLapTime = driverData.bestLapTime;
               }
               if (Array.isArray(driverData.bestLapSplits) && driverData.bestLapSplits.length === 4) {
