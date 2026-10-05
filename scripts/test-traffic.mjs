@@ -6,10 +6,13 @@ import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 const dir = await mkdtemp(join(tmpdir(), 'f1-traffic-'));
 try {
- await build({configFile:false,logLevel:'silent',build:{outDir:dir,lib:{entry:{traffic:resolve('src/physics/Traffic.ts'),car:resolve('src/physics/Car.ts'),vector:resolve('src/math/Vector2.ts')},formats:['es'],fileName:(_,name)=>name+'.mjs'}}});
+ await build({configFile:false,logLevel:'silent',build:{outDir:dir,lib:{entry:{traffic:resolve('src/physics/Traffic.ts'),car:resolve('src/physics/Car.ts'),vector:resolve('src/math/Vector2.ts'),race:resolve('src/ai/RaceTraffic.ts'),presets:resolve('src/track/Presets.ts'),track:resolve('src/track/Track.ts'),network:resolve('src/ai/NeuralNetwork.ts')},formats:['es'],fileName:(_,name)=>name+'.mjs'}}});
  const {Car} = await import(pathToFileURL(join(dir,'car.mjs')));
  const {Vector2} = await import(pathToFileURL(join(dir,'vector.mjs')));
  const {captureMotion,resolveTraffic,avoidTraffic} = await import(pathToFileURL(join(dir,'traffic.mjs')));
+ const {planRaceLine,updateRaceSafety} = await import(pathToFileURL(join(dir,'race.mjs')));
+ const {Track} = await import(pathToFileURL(join(dir,'track.mjs')));
+ const {NeuralNetwork} = await import(pathToFileURL(join(dir,'network.mjs')));
  const car=(x,y,v=0)=>{const c=new Car(new Vector2(x,y),0);c.vel=new Vector2(v,0);c.speed=v;c.isRaceMode=true;return c;};
  // A rear-end collision at 100 m/s cannot tunnel through the other body.
  let a=car(0,0,100),b=car(20,0,0),m=captureMotion([a,b]);a.pos=new Vector2(40,0);
@@ -29,5 +32,64 @@ try {
  b.pos.y=4;ctrl=avoidTraffic(a,[a,b],{throttle:1,brake:0,steer:0});assert.equal(ctrl.throttle,1);
  b.pos.y=0;b.isAlive=false;b.vel.set(0,0);assert.ok(avoidTraffic(a,[a,b],{throttle:1,brake:0,steer:0}).brake>0);
  a.isManual=true;assert.equal(avoidTraffic(a,[a,b],{throttle:1,brake:0,steer:0}).throttle,1);
+ // Long straight fixture permits an actual pass under the production steering/physics.
+ const raw = [[0,0],[100,0],[200,0],[300,0],[400,0],[500,0],[600,0],[600,200],[500,200],[400,200],[300,200],[200,200],[100,200],[0,200]].map(p=>new Vector2(...p));
+ const points=raw.map((center,i)=>{const tangent=raw[(i+1)%raw.length].sub(raw[(i+raw.length-1)%raw.length]).normalize(),normal=tangent.normal();return {center,tangent,normal,left:center.add(normal.mul(7)),right:center.sub(normal.mul(7)),curvature:[0,6,7,13].includes(i)?.01:0};});
+ const circuit=new Track(points,14);
+ a=car(150,0,28);b=car(173,0,18);
+ a.brain=NeuralNetwork.createTrainedDriverNetwork(25);a.currentCheckpointIdx=2;b.currentCheckpointIdx=2;
+ a.mistakesEnabled=false;b.mistakesEnabled=false;
+ let passed=false,maxOffset=0;
+ for(let step=0;step<1200;step++) {
+   updateRaceSafety([a,b],circuit);planRaceLine(a,[a,b],circuit,1/60);
+   a.updateSensors(circuit);
+   const motion=captureMotion([a,b]);
+   a.updatePhysics(avoidTraffic(a,[a,b],a.getAIControl(circuit),circuit),1/60,circuit);
+   // Pace car follows the straight at 18 m/s; the attacking car uses actual physics.
+   b.prevPos=b.pos.clone();b.pos.x+=18/60;
+   resolveTraffic([a,b],motion);
+   maxOffset=Math.max(maxOffset,Math.abs(a.pos.y));
+   assert.ok(a.isAlive&&b.isAlive,'overtaking caused a collision');
+   assert.equal(a.surface,'asphalt','overtaking left the asphalt');
+   if(a.pos.x>b.pos.x+12 && Math.abs(a.raceLineOffset)<.05) {passed=true;break;}
+ }
+ assert.ok(passed,'driver failed to complete an actual pass and return to the racing line');
+ assert.ok(maxOffset>2.8,'driver did not use another line');
+ // Wrecks produce a local yellow and disappear only after one or two leader laps.
+ a=car(150,0,35);b=car(190,0,0);b.isAlive=false;b.eliminationReason='car';
+ updateRaceSafety([a,b],circuit);assert.equal(a.yellowFlag,true);assert.ok([1,2].includes(b.wreckClearLap));
+ planRaceLine(a,[a,b],circuit,1/60);assert.notEqual(a.raceLineOffset,0,'yellow flag must allow bypassing a wreck');assert.equal(a.overtakingTargetName,'');
+ ctrl=avoidTraffic(a,[a,b],{throttle:1,brake:0,steer:0});assert.equal(ctrl.throttle,0);assert.ok(ctrl.brake>0);
+ const rival=car(172,3,20);planRaceLine(a,[a,rival,b],circuit,1/60);assert.equal(a.overtakingTargetName,'','live overtaking under yellow');
+ const far=car(400,0,20);updateRaceSafety([a,b,far],circuit);assert.equal(far.yellowFlag,false,'yellow must stay local');
+ a.raceLapsCompleted=b.wreckClearLap-1;updateRaceSafety([a,b],circuit);assert.equal(b.wreckRemoved,false);
+ a.raceLapsCompleted=b.wreckClearLap;updateRaceSafety([a,b],circuit);assert.equal(b.wreckRemoved,true);assert.equal(a.yellowFlag,false);
+ const after=avoidTraffic(a,[a,b],{throttle:1,brake:0,steer:0});assert.equal(after.brake,0,'removed wreck remains an obstacle');
+ // Both overtaking corridors occupied: wait instead of cutting into another car.
+ const waiting=car(150,0,25), slow=car(172,0,18), left=car(160,3.2,18), right=car(160,-3.2,18);
+ planRaceLine(waiting,[waiting,slow,left,right],circuit,1/60);
+ assert.equal(waiting.raceLineOffset,0);assert.equal(waiting.overtakingTargetName,'');
+ // A real yellow-flag approach may avoid a wreck, but cannot pass a moving rival.
+ const cautious=car(250,0,28), pace=car(270,0,18), wreck=car(400,0);
+ cautious.brain=NeuralNetwork.createTrainedDriverNetwork(25);cautious.currentCheckpointIdx=3;cautious.mistakesEnabled=false;
+ wreck.isAlive=false;wreck.eliminationReason='car';
+ for(let step=0;step<300;step++) {
+   updateRaceSafety([cautious,pace,wreck],circuit);assert.equal(cautious.yellowFlag,true);
+   planRaceLine(cautious,[cautious,pace,wreck],circuit,1/60);cautious.updateSensors(circuit);
+   const motion=captureMotion([cautious,pace,wreck]);
+   cautious.updatePhysics(avoidTraffic(cautious,[cautious,pace,wreck],cautious.getAIControl(circuit),circuit),1/60,circuit);
+   pace.pos.x+=18/60;resolveTraffic([cautious,pace,wreck],motion);
+   assert.ok(cautious.pos.x<pace.pos.x,'moving rival was passed under yellow');
+   assert.ok(cautious.isAlive,'yellow approach caused a crash');
+ }
+ // Waiting behind blocked traffic is not a driver-stagnation DNF.
+ const queued=car(150,0),blocked=car(156,0);queued.brain=NeuralNetwork.createTrainedDriverNetwork(25);queued.currentCheckpointIdx=2;queued.framesSinceLastCheckpoint=599;
+ for(let step=0;step<120;step++) queued.updatePhysics(avoidTraffic(queued,[queued,blocked],{throttle:1,brake:0,steer:0},circuit),1/60,circuit);
+ assert.ok(queued.isAlive);assert.equal(queued.framesSinceLastCheckpoint,599);
+ // A removed wreck has neither rendering nor physical collision presence.
+ const removed=car(400,0);removed.isAlive=false;removed.wreckRemoved=true;
+ const clear=car(380,0,50),clearMotion=captureMotion([clear,removed]);clear.pos.x=420;
+ resolveTraffic([clear,removed],clearMotion);assert.ok(clear.isAlive);assert.equal(clear.recoveryTimer,0);
+ console.log('Race traffic: actual pass completed, lateral separation',maxOffset.toFixed(2),'m; yellow flags and lap-based clearance passed.');
  console.log('Traffic regressions passed: swept rear-end/crossing collisions, light contact, separation, energy, passing and AI braking.');
 } finally {await rm(dir,{recursive:true,force:true});}

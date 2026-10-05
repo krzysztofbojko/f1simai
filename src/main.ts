@@ -1,4 +1,4 @@
-import { captureMotion, resolveTraffic } from './physics/Traffic';
+import { captureMotion, resolveTraffic, avoidTraffic } from './physics/Traffic';
 import { Vector2 } from './math/Vector2';
 import { Spline } from './math/Spline';
 import { Track } from './track/Track';
@@ -111,6 +111,9 @@ class App {
         car.barrierImpactSpeed = sc.barrierImpactSpeed;
         car.incidentActive = sc.incidentActive;
         car.battleOpponent = sc.battleOpponent;
+        car.overtakingTargetName = sc.overtakingTargetName;
+        car.yellowFlag = sc.yellowFlag;
+        car.wreckRemoved = sc.wreckRemoved;
         car.recoveryTimer = sc.recoveryTimer;
         car.isManual = sc.isManual;
 
@@ -258,6 +261,9 @@ class App {
         this.playerCar.barrierImpactSpeed = sp.barrierImpactSpeed;
         this.playerCar.incidentActive = sp.incidentActive;
         this.playerCar.battleOpponent = sp.battleOpponent;
+        this.playerCar.overtakingTargetName = sp.overtakingTargetName;
+        this.playerCar.yellowFlag = sp.yellowFlag;
+        this.playerCar.wreckRemoved = sp.wreckRemoved;
         this.playerCar.recoveryTimer = sp.recoveryTimer;
         const rawPlayerCtrl = sp.ctrl;
         const validPlayerCtrl: CarControl = {
@@ -1549,7 +1555,8 @@ class App {
 
           if (this.playerCar && this.playerCar.isAlive) {
             this.playerCar.updateSensors(this.track);
-            const control = this.getPlayerControl();
+            const input = this.getPlayerControl();
+            const control = this.population.isRaceMode ? avoidTraffic(this.playerCar, traffic, input, this.track) : input;
             const lapEvent = this.playerCar.updatePhysics(control, fixedDt, this.track);
             if (trafficMotion) resolveTraffic(traffic, trafficMotion, this.playerCar);
             if (lapEvent) {
@@ -1637,7 +1644,7 @@ class App {
     const reasons = { car: 'WYPADEK Z INNYM BOLIDEM', barrier: 'UDERZENIE W BANDĘ', fuel: 'BRAK PALIWA', stuck: 'BRAK POSTĘPU', 'wrong-way': 'JAZDA POD PRĄD' };
     document.getElementById('tele-surface')!.textContent = activeCar ? surfaces[activeCar.surface] : '—';
     document.getElementById('tele-incident')!.textContent = activeCar?.eliminationReason
-      ? reasons[activeCar.eliminationReason] : activeCar?.incidentActive ? 'POMYŁKA KIEROWCY' : activeCar && activeCar.recoveryTimer > 0 ? 'ODZYSKIWANIE KONTROLI' : activeCar?.battleOpponent ? `ATAK: ${activeCar.battleOpponent}` : 'JAZDA';
+      ? activeCar.wreckRemoved ? 'DNF — BOLID USUNIĘTY' : reasons[activeCar.eliminationReason] : activeCar?.yellowFlag ? 'ŻÓŁTA FLAGA — ZAKAZ WYPRZEDZANIA' : activeCar?.incidentActive ? 'POMYŁKA KIEROWCY' : activeCar && activeCar.recoveryTimer > 0 ? 'ODZYSKIWANIE KONTROLI' : activeCar?.overtakingTargetName ? `WYPRZEDZANIE: ${activeCar.overtakingTargetName}` : activeCar?.battleOpponent ? `ATAK: ${activeCar.battleOpponent}` : 'JAZDA';
 
     // Update telemetry header and brain tag
     const teleHeader = document.getElementById('telemetry-header-title');

@@ -169,6 +169,7 @@ try {
       self.onmessage({ data: { type: 'SET_SPEED', speed: 100 } });
       for (let i = 0; i < 1000 && worker.auditRace().raceState !== 'FINISHED'; i++) { time += 20; tick(); }
       assert.equal(worker.auditRace().raceState, 'FINISHED');
+      if (worker.auditRace().raceWinner.startsWith('BRAK')) console.error(worker.auditCars().map(c=>({name:c.driverName,reason:c.eliminationReason,cp:c.currentCheckpointIdx,laps:c.raceLapsCompleted,pos:c.pos,fuel:c.fuelKg})));
       assert.ok(!worker.auditRace().raceWinner.startsWith('BRAK'), 'race must produce a finisher');
       const finishTime = worker.auditCars()[0].totalRaceTime;
       time += 20; tick(); close(worker.auditCars()[0].totalRaceTime, finishTime);
@@ -195,7 +196,8 @@ try {
       for(let i=0;i<300;i++) { time+=20; tick(); }
       const cars=worker.auditCars();
       for(const c of cars) { c.isManual=true; c.manualControl=idle; c.isAlive=false; }
-      const rear=cars[0], front=cars[1];
+      const rear=cars[0], front=cars[1], survivor=cars[2];
+      survivor.reset(road.center.sub(road.tangent.mul(40)),road.tangent.heading(),true,idx); survivor.isManual=true; survivor.manualControl=idle;
       for(const c of [rear,front]) { c.reset(road.center,road.tangent.heading(),true,idx); c.isManual=true; c.manualControl=idle; }
       front.pos=road.center.add(road.tangent.mul(6.2));
       rear.vel=road.tangent.mul(60); rear.speed=60;
@@ -205,6 +207,17 @@ try {
       const trafficSnapshot=messages.filter(m=>m.type==='SNAPSHOT').at(-1).snapshot.cars[0];
       assert.equal(trafficSnapshot.eliminationReason,'car');
       assert.equal(trafficSnapshot.isAlive,false);
+      time+=20; tick();
+      let safetySnapshot=messages.filter(m=>m.type==='SNAPSHOT').at(-1).snapshot;
+      assert.equal(safetySnapshot.cars[2].yellowFlag,true);
+      assert.equal(safetySnapshot.cars[0].wreckRemoved,false);
+      survivor.raceLapsCompleted=2;
+      time+=20; tick();
+      safetySnapshot=messages.filter(m=>m.type==='SNAPSHOT').at(-1).snapshot;
+      assert.equal(safetySnapshot.cars[0].wreckRemoved,true);
+      assert.equal(safetySnapshot.cars[1].wreckRemoved,true);
+      assert.equal(safetySnapshot.cars[2].yellowFlag,false);
+
 
     } finally {
       globalThis.self = savedSelf; globalThis.setInterval = savedInterval;

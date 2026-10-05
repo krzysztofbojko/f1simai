@@ -409,6 +409,7 @@ export class Renderer {
     isSelected: boolean = false,
     hasSelectedCar: boolean = false
   ): void {
+    if (car.wreckRemoved) return;
     if (!car.isAlive) {
       const ctx = this.ctx;
       ctx.save();
@@ -426,7 +427,7 @@ export class Renderer {
       ctx.fillStyle = '#FF5252';
       ctx.font = 'bold 9px sans-serif';
       ctx.textAlign = 'center';
-      ctx.fillText('💥 DNF', 0, -car.width - 2);
+      ctx.fillText('⚠ DNF — ŻÓŁTA', 0, -car.width - 2);
       ctx.restore();
       return;
     }
@@ -599,6 +600,8 @@ export class Renderer {
 
     const labelText = isPitting
       ? `⛽ ${driverShort}: PIT STOP (${car.pitTimer.toFixed(1)}s)`
+      : car.yellowFlag
+      ? `⚑ ŻÓŁTA: ${driverShort} ${speedVal} km/h`
       : car.isOutOfFuel
       ? `⚠️ ${driverShort}: LIMP MODE (NO FUEL)`
       : wantsPit
@@ -635,7 +638,7 @@ export class Renderer {
       ? 'rgba(24, 18, 10, 0.92)'
       : 'rgba(12, 16, 20, 0.82)';
 
-    ctx.strokeStyle = isPitting
+    ctx.strokeStyle = car.yellowFlag ? '#FFD700' : isPitting
       ? '#FFD700'
       : wantsPit
       ? '#FF8000'
@@ -660,7 +663,7 @@ export class Renderer {
     ctx.stroke();
 
     // Text label
-    ctx.fillStyle = isPitting
+    ctx.fillStyle = car.yellowFlag ? '#FFD700' : isPitting
       ? '#FFD700'
       : wantsPit
       ? '#FFB800'

@@ -1,3 +1,5 @@
+import { gap as trackGap } from '../ai/RaceTraffic';
+import { Track } from '../track/Track';
 import { Car, type CarControl } from './Car';
 import { Vector2 } from '../math/Vector2';
 
@@ -7,18 +9,25 @@ export function captureMotion(cars: Car[]): Map<Car, Motion> {
 }
 
 /** Brake for any vehicle occupying the forward corridor, including stopped cars. */
-export function avoidTraffic(car: Car, cars: Car[], control: CarControl): CarControl {
-  if (car.isManual || car.isPitting) return control;
+export function avoidTraffic(car: Car, cars: Car[], control: CarControl, track?: Track): CarControl {
+  car.trafficWaiting = false;
+  if (car.isPitting) return control;
+  if (car.isManual && !car.yellowFlag) return control;
   const forward = Vector2.fromAngle(car.heading);
-  let brake = 0;
+  const road = track?.sampleSurface(car.pos);
+  let brake = car.yellowFlag && car.speed > 22 ? Math.min(1, .3 + (car.speed - 22) / 8) : 0;
   for (const other of cars) {
-    if (other === car || other.isPitting || other.isFinishedRace) continue;
-    const offset = other.pos.sub(car.pos), ahead = offset.dot(forward);
-    if (ahead <= 0 || Math.abs(offset.cross(forward)) > 2.2) continue;
-    const closing = Math.max(0, car.vel.sub(other.vel).dot(forward));
+    if (other === car || other.wreckRemoved || other.isPitting || other.isFinishedRace) continue;
+    const offset = other.pos.sub(car.pos), ahead = track ? trackGap(track, car.pos, other.pos) : offset.dot(forward);
+    const lateral = track && road ? track.sampleSurface(other.pos).lateral - road.lateral : offset.cross(forward);
+    if (ahead <= 0 || Math.abs(lateral) > (car.yellowFlag && other.isAlive ? 16 : 2.2)) continue;
+    const closing = Math.max(0, track ? car.speed - (other.isAlive ? other.speed : 0) : car.vel.sub(other.vel).dot(forward));
     const gap = ahead - 5.5;
     const safeGap = 2 + car.speed * .25 + closing * closing / 12;
-    if (gap < safeGap) brake = Math.max(brake, Math.min(1, .25 + (safeGap - gap) / Math.max(3, safeGap)));
+    if (gap < safeGap) {
+      brake = Math.max(brake, Math.min(1, .25 + (safeGap - gap) / Math.max(3, safeGap)));
+      car.trafficWaiting = car.speed < 3;
+    }
   }
   if (!brake) return control;
   car.battlePush.remaining = 0;
@@ -65,7 +74,7 @@ export function resolveTraffic(cars: Car[], motion: Map<Car, Motion>, onlyCar?: 
   for (let i = 0; i < cars.length; i++) for (let j = i + 1; j < cars.length; j++) {
     const a = cars[i], b = cars[j];
     if (onlyCar && a !== onlyCar && b !== onlyCar) continue;
-    if ((!a.isAlive && !b.isAlive) || a.isPitting || b.isPitting || a.isFinishedRace || b.isFinishedRace) continue;
+    if (a.wreckRemoved || b.wreckRemoved || (!a.isAlive && !b.isAlive) || a.isPitting || b.isPitting || a.isFinishedRace || b.isFinishedRace) continue;
     const ma = motion.get(a), mb = motion.get(b);
     if (!ma || !mb) continue;
     const hit = contact(a, b, ma, mb);

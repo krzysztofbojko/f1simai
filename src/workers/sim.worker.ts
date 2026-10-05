@@ -1,4 +1,4 @@
-import { captureMotion, resolveTraffic } from '../physics/Traffic';
+import { captureMotion, resolveTraffic, avoidTraffic } from '../physics/Traffic';
 import { Track, TimingGate } from '../track/Track';
 import { Presets } from '../track/Presets';
 import { Population, LapLeaderboardEntry } from '../ai/Population';
@@ -96,6 +96,9 @@ export interface SerializedCar {
   barrierImpactSpeed: number;
   incidentActive: boolean;
   battleOpponent: string;
+  overtakingTargetName: string;
+  yellowFlag: boolean;
+  wreckRemoved: boolean;
   recoveryTimer: number;
   isManual: boolean;
   fitness: number;
@@ -243,6 +246,9 @@ function serializeCar(car: Car, ctrl?: CarControl, isHeadless: boolean = false):
     barrierImpactSpeed: car.barrierImpactSpeed,
     incidentActive: car.incidentActive,
     battleOpponent: car.battleOpponent,
+    overtakingTargetName: car.overtakingTargetName,
+    yellowFlag: car.yellowFlag,
+    wreckRemoved: car.wreckRemoved,
     recoveryTimer: car.recoveryTimer,
     isManual: car.isManual,
     fitness: car.fitness,
@@ -584,7 +590,7 @@ function runSimulationSteps(): void {
         }
       } else {
         playerCar.updateSensors(track);
-        const lapEvent = playerCar.updatePhysics(playerControl, fixedDt, track);
+        const lapEvent = playerCar.updatePhysics(population.isRaceMode ? avoidTraffic(playerCar, traffic, playerControl, track) : playerControl, fixedDt, track);
         if (trafficMotion) resolveTraffic(traffic, trafficMotion, playerCar);
         if (lapEvent) {
           population.recordLap({...lapEvent, compromised: lapEvent.compromised || playerCar.lapCompromised}, playerCar, true, track);

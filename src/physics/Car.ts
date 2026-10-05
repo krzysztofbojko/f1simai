@@ -143,6 +143,12 @@ export class Car {
   public lapCompromised = false;
   public battlePush = new BattlePush();
   public battleOpponent = '';
+  public raceLineOffset = 0;
+  public overtakingTargetName = '';
+  public yellowFlag = false;
+  public trafficWaiting = false;
+  public wreckRemoved = false;
+  public wreckClearLap: number | null = null;
   public mistakes = new DriverMistakes();
   public mistakesEnabled = true;
   public tireUtilization = 0;
@@ -257,6 +263,12 @@ export class Car {
     this.mistakes.reset();
     this.battlePush.reset();
     this.battleOpponent = '';
+    this.raceLineOffset = 0;
+    this.overtakingTargetName = '';
+    this.yellowFlag = false;
+    this.trafficWaiting = false;
+    this.wreckRemoved = false;
+    this.wreckClearLap = null;
     this.tireUtilization = 0;
     this.respawnTimer = 0;
     this.isOutOfFuel = false;
@@ -350,6 +362,10 @@ export class Car {
       segmentFraction = 0;
       targetPosition = end;
     }
+    if (this.isRaceMode && this.raceLineOffset !== 0) {
+      const road = track.sampleSurface(targetPosition);
+      targetPosition = targetPosition.add(road.tangent.normal().mul(this.raceLineOffset));
+    }
     const toTarget = targetPosition.sub(this.pos).normalize();
     const headingVec = Vector2.fromAngle(this.heading);
     const cpAngleDiff = Math.atan2(headingVec.cross(toTarget), headingVec.dot(toTarget)) / Math.PI;
@@ -387,7 +403,7 @@ export class Car {
         const estimatedCornerSpeed = Math.sqrt(Math.max(25, cornerRadius * safeLatGrip));
         const cornerAeroAcc = (0.5 * this.airDensity * this.downforceCoeff * estimatedCornerSpeed * estimatedCornerSpeed) / this.totalMass;
         const effectiveCornerGrip = safeLatGrip + cornerAeroAcc * 0.65;
-        const safeV = Math.sqrt(Math.max(25, cornerRadius * effectiveCornerGrip)) * (pushing ? 1.04 : 1);
+        const safeV = Math.sqrt(Math.max(25, cornerRadius * effectiveCornerGrip)) * (pushing ? 1.04 : 1) * (Math.abs(this.raceLineOffset) > .8 ? .88 : 1);
 
         const maxAllowedV = Math.sqrt(safeV * safeV + 2.0 * aBrake * accumulatedDist);
 
@@ -590,7 +606,7 @@ export class Car {
     if (!this.isFinishedRace) {
       this.totalRaceTime += dt;
     }
-    this.framesSinceLastCheckpoint++;
+    if (!(this.isRaceMode && this.trafficWaiting)) this.framesSinceLastCheckpoint++;
 
     if (this.fitness > this.peakFitness) {
       this.peakFitness = this.fitness;

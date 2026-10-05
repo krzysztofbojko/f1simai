@@ -1,3 +1,4 @@
+import { updateRaceSafety, planRaceLine } from './RaceTraffic';
 import { captureMotion, avoidTraffic, resolveTraffic } from '../physics/Traffic';
 import { Car, LapFinishEvent, TrajectoryPoint } from '../physics/Car';
 import { NeuralNetwork, TopologySpecifier } from './NeuralNetwork';
@@ -317,6 +318,7 @@ export class Population {
 
   update(dt: number, track: Track, extraCars: Car[] = []): void {
     const traffic = [...this.cars, ...extraCars];
+    if (this.isRaceMode) updateRaceSafety(traffic, track);
     const motion = this.isRaceMode ? captureMotion(traffic) : null;
     const laps: { car: Car; event: LapFinishEvent }[] = [];
     let maxFitness = -Infinity;
@@ -349,6 +351,7 @@ export class Population {
       const record = this.teamRecords[i];
 
       if (car.isAlive) {
+        if (this.isRaceMode) planRaceLine(car, traffic, track, dt);
         const prevCp = this.lastCarCheckpointIdx[i] ?? car.currentCheckpointIdx;
         // A rival must occupy the same local stretch, face the same direction,
         // and be ahead by at most 35 m. Nearby parallel track sections do not count.
@@ -361,7 +364,7 @@ export class Population {
           const ahead = offset.dot(tangent);
           return ahead > 2 && ahead < 35 && Math.abs(offset.cross(tangent)) < track.width && Math.cos(other.heading - car.heading) > 0.9;
         }) : undefined;
-        const eligible = this.isRaceMode && !car.isManual && !car.isPitting && !car.wantsToPit && !car.isFinishedRace && car.speed > 12 && car.surface === 'asphalt' && !car.isSkidding && !car.incidentActive && car.recoveryTimer <= 0;
+        const eligible = this.isRaceMode && !car.yellowFlag && !car.isManual && !car.isPitting && !car.wantsToPit && !car.isFinishedRace && car.speed > 12 && car.surface === 'asphalt' && !car.isSkidding && !car.incidentActive && car.recoveryTimer <= 0;
         car.battlePush.step(dt, rival?.driverName ?? null, eligible);
         car.battleOpponent = car.battlePush.opponent;
         if (car.battlePush.remaining > 0) {
@@ -372,7 +375,7 @@ export class Population {
         car.updateSensors(track);
         // Point 1: pass leader speeds for telemetry coaching, or use human player WASD input (learning enabled only in simulation step)
         let control = car.isManual ? car.manualControl : car.getAIControl(track, this.leaderCheckpointSpeeds, !this.isRaceMode);
-        if (this.isRaceMode) control = avoidTraffic(car, traffic, control);
+        if (this.isRaceMode) control = avoidTraffic(car, traffic, control, track);
         const lapEvent = car.updatePhysics(control, dt, track);
 
         if (lapEvent) {
