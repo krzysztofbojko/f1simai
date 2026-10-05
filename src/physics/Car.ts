@@ -470,8 +470,8 @@ export class Car {
     if (overspeedDelta > 0.0) {
       // Actively in braking zone before turn: FIRM BRAKE, ZERO THROTTLE
       throttle = 0.0;
-      brake = Math.max(0.65, Math.min(1.0, 0.60 + overspeedDelta * 1.5));
-    } else if (overspeedDelta > -0.15) {
+      brake = Math.max(pressure.brakeFloor, Math.min(1.0, .60 - (.65 - pressure.brakeFloor) + overspeedDelta * 1.5));
+    } else if (overspeedDelta > -pressure.coastMargin) {
       // Transition / lift & coast zone: cut throttle, prevent violent bang-bang throttle spikes
       throttle = 0.0;
       brake = 0.0;

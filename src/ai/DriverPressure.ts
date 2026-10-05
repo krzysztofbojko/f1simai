@@ -7,7 +7,9 @@ export function pressureProfile(value: number) {
   const t = Math.abs(p) / 10;
   return {
     cornerGrip: .45 + t * (p < 0 ? -.13 : .30),
-    braking: 1 + t * (p < 0 ? -.15 : .45),
+    braking: 1 + t * (p < 0 ? -.15 : .80),
+    coastMargin: .15 - (p > 0 ? t * .13 : 0),
+    brakeFloor: .65 - (p > 0 ? t * .20 : 0),
     attacks: 1 + t * (p < 0 ? -.5 : 1),
     mistakes: 1 + t * (p < 0 ? -.75 : 3),
   };
