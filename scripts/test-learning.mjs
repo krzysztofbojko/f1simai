@@ -78,6 +78,28 @@ try {
     assert.equal(parameters(population.cars[0].brain), saved);
     assert.equal(parameters(record.bestBrain), saved);
   }
+  // Traffic-affected laps without a clean PB must never restart the whole field.
+  for (const reason of ['target', 'timeout', 'stagnation']) {
+    const {population,car,record} = fixture();
+    noPhysics(car); population.autoEvolutionEnabled=true;
+    record.bestLapTime=null; record.bestBrain=null; car.bestLapTime=null;
+    car.lapCompromised=true; car.pos.set(450,200);car.vel.set(20,3);car.fuelKg=49;car.currentCheckpointIdx=42;car.lapTime=12.34;
+    if(reason==='target') {population.isGracePeriodActive=true;population.graceTimer=population.graceMaxTime;population.generationMaxLaps=3;}
+    if(reason==='timeout') {population.generationTimer=population.generationMaxTimeBeforeFirstLap;population.isGracePeriodActive=true;population.graceTimer=population.graceMaxTime;}
+    if(reason==='stagnation') {population.generationTimer=200;population.stagnationTimer=population.stagnationMaxTime;population.generationMaxProgress=10000;}
+    const brain=car.brain, before=parameters(brain);
+    population.update(1/60,track);
+    assert.equal(population.generation,2,reason+' did not advance the cycle');
+    assert.equal(population.cars[0],car,reason+' restarted a living driver without a PB');
+    assert.equal(car.brain,brain);assert.equal(parameters(car.brain),before);
+    assert.deepEqual([car.pos.x,car.pos.y,car.vel.x,car.vel.y,car.fuelKg,car.lapTime],[450,200,20,3,49,12.34]);
+  }
+  // An automatic cycle does not move dead cars past their individual respawn timer.
+  {
+    const {population,car}=fixture();car.isAlive=false;car.respawnTimer=10;
+    const position=car.pos.clone();population.evolve(track,true);
+    assert.equal(population.cars[0],car);assert.equal(car.isAlive,false);assert.equal(car.respawnTimer,10);assert.equal(car.pos.dist(position),0);
+  }
   // Performance rollback must discard samples from the failed trial.
   {
     const { population, car, record, event, saved } = fixture();
@@ -111,13 +133,12 @@ try {
     for (let step = 0; step < 24000; step++) {
       const previousGeneration = population.generation;
       const previousCars = [...population.cars];
-      const proven = population.teamRecords.map(record => record.bestLapTime !== null);
       population.update(1 / 60, track);
       if (population.generation !== previousGeneration) {
         automaticTransitions++;
         for (let i = 0; i < previousCars.length; i++) {
-          if (proven[i] && previousCars[i].isAlive) {
-            assert.equal(population.cars[i], previousCars[i], 'a real automatic cycle restarted a proven car');
+          if (previousCars[i].isAlive) {
+            assert.equal(population.cars[i], previousCars[i], 'a real automatic cycle restarted a living car');
             preservedDrivers++;
           }
         }
@@ -125,7 +146,7 @@ try {
     }
     assert.ok(automaticTransitions >= 2 && preservedDrivers > 0);
     assert.ok(population.teamRecords.some(record => record.lapsCount >= 3));
-    console.log(`400 simulated seconds: ${automaticTransitions} automatic cycles, ${preservedDrivers} proven drivers preserved, ${population.teamRecords.reduce((sum, record) => sum + record.lapsCount, 0)} completed laps.`);
+    console.log(`400 simulated seconds: ${automaticTransitions} automatic cycles, ${preservedDrivers} living drivers preserved, ${population.teamRecords.reduce((sum, record) => sum + record.lapsCount, 0)} completed laps.`);
   }
   console.log('Learning regressions passed (PB protection, crash recovery, continuous generations, rollback, coaching).');
 } finally { await rm(output, { recursive: true, force: true }); }

@@ -573,7 +573,7 @@ export class Population {
     }
   }
 
-  evolve(track: Track, preserveProvenCars: boolean = false): void {
+  evolve(track: Track, preserveCars: boolean = false): void {
     if (this.isRaceMode) {
       return;
     }
@@ -630,9 +630,9 @@ export class Population {
       const record = this.teamRecords[i];
       const slot = track.getGridSlot(i);
       const existingCar = this.cars[i];
-      // Automatic training cycles must not teleport a proven driver or replace
-      // its active network, velocity, fuel, replay buffer or in-progress lap.
-      if (preserveProvenCars && existingCar?.isAlive && (record.bestLapTime !== null || existingCar.isManual)) {
+      // Automatic cycles preserve every driver, including traffic-affected laps
+      // without a clean PB and dead cars awaiting their individual respawn.
+      if (preserveCars && existingCar) {
         newCars.push(existingCar);
         continue;
       }
@@ -676,7 +676,6 @@ export class Population {
       newCar.bestLapSplits = record.bestLapSplits ? [...record.bestLapSplits] : [null, null, null, null];
       newCar.lastLapTime = record.lastLapTime;
       newCar.safeBrainBackup = teamBrain.clone();
-      if (preserveProvenCars && existingCar) newCar.mistakes.cooldown = existingCar.mistakes.cooldown;
       newCars.push(newCar);
     }
 

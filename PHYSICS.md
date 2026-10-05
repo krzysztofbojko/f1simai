@@ -84,3 +84,7 @@ Przy wykryciu DNF losowana jest obsługa po 1 albo 2 dalszych ukończonych okrą
 ### Zgodność rysunku i kolizji
 
 Rysowany bolid ma ten sam obrys 5,5 × 1,8 m co fizyczny model kontaktu. Koła, skrzydła i pozostałe stałe elementy są ograniczone do tego obrysu, zamiast dawnego powiększonego znacznika 9 × 3 m. Efekty dymu, podpisy i zaznaczenie kierowcy pozostają nakładkami. Wzajemne kolizje, hamowanie przed rywalem i wybór bocznej linii działają także w domyślnym treningu. Reset miejsca po wypadku nie jest traktowany jako ruch przez tor, a zajęty slot opóźnia respawn.
+
+### Ciągłość treningu bez czystego rekordu
+
+Automatyczna zmiana generacji nie tworzy ponownie stawki. Zachowuje wszystkie obiekty bolidów, pozycje, prędkości, paliwo, bieżące okrążenia i aktywne sieci, także gdy kierowca nie ma jeszcze czystego PB. Wyprzedzanie, pomyłki i ruch pod żółtą flagą nie pozbawiają tej ochrony. Martwy bolid nadal czeka na swój indywidualny respawn. Dopiero ręczna „Nowa Gen” ustawia całą stawkę na starcie.
