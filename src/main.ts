@@ -109,6 +109,7 @@ class App {
         car.eliminationReason = sc.eliminationReason;
         car.barrierImpactSpeed = sc.barrierImpactSpeed;
         car.incidentActive = sc.incidentActive;
+        car.battleOpponent = sc.battleOpponent;
         car.recoveryTimer = sc.recoveryTimer;
         car.isManual = sc.isManual;
 
@@ -255,6 +256,7 @@ class App {
         this.playerCar.eliminationReason = sp.eliminationReason;
         this.playerCar.barrierImpactSpeed = sp.barrierImpactSpeed;
         this.playerCar.incidentActive = sp.incidentActive;
+        this.playerCar.battleOpponent = sp.battleOpponent;
         this.playerCar.recoveryTimer = sp.recoveryTimer;
         const rawPlayerCtrl = sp.ctrl;
         const validPlayerCtrl: CarControl = {
@@ -1631,7 +1633,7 @@ class App {
     const reasons = { barrier: 'UDERZENIE W BANDĘ', fuel: 'BRAK PALIWA', stuck: 'BRAK POSTĘPU', 'wrong-way': 'JAZDA POD PRĄD' };
     document.getElementById('tele-surface')!.textContent = activeCar ? surfaces[activeCar.surface] : '—';
     document.getElementById('tele-incident')!.textContent = activeCar?.eliminationReason
-      ? reasons[activeCar.eliminationReason] : activeCar?.incidentActive ? 'POMYŁKA KIEROWCY' : activeCar && activeCar.recoveryTimer > 0 ? 'ODZYSKIWANIE KONTROLI' : 'JAZDA';
+      ? reasons[activeCar.eliminationReason] : activeCar?.incidentActive ? 'POMYŁKA KIEROWCY' : activeCar && activeCar.recoveryTimer > 0 ? 'ODZYSKIWANIE KONTROLI' : activeCar?.battleOpponent ? `ATAK: ${activeCar.battleOpponent}` : 'JAZDA';
 
     // Update telemetry header and brain tag
     const teleHeader = document.getElementById('telemetry-header-title');

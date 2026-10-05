@@ -6,13 +6,37 @@ import { resolve, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 const output = await mkdtemp(join(tmpdir(), 'f1-runoff-'));
 try {
-  const entries = { car: 'physics/Car', track: 'track/Track', presets: 'track/Presets', vector: 'math/Vector2', spline: 'math/Spline', population: 'ai/Population', mistakes: 'ai/DriverMistakes', network: 'ai/NeuralNetwork' };
+  const entries = { car: 'physics/Car', track: 'track/Track', presets: 'track/Presets', vector: 'math/Vector2', spline: 'math/Spline', population: 'ai/Population', mistakes: 'ai/DriverMistakes', network: 'ai/NeuralNetwork', battle: 'ai/BattlePush' };
   await build({ configFile: false, logLevel: 'silent', build: { outDir: output, emptyOutDir: true, minify: false,
     lib: { entry: Object.fromEntries(Object.entries(entries).map(([key, path]) => [key, resolve('src/' + path + '.ts')])), formats: ['es'], fileName: (_, name) => name + '.mjs' } } });
   const modules = Object.fromEntries(await Promise.all(Object.keys(entries).map(async key => [key, await import(pathToFileURL(join(output, key + '.mjs')))])));
   const { Car } = modules.car, { Track } = modules.track, { Presets } = modules.presets, { Vector2, segmentsIntersect } = modules.vector;
   const { Spline } = modules.spline, { Population } = modules.population, { DriverMistakes } = modules.mistakes, { NeuralNetwork } = modules.network;
   const seeded = seed => () => { seed = (Math.imul(1664525, seed) + 1013904223) >>> 0; return seed / 4294967296; };
+  const { BattlePush } = modules.battle;
+  const push = new BattlePush(() => 0);
+  push.step(1 / 60, 'Rywal', false);
+  assert.equal(push.remaining, 0, 'training/manual/recovery must not trigger attacks');
+  push.step(1 / 60, null, true);
+  assert.equal(push.remaining, 0, 'no rival means no attack');
+  push.step(1 / 60, 'Rywal', true);
+  assert.equal(push.remaining, 3);
+  assert.equal(push.opponent, 'Rywal');
+  push.step(.1, null, true);
+  assert.equal(push.remaining, 0, 'losing the rival cancels the attack');
+  push.step(.1, 'Rywal', true);
+  assert.equal(push.remaining, 0, 'cooldown prevents immediate repeat');
+  push.reset();
+  push.step(.1, 'Rywal', true);
+  push.step(.1, 'Rywal', false);
+  assert.equal(push.remaining, 0, 'loss of control cancels the attack');
+  const rates = [30, 60, 120].map(hz => {
+    const controller = new BattlePush(seeded(71));
+    for (let t = 0; t < 6000 * hz; t++) controller.step(1 / hz, 'Rywal', true);
+    return controller.count;
+  });
+  assert.ok(Math.max(...rates) - Math.min(...rates) < 25, 'attack timing must use simulation seconds');
+  console.log('Battle push: eligibility, cancellation, cooldown and step independence:', rates);
   Math.random = seeded(54321);
   const gp = Presets.createGrandPrixTrack(14);
   const raw = [[0,0],[100,0],[200,0],[300,0],[400,0],[500,0],[500,200],[400,200],[300,200],[200,200],[100,200],[0,200]].map(p => new Vector2(...p));
@@ -82,6 +106,40 @@ try {
     if(recovery.surfaceFractions.asphalt===1) { returned=true; break; }
   }
   assert.ok(returned,'AI did not recover onto asphalt'); assert.equal(recovery.replayBuffer.length,0);
+  const duel = new Population(2, gp);
+  duel.isRaceMode = true;
+  const [attacker, rival] = duel.cars;
+  const gate = gp.checkpoints[10];
+  for (const car of duel.cars) {
+    car.reset(gate.center, gate.tangent.heading(), true, 10);
+    car.vel = gate.tangent.mul(25);
+    car.speed = 25;
+    car.mistakesEnabled = false;
+    car.battlePush = new BattlePush(() => 0);
+  }
+  rival.pos = attacker.pos.add(gate.tangent.mul(10));
+  duel.update(1/60, gp);
+  assert.equal(attacker.battleOpponent, rival.driverName, 'nearby opponent must trigger a race attack');
+  assert.equal(attacker.lapCompromised, true, 'tactical lap must not replace baseline PB');
+  assert.equal(attacker.replayBuffer.length, 0, 'attack controls must not train the network');
+  let laterBraking = false;
+  for (let idx = 0; idx < gp.checkpoints.length && !laterBraking; idx += 3) {
+    const cp = gp.checkpoints[idx];
+    attacker.reset(cp.center, cp.tangent.heading(), true, idx);
+    attacker.updateSensors(gp);
+    for (let speed = 15; speed < 70 && !laterBraking; speed += .5) {
+      attacker.speed = speed;
+      attacker.battlePush.remaining = 0;
+      const baseline = attacker.getAIControl(gp);
+      attacker.battlePush.remaining = 3;
+      const attack = attacker.getAIControl(gp);
+      laterBraking = baseline.brake > .6 && attack.brake === 0 && attack.throttle > 0;
+    }
+  }
+  assert.ok(laterBraking, 'attack must produce genuinely later braking, not just a telemetry label');
+  duel.isRaceMode = false;
+  duel.update(1/60, gp);
+  assert.equal(attacker.battleOpponent, '', 'training must never attack');
   const population=new Population(1,gp); const champion=population.cars[0];
   const event={lapTime:60,trajectory:[],maxSpeed:300,avgSpeed:180,fuelRemaining:100};
   population.recordLap(event,champion,false,gp);

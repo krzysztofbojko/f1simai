@@ -346,6 +346,25 @@ export class Population {
 
       if (car.isAlive) {
         const prevCp = this.lastCarCheckpointIdx[i] ?? car.currentCheckpointIdx;
+        // A rival must occupy the same local stretch, face the same direction,
+        // and be ahead by at most 35 m. Nearby parallel track sections do not count.
+        const tangent = track.checkpoints[car.currentCheckpointIdx]?.tangent;
+        const rival = this.isRaceMode && tangent ? this.cars.find(other => {
+          if (other === car || !other.isAlive || other.isPitting || other.isFinishedRace || other.raceLapsCompleted !== car.raceLapsCompleted) return false;
+          const indexGap = Math.abs(other.currentCheckpointIdx - car.currentCheckpointIdx);
+          if (Math.min(indexGap, track.checkpoints.length - indexGap) > 2) return false;
+          const offset = other.pos.sub(car.pos);
+          const ahead = offset.dot(tangent);
+          return ahead > 2 && ahead < 35 && Math.abs(offset.cross(tangent)) < track.width && Math.cos(other.heading - car.heading) > 0.9;
+        }) : undefined;
+        const eligible = this.isRaceMode && !car.isManual && !car.isPitting && !car.wantsToPit && !car.isFinishedRace && car.speed > 12 && car.surface === 'asphalt' && !car.isSkidding && !car.incidentActive && car.recoveryTimer <= 0;
+        car.battlePush.step(dt, rival?.driverName ?? null, eligible);
+        car.battleOpponent = car.battlePush.opponent;
+        if (car.battlePush.remaining > 0) {
+          // Race timing counts; tactical assistance is not a baseline model result.
+          car.lapCompromised = true;
+          car.replayBuffer = [];
+        }
         car.updateSensors(track);
         // Point 1: pass leader speeds for telemetry coaching, or use human player WASD input (learning enabled only in simulation step)
         const control = car.isManual ? car.manualControl : car.getAIControl(track, this.leaderCheckpointSpeeds, true);

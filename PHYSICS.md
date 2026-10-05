@@ -58,3 +58,9 @@ Brak kontaktów samochód–samochód, pełnego modelu uszkodzeń, modelu zawies
 `npm test` uruchamia oba zestawy oraz sprawdza limity sił, hamowanie od spoczynku i w obu kierunkach, telemetrię, jazdę bokiem, brak paliwa, tankowanie i zegary, skalę, obrys oraz ukończenie okrążeń GP przez AI. Test workera z kontrolowanym zegarem sprawdza 1× przy tickerach 16 ms i 20 ms oraz pauzę. Dodatkowo sprawdza checkpointy pól startowych, ukończenie 10-okrążeniowego wyścigu przez AI, zamrożenie czasu po mecie i powrót do treningu. `npm run audit:physics` wypisuje wyniki numeryczne; `npm run build` sprawdza TypeScript i bundlowanie.
 
 `AUDIT_PHYSICS.md` zachowuje dowody stanu sprzed napraw. Poprawiono osiem opisanych tam problemów i akumulator czasu; pełna dynamika yaw, kontakty między bolidami i fizyczna aleja serwisowa pozostają ograniczeniami modelu.
+
+### Krótkie ataki na rywala
+
+W wyścigu AI może podjąć próbę szybszego przejazdu, gdy rywal jedzie 2–35 m przed nim na tym samym odcinku, w zgodnym kierunku i na tym samym okrążeniu. Przy ciągłej okazji częstość rozpoczęcia wynosi średnio raz na 15 s czasu symulacji (p = 1 − exp(−dt/15)). Atak trwa 3–6 s, potem obowiązuje 20 s przerwy. Docelowa prędkość zakrętu rośnie o 4%, a szacowana zdolność hamowania o 8%, co opóźnia rozpoczęcie hamowania; rzeczywista moc i siły przyczepności nie zmieniają się. To założenia modelu, a nie statystyki prawdziwych kierowców.
+
+Po utracie rywala, poślizgu, pomyłce, wyjeździe na pobocze lub zgłoszeniu pit stopu AI odpuszcza. Trening i ręczne sterowanie nie uruchamiają ataków. Telemetria pokazuje „ATAK: nazwisko”. Okrążenie liczy się w wyścigu, ale nie zastępuje rekordowej sieci ani wyników oceny modelu; próbki sterowania podczas ataku są wyłączone. Funkcja zmienia tempo jazdy; nie dodaje planowania manewru wyprzedzania ani kolizji między samochodami.

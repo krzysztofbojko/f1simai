@@ -94,6 +94,7 @@ export interface SerializedCar {
   eliminationReason: Car['eliminationReason'];
   barrierImpactSpeed: number;
   incidentActive: boolean;
+  battleOpponent: string;
   recoveryTimer: number;
   isManual: boolean;
   fitness: number;
@@ -240,6 +241,7 @@ function serializeCar(car: Car, ctrl?: CarControl, isHeadless: boolean = false):
     eliminationReason: car.eliminationReason,
     barrierImpactSpeed: car.barrierImpactSpeed,
     incidentActive: car.incidentActive,
+    battleOpponent: car.battleOpponent,
     recoveryTimer: car.recoveryTimer,
     isManual: car.isManual,
     fitness: car.fitness,

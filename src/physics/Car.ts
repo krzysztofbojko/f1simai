@@ -1,4 +1,5 @@
 import { Vector2, IntersectionResult, segmentsIntersect } from '../math/Vector2';
+import { BattlePush } from '../ai/BattlePush';
 import { DriverMistakes } from '../ai/DriverMistakes';
 import { Track, type SurfaceType } from '../track/Track';
 import { NeuralNetwork } from '../ai/NeuralNetwork';
@@ -140,6 +141,8 @@ export class Car {
   public incidentActive = false;
   public recoveryTimer = 0;
   public lapCompromised = false;
+  public battlePush = new BattlePush();
+  public battleOpponent = '';
   public mistakes = new DriverMistakes();
   public mistakesEnabled = true;
   public tireUtilization = 0;
@@ -252,6 +255,8 @@ export class Car {
     this.recoveryTimer = 0;
     this.lapCompromised = false;
     this.mistakes.reset();
+    this.battlePush.reset();
+    this.battleOpponent = '';
     this.tireUtilization = 0;
     this.respawnTimer = 0;
     this.isOutOfFuel = false;
@@ -360,7 +365,8 @@ export class Car {
     // Corner safe lateral grip uses base tire friction with margin (~1.5G usable before aero)
     const safeLatGrip = this.baseTireGrip * Car.GRAVITY * 0.45;
     // Achievable braking deceleration with margin (12.0 m/s^2 provides ample runway and settling buffer)
-    const aBrake = 6.0 * this.brakingAggression;
+    const pushing = this.battlePush.remaining > 0;
+    const aBrake = 6.0 * this.brakingAggression * (pushing ? 1.08 : 1);
 
     let accumulatedDist = 0;
     let prevPos = this.pos;
@@ -381,7 +387,7 @@ export class Car {
         const estimatedCornerSpeed = Math.sqrt(Math.max(25, cornerRadius * safeLatGrip));
         const cornerAeroAcc = (0.5 * this.airDensity * this.downforceCoeff * estimatedCornerSpeed * estimatedCornerSpeed) / this.totalMass;
         const effectiveCornerGrip = safeLatGrip + cornerAeroAcc * 0.65;
-        const safeV = Math.sqrt(Math.max(25, cornerRadius * effectiveCornerGrip));
+        const safeV = Math.sqrt(Math.max(25, cornerRadius * effectiveCornerGrip)) * (pushing ? 1.04 : 1);
 
         const maxAllowedV = Math.sqrt(safeV * safeV + 2.0 * aBrake * accumulatedDist);
 
@@ -488,7 +494,7 @@ export class Car {
     this.currentControl = control;
 
     // Online learning via replay buffer
-    if (_enableLearning && !this.incidentActive && this.recoveryTimer <= 0 && (!track.sampleSurface || !offRoad)) {
+    if (_enableLearning && !pushing && !this.incidentActive && this.recoveryTimer <= 0 && (!track.sampleSurface || !offRoad)) {
       this.replayStepTimer++;
 
       if (!this.isSkidding && (Math.abs(steer) > 0.08 || this.speed > 25)) {
