@@ -117,7 +117,7 @@ try {
     car.mistakesEnabled = false;
     car.battlePush = new BattlePush(() => 0);
   }
-  rival.pos = attacker.pos.add(gate.tangent.mul(10));
+  rival.pos = attacker.pos.add(gate.tangent.mul(10)).add(gate.tangent.normal().mul(3));
   duel.update(1/60, gp);
   assert.equal(attacker.battleOpponent, rival.driverName, 'nearby opponent must trigger a race attack');
   assert.equal(attacker.lapCompromised, true, 'tactical lap must not replace baseline PB');

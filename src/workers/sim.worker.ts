@@ -1,3 +1,4 @@
+import { captureMotion, resolveTraffic } from '../physics/Traffic';
 import { Track, TimingGate } from '../track/Track';
 import { Presets } from '../track/Presets';
 import { Population, LapLeaderboardEntry } from '../ai/Population';
@@ -568,7 +569,9 @@ function runSimulationSteps(): void {
       }
     }
 
-    population.update(fixedDt, track);
+    const traffic = [...population.cars, ...(playerCar && isPlayerDriving ? [playerCar] : [])];
+    const trafficMotion = population.isRaceMode && playerCar && isPlayerDriving ? captureMotion(traffic) : null;
+    population.update(fixedDt, track, playerCar && isPlayerDriving ? [playerCar] : []);
 
     if (playerCar && isPlayerDriving) {
       if (!playerCar.isAlive) {
@@ -582,8 +585,9 @@ function runSimulationSteps(): void {
       } else {
         playerCar.updateSensors(track);
         const lapEvent = playerCar.updatePhysics(playerControl, fixedDt, track);
+        if (trafficMotion) resolveTraffic(traffic, trafficMotion, playerCar);
         if (lapEvent) {
-          population.recordLap(lapEvent, playerCar, true, track);
+          population.recordLap({...lapEvent, compromised: lapEvent.compromised || playerCar.lapCompromised}, playerCar, true, track);
         }
       }
     }

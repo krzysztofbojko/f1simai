@@ -64,3 +64,11 @@ Brak kontaktów samochód–samochód, pełnego modelu uszkodzeń, modelu zawies
 W wyścigu AI może podjąć próbę szybszego przejazdu, gdy rywal jedzie 2–35 m przed nim na tym samym odcinku, w zgodnym kierunku i na tym samym okrążeniu. Przy ciągłej okazji częstość rozpoczęcia wynosi średnio raz na 15 s czasu symulacji (p = 1 − exp(−dt/15)). Atak trwa 3–6 s, potem obowiązuje 20 s przerwy. Docelowa prędkość zakrętu rośnie o 4%, a szacowana zdolność hamowania o 8%, co opóźnia rozpoczęcie hamowania; rzeczywista moc i siły przyczepności nie zmieniają się. To założenia modelu, a nie statystyki prawdziwych kierowców.
 
 Po utracie rywala, poślizgu, pomyłce, wyjeździe na pobocze lub zgłoszeniu pit stopu AI odpuszcza. Trening i ręczne sterowanie nie uruchamiają ataków. Telemetria pokazuje „ATAK: nazwisko”. Okrążenie liczy się w wyścigu, ale nie zastępuje rekordowej sieci ani wyników oceny modelu; próbki sterowania podczas ataku są wyłączone. Funkcja zmienia tempo jazdy; nie dodaje planowania manewru wyprzedzania ani kolizji między samochodami.
+
+### Kontakt bolidów w wyścigu
+
+Bolidy w wyścigu mają nieprzenikające prostokątne obrysy 5,5 × 1,8 m. Ciągły test osi rozdzielających wykrywa kontakt na całej drodze ruchu; obrót dzielony jest na małe odcinki. Lekkie uderzenie rozdziela auta i stosuje niesprężysty impuls zależny od ich mas. Składowa prędkości względnej skierowana w kontakt ≥ 8 m/s oznacza wypadek i DNF obu uczestników. Jest to uproszczony próg modelu. Uszkodzone auta pozostają przeszkodami. Telemetria podaje „WYPADEK Z INNYM BOLIDEM”. Zdarzenie wyklucza okrążenie z oceny sieci, ale czas wyścigu nadal liczy się normalnie.
+
+AI ogranicza gaz i hamuje przed pojazdem w swoim korytarzu jazdy, uwzględniając odległość i prędkość zbliżania. Dotyczy to także dublowanych i zatrzymanych samochodów. Atak ustępuje hamowaniu bezpieczeństwa. Sterowanie ręczne nie jest korygowane, ale jego kolizje są fizyczne. W treningu niezależne próby modeli pozostają bez wzajemnych kolizji. Nie zaimplementowano jeszcze wyboru bocznej trajektorii wyprzedzania.
+
+`npm run test:traffic` sprawdza najechanie od tyłu przy dużej prędkości, krzyżowanie trajektorii, lekkie kontakty, rozdzielenie obrysów, energię oraz hamowanie przed wolniejszym i zatrzymanym rywalem.

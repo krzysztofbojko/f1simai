@@ -6,10 +6,11 @@
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
-    "test": "node scripts/audit-physics.mjs --test && node scripts/test-learning.mjs && node scripts/test-runoff.mjs",
+    "test": "node scripts/audit-physics.mjs --test && node scripts/test-learning.mjs && node scripts/test-runoff.mjs && node scripts/test-traffic.mjs",
     "test:learning": "node scripts/test-learning.mjs",
     "audit:physics": "node scripts/audit-physics.mjs",
-    "test:runoff": "node scripts/test-runoff.mjs"
+    "test:runoff": "node scripts/test-runoff.mjs",
+    "test:traffic": "node scripts/test-traffic.mjs"
   },
   "devDependencies": {
     "typescript": "^7.0.2",

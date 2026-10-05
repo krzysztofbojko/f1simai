@@ -1,3 +1,4 @@
+import { captureMotion, resolveTraffic } from './physics/Traffic';
 import { Vector2 } from './math/Vector2';
 import { Spline } from './math/Spline';
 import { Track } from './track/Track';
@@ -1542,14 +1543,17 @@ class App {
         const fixedDt = 1 / 60;
 
         for (let s = 0; s < steps; s++) {
-          this.population.update(fixedDt, this.track);
+          const traffic = [...this.population.cars, ...(this.playerCar ? [this.playerCar] : [])];
+          const trafficMotion = this.population.isRaceMode && this.playerCar ? captureMotion(traffic) : null;
+          this.population.update(fixedDt, this.track, this.playerCar ? [this.playerCar] : []);
 
           if (this.playerCar && this.playerCar.isAlive) {
             this.playerCar.updateSensors(this.track);
             const control = this.getPlayerControl();
             const lapEvent = this.playerCar.updatePhysics(control, fixedDt, this.track);
+            if (trafficMotion) resolveTraffic(traffic, trafficMotion, this.playerCar);
             if (lapEvent) {
-              this.population.recordLap(lapEvent, this.playerCar, true, this.track);
+              this.population.recordLap({...lapEvent, compromised: lapEvent.compromised || this.playerCar.lapCompromised}, this.playerCar, true, this.track);
             }
           }
         }
@@ -1630,7 +1634,7 @@ class App {
     const leader = (this.isPlayerDriving && this.playerCar?.isAlive ? this.playerCar : this.population.currentLeader) || this.population.cars[0];
     const activeCar = this.selectedCar || leader;
     const surfaces = { asphalt: 'ASFALT', grass: 'TRAWA', gravel: 'ŻWIR' };
-    const reasons = { barrier: 'UDERZENIE W BANDĘ', fuel: 'BRAK PALIWA', stuck: 'BRAK POSTĘPU', 'wrong-way': 'JAZDA POD PRĄD' };
+    const reasons = { car: 'WYPADEK Z INNYM BOLIDEM', barrier: 'UDERZENIE W BANDĘ', fuel: 'BRAK PALIWA', stuck: 'BRAK POSTĘPU', 'wrong-way': 'JAZDA POD PRĄD' };
     document.getElementById('tele-surface')!.textContent = activeCar ? surfaces[activeCar.surface] : '—';
     document.getElementById('tele-incident')!.textContent = activeCar?.eliminationReason
       ? reasons[activeCar.eliminationReason] : activeCar?.incidentActive ? 'POMYŁKA KIEROWCY' : activeCar && activeCar.recoveryTimer > 0 ? 'ODZYSKIWANIE KONTROLI' : activeCar?.battleOpponent ? `ATAK: ${activeCar.battleOpponent}` : 'JAZDA';

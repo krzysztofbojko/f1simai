@@ -1,3 +1,4 @@
+import { captureMotion, avoidTraffic, resolveTraffic } from '../physics/Traffic';
 import { Car, LapFinishEvent, TrajectoryPoint } from '../physics/Car';
 import { NeuralNetwork, TopologySpecifier } from './NeuralNetwork';
 import { Track } from '../track/Track';
@@ -314,7 +315,10 @@ export class Population {
     return list;
   }
 
-  update(dt: number, track: Track): void {
+  update(dt: number, track: Track, extraCars: Car[] = []): void {
+    const traffic = [...this.cars, ...extraCars];
+    const motion = this.isRaceMode ? captureMotion(traffic) : null;
+    const laps: { car: Car; event: LapFinishEvent }[] = [];
     let maxFitness = -Infinity;
     let leader: Car | null = null;
 
@@ -367,11 +371,12 @@ export class Population {
         }
         car.updateSensors(track);
         // Point 1: pass leader speeds for telemetry coaching, or use human player WASD input (learning enabled only in simulation step)
-        const control = car.isManual ? car.manualControl : car.getAIControl(track, this.leaderCheckpointSpeeds, true);
+        let control = car.isManual ? car.manualControl : car.getAIControl(track, this.leaderCheckpointSpeeds, !this.isRaceMode);
+        if (this.isRaceMode) control = avoidTraffic(car, traffic, control);
         const lapEvent = car.updatePhysics(control, dt, track);
 
         if (lapEvent) {
-          this.recordLap(lapEvent, car, car.isManual, track);
+          laps.push({car, event: lapEvent});
           this.carGenerationLaps[i] = (this.carGenerationLaps[i] || 0) + 1;
           if (this.carGenerationLaps[i] > this.generationMaxLaps) {
             this.generationMaxLaps = this.carGenerationLaps[i];
@@ -496,6 +501,9 @@ export class Population {
         }
       }
     }
+
+    if (motion) resolveTraffic(this.cars, motion);
+    for (const {car, event} of laps) this.recordLap({...event, compromised: event.compromised || car.lapCompromised}, car, car.isManual, track);
 
     this.currentLeader = leader || this.cars.find(c => c.isAlive) || this.cars[0];
 

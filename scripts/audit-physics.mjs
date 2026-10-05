@@ -190,6 +190,22 @@ try {
       assert.equal(collisionSnapshot.isAlive,false);
       assert.ok(collisionSnapshot.barrierImpactSpeed>=12);
       assert.equal(typeof collisionSnapshot.surfaceFractions.gravel,'number');
+      // Actual worker race collision and its serialized elimination reason.
+      self.onmessage({data:{type:'START_RACE',totalLaps:10}});
+      for(let i=0;i<300;i++) { time+=20; tick(); }
+      const cars=worker.auditCars();
+      for(const c of cars) { c.isManual=true; c.manualControl=idle; c.isAlive=false; }
+      const rear=cars[0], front=cars[1];
+      for(const c of [rear,front]) { c.reset(road.center,road.tangent.heading(),true,idx); c.isManual=true; c.manualControl=idle; }
+      front.pos=road.center.add(road.tangent.mul(6.2));
+      rear.vel=road.tangent.mul(60); rear.speed=60;
+      time+=20; tick();
+      assert.equal(rear.eliminationReason,'car');
+      assert.equal(front.eliminationReason,'car');
+      const trafficSnapshot=messages.filter(m=>m.type==='SNAPSHOT').at(-1).snapshot.cars[0];
+      assert.equal(trafficSnapshot.eliminationReason,'car');
+      assert.equal(trafficSnapshot.isAlive,false);
+
     } finally {
       globalThis.self = savedSelf; globalThis.setInterval = savedInterval;
       Object.defineProperty(globalThis, 'performance', performanceDescriptor);

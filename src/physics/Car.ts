@@ -136,7 +136,7 @@ export class Car {
 
   public surface: SurfaceType = 'asphalt';
   public surfaceFractions = { asphalt: 1, grass: 0, gravel: 0 };
-  public eliminationReason: 'barrier' | 'fuel' | 'stuck' | 'wrong-way' | null = null;
+  public eliminationReason: 'barrier' | 'car' | 'fuel' | 'stuck' | 'wrong-way' | null = null;
   public barrierImpactSpeed = 0;
   public incidentActive = false;
   public recoveryTimer = 0;
