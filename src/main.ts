@@ -1801,9 +1801,7 @@ class App {
         if (bestA !== null && bestB !== null) return bestA - bestB;
         if (bestA !== null) return -1;
         if (bestB !== null) return 1;
-        const carA = this.population.cars.find(c => c.color === a.carColor);
-        const carB = this.population.cars.find(c => c.color === b.carColor);
-        return (carB ? carB.fitness : 0) - (carA ? carA.fitness : 0);
+        return 0;
       });
       standings.forEach((entry, idx) => {
         entry.rank = idx + 1;
@@ -1950,11 +1948,7 @@ class App {
                   <span class="time-lbl">LAST</span>
                   <span class="time-last-val">${lastTimeStr}</span>
                 </div>
-                <div class="time-row">
-                  <span class="time-lbl">TERAZ</span>
-                  <span class="time-curr-val">${currentTimeStr}</span>
-                  ${cpBadgeHtml}
-                </div>
+
               `}
             </div>
           </div>

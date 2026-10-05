@@ -33,6 +33,23 @@ try {
     car.updatePhysics = () => null;
   }
 
+  // Partial laps and live fitness must not rank drivers or expose incomplete times.
+  {
+    const population = new Population(3, track);
+    const order = population.teamStandings.map(s => s.carColor);
+    population.cars[2].fitness = 99999;
+    population.cars[2].lapTime = 23;
+    population.cars[2].fuelKg = 50;
+    assert.deepEqual(population.teamStandings.map(s => s.carColor), order);
+    assert.ok(population.teamStandings.every(s => s.lapTime === 0 && !s.hasFinishedLap));
+    population.recordLap({lapTime:60,trajectory:[],maxSpeed:300,avgSpeed:180,fuelRemaining:90}, population.cars[2],false,track);
+    assert.equal(population.teamStandings[0].carColor,order[2]);
+    population.cars[0].fitness = 999999;
+    assert.equal(population.teamStandings[0].carColor,order[2]);
+    assert.equal(population.teamStandings[0].lapTime,60);
+    assert.equal(population.teamStandings[0].fuelRemaining,90);
+  }
+
   // A growing cumulative fitness cannot replace the model belonging to a PB.
   {
     const { population, car, record, saved } = fixture();

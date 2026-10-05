@@ -291,11 +291,11 @@ export class Population {
       return {
         id: car ? car.id : idx,
         rank: 1,
-        lapTime: hasLap ? t.bestLapTime! : (car ? car.lapTime : 0),
+        lapTime: hasLap ? t.bestLapTime! : 0,
         lastLapTime: typeof t.lastLapTime === 'number' ? t.lastLapTime : (car && typeof car.lastLapTime === 'number' ? car.lastLapTime : null),
-        avgSpeed: t.avgSpeed || (car ? Math.round(car.speedKmh) : 0),
-        topSpeed: t.topSpeed || (car ? Math.round(car.maxSpeedInLap * 3.6) : 0),
-        fuelRemaining: car ? Math.round(car.fuelKg * 10) / 10 : this.startingFuelKg,
+        avgSpeed: t.avgSpeed,
+        topSpeed: t.topSpeed,
+        fuelRemaining: t.lapsCount ? Math.round(t.fuelRemaining * 10) / 10 : this.startingFuelKg,
         driverName: `${t.driverName} (${t.carName})`,
         carColor: t.color,
         generation: this.generation,
@@ -307,9 +307,7 @@ export class Population {
       if (a.hasFinishedLap && b.hasFinishedLap) return a.lapTime - b.lapTime;
       if (a.hasFinishedLap) return -1;
       if (b.hasFinishedLap) return 1;
-      const carA = this.cars.find(c => c.color === a.carColor);
-      const carB = this.cars.find(c => c.color === b.carColor);
-      return (carB ? carB.fitness : 0) - (carA ? carA.fitness : 0);
+      return 0; // Stable initial order until a complete lap supplies a time.
     });
 
     list.forEach((entry, idx) => {
