@@ -496,8 +496,8 @@ export class Renderer {
     if (car.isSkidding) {
       ctx.fillStyle = 'rgba(220, 220, 220, 0.4)';
       ctx.beginPath();
-      ctx.arc(-halfL - 3, -halfW - 2, 3.5 + Math.random() * 2, 0, Math.PI * 2);
-      ctx.arc(-halfL - 3, halfW + 2, 3.5 + Math.random() * 2, 0, Math.PI * 2);
+      ctx.arc(-halfL * .75, -halfW * .8, width * (.3 + Math.random() * .15), 0, Math.PI * 2);
+      ctx.arc(-halfL * .75, halfW * .8, width * (.3 + Math.random() * .15), 0, Math.PI * 2);
       ctx.fill();
     }
 
@@ -545,29 +545,29 @@ export class Renderer {
 
     // 3. Front Wing
     ctx.fillStyle = '#0F0F0F';
-    ctx.fillRect(halfL * 0.85, -halfW - 2 * scale, Math.max(1, 3.5 * scale), width + 4 * scale);
+    ctx.fillRect(halfL * 0.85, -halfW - 2 * scale, 3.5 * scale, width + 4 * scale);
 
     // 4. Rear Wing
     ctx.fillStyle = '#0F0F0F';
-    ctx.fillRect(-halfL - 2 * scale, -halfW - 1.5 * scale, Math.max(1, 3.5 * scale), width + 3 * scale);
+    ctx.fillRect(-halfL - 2 * scale, -halfW - 1.5 * scale, 3.5 * scale, width + 3 * scale);
 
     // 5. Cockpit & Halo
     ctx.fillStyle = '#222222';
     ctx.beginPath();
-    ctx.ellipse(halfL * 0.1, 0, Math.max(1.5, 4.5 * scale), Math.max(1, 3 * scale), 0, 0, Math.PI * 2);
+    ctx.ellipse(halfL * 0.1, 0, 4.5 * scale, 3 * scale, 0, 0, Math.PI * 2);
     ctx.fill();
 
     // Driver helmet
     ctx.fillStyle = isPlayer ? '#00D2BE' : '#FFDD00';
     ctx.beginPath();
-    ctx.arc(halfL * 0.05, 0, Math.max(0.8, 2 * scale), 0, Math.PI * 2);
+    ctx.arc(halfL * 0.05, 0, 2 * scale, 0, Math.PI * 2);
     ctx.fill();
 
     // 6. Rear flashing Rain / Brake light
     if (car.speedKmh < 90 || car.isSkidding) {
       ctx.fillStyle = '#FF0033';
       ctx.beginPath();
-      ctx.arc(-halfL - 1, 0, Math.max(0.8, 2 * scale), 0, Math.PI * 2);
+      ctx.arc(-halfL + 2 * scale, 0, 2 * scale, 0, Math.PI * 2);
       ctx.fill();
     }
 
