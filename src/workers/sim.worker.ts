@@ -89,6 +89,12 @@ export interface SerializedCar {
   angle: number;
   speedKmh: number;
   isAlive: boolean;
+  surface: Car['surface'];
+  surfaceFractions: Car['surfaceFractions'];
+  eliminationReason: Car['eliminationReason'];
+  barrierImpactSpeed: number;
+  incidentActive: boolean;
+  recoveryTimer: number;
   isManual: boolean;
   fitness: number;
   currentLap: number;
@@ -229,6 +235,12 @@ function serializeCar(car: Car, ctrl?: CarControl, isHeadless: boolean = false):
     angle: car.heading,
     speedKmh: car.speedKmh,
     isAlive: car.isAlive,
+    surface: car.surface,
+    surfaceFractions: { ...car.surfaceFractions },
+    eliminationReason: car.eliminationReason,
+    barrierImpactSpeed: car.barrierImpactSpeed,
+    incidentActive: car.incidentActive,
+    recoveryTimer: car.recoveryTimer,
     isManual: car.isManual,
     fitness: car.fitness,
     currentLap: car.currentLap,
@@ -677,19 +689,19 @@ self.onmessage = (e: MessageEvent) => {
     }
 
     case 'SET_TRACK_WIDTH': {
-      trackWidth = data.trackWidth;
-      dims = Car.getDimensionsForTrackWidth(trackWidth);
-      if (track.points.length > 0) {
-        const centerPoints = track.points.map(p => p.center);
-        const newPoints = Spline.generateClosedTrack(centerPoints, dims.effectiveTrackWidth, 18);
-        if (newPoints.length > 3) {
-          track = new Track(newPoints, dims.effectiveTrackWidth);
-          population.resetAll(track);
-          if (playerCar) {
-            playerCar.reset(track.startPosition, track.startAngle, true);
-            playerCar.updateDimensionsForTrackWidth(trackWidth);
-          }
+      try {
+        const nextWidth = Car.getDimensionsForTrackWidth(data.trackWidth).effectiveTrackWidth;
+        const source = data.points?.length >= 4 ? data.points.map((p: {x: number; y: number}) => new Vector2(p.x, p.y)) : track.points.map(p => p.center);
+        const newPoints = Spline.generateClosedTrack(source, nextWidth, 18);
+        const nextTrack = new Track(newPoints, nextWidth);
+        trackWidth = nextWidth; track = nextTrack;
+        population.resetAll(track);
+        if (playerCar) {
+          playerCar.reset(track.startPosition, track.startAngle, true);
+          playerCar.updateDimensionsForTrackWidth(trackWidth);
         }
+      } catch (error) {
+        self.postMessage({ type: 'TRACK_ERROR', message: error instanceof Error ? error.message : 'Niepoprawna geometria toru.' });
       }
       break;
     }
@@ -710,21 +722,21 @@ self.onmessage = (e: MessageEvent) => {
     }
 
     case 'SET_CUSTOM_TRACK': {
-      const parsedPoints: Vector2[] = (data.points || []).map((p: any) => new Vector2(p.x, p.y));
-      if (parsedPoints.length >= 4) {
-        if (typeof data.trackWidth === 'number') {
-          trackWidth = data.trackWidth;
+      try {
+        const parsedPoints: Vector2[] = (data.points || []).map((p: {x: number; y: number}) => new Vector2(p.x, p.y));
+        if (parsedPoints.length < 4) throw new Error('Tor wymaga co najmniej czterech punktów.');
+        const nextWidth = Car.getDimensionsForTrackWidth(data.trackWidth ?? trackWidth).effectiveTrackWidth;
+        const splinePoints = Spline.generateClosedTrack(parsedPoints, nextWidth, 18);
+        if (splinePoints.length < 8) throw new Error('Tor jest zbyt krótki.');
+        const nextTrack = new Track(splinePoints, nextWidth);
+        trackWidth = nextWidth; track = nextTrack;
+        population = new Population(10, track, rayCount, currentTopology);
+        if (playerCar) {
+          playerCar.reset(track.startPosition, track.startAngle, true);
+          playerCar.updateDimensionsForTrackWidth(trackWidth);
         }
-        dims = Car.getDimensionsForTrackWidth(trackWidth);
-        const splinePoints = Spline.generateClosedTrack(parsedPoints, dims.effectiveTrackWidth, 18);
-        if (splinePoints.length >= 8) {
-          track = new Track(splinePoints, dims.effectiveTrackWidth);
-          population = new Population(10, track, rayCount, currentTopology);
-          if (playerCar) {
-            playerCar.reset(track.startPosition, track.startAngle, true);
-            playerCar.updateDimensionsForTrackWidth(trackWidth);
-          }
-        }
+      } catch (error) {
+        self.postMessage({ type: 'TRACK_ERROR', message: error instanceof Error ? error.message : 'Niepoprawna geometria toru.' });
       }
       break;
     }

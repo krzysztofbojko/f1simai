@@ -1,5 +1,6 @@
 import { Vector2, IntersectionResult, segmentsIntersect } from '../math/Vector2';
-import { Track } from '../track/Track';
+import { DriverMistakes } from '../ai/DriverMistakes';
+import { Track, type SurfaceType } from '../track/Track';
 import { NeuralNetwork } from '../ai/NeuralNetwork';
 
 export interface CarControl {
@@ -25,6 +26,7 @@ export interface TrajectoryPoint {
 }
 
 export interface LapFinishEvent {
+  compromised?: boolean;
   lapTime: number;
   trajectory: TrajectoryPoint[];
   maxSpeed: number;
@@ -131,6 +133,16 @@ export class Car {
   public replayBuffer: { inputs: number[]; targets: [number, number, number]; reward: number }[] = [];
   public replayStepTimer: number = 0;
 
+  public surface: SurfaceType = 'asphalt';
+  public surfaceFractions = { asphalt: 1, grass: 0, gravel: 0 };
+  public eliminationReason: 'barrier' | 'fuel' | 'stuck' | 'wrong-way' | null = null;
+  public barrierImpactSpeed = 0;
+  public incidentActive = false;
+  public recoveryTimer = 0;
+  public lapCompromised = false;
+  public mistakes = new DriverMistakes();
+  public mistakesEnabled = true;
+  public tireUtilization = 0;
   public isAlive: boolean = true;
   public isRaceMode: boolean = false;
   public respawnTimer: number = 0;
@@ -232,6 +244,15 @@ export class Car {
     this.distanceCoveredInLap = 0;
     this.wrongWayTimer = 0;
     this.isAlive = true;
+    this.surface = 'asphalt';
+    this.surfaceFractions = { asphalt: 1, grass: 0, gravel: 0 };
+    this.eliminationReason = null;
+    this.barrierImpactSpeed = 0;
+    this.incidentActive = false;
+    this.recoveryTimer = 0;
+    this.lapCompromised = false;
+    this.mistakes.reset();
+    this.tireUtilization = 0;
     this.respawnTimer = 0;
     this.isOutOfFuel = false;
     this.fitness = 0;
@@ -396,7 +417,7 @@ export class Car {
     const pursuitAngle = Math.atan2(2 * this.wheelbase * Math.sin(cpAngleDiff * Math.PI), lookaheadDistance);
     const idealSteer = Math.max(-1, Math.min(1, pursuitAngle / this.maxSteerAngle + wallRepulsion * 0.1));
     // Learned steering is a bounded correction to a geometrically valid path.
-    const steer = Math.max(-1, Math.min(1, idealSteer + outputs[0] * 0.025));
+    let steer = Math.max(-1, Math.min(1, idealSteer + outputs[0] * 0.025));
 
     // Check forward clearance using central LiDAR rays
     const forwardDistNorm = this.rayDistances[midRay] ?? 1.0;
@@ -455,11 +476,19 @@ export class Car {
       throttle = Math.min(throttle, 0.45);
     }
 
+    const offRoad = (track.sampleSurface?.(this.pos).surface ?? 'asphalt') !== 'asphalt';
+    if (offRoad) {
+      // The geometric pursuit target remains on asphalt; at low speed it brings
+      // the car back without the asphalt-edge LiDAR treating escape as a wall.
+      steer = Math.max(-1, Math.min(1, pursuitAngle / this.maxSteerAngle));
+      throttle = this.speed > 12 ? 0 : Math.abs(pursuitAngle) < 0.8 ? 0.22 : 0.1;
+      brake = this.speed > 18 ? 0.45 : this.speed > 10 ? 0.15 : 0;
+    }
     const control: CarControl = { steer, throttle, brake };
     this.currentControl = control;
 
     // Online learning via replay buffer
-    if (_enableLearning) {
+    if (_enableLearning && !this.incidentActive && this.recoveryTimer <= 0 && (!track.sampleSurface || !offRoad)) {
       this.replayStepTimer++;
 
       if (!this.isSkidding && (Math.abs(steer) > 0.08 || this.speed > 25)) {
@@ -504,7 +533,25 @@ export class Car {
       brake: Math.max(0, Math.min(1, Number.isFinite(control.brake) ? control.brake : 0)),
       steer: Math.max(-1, Math.min(1, Number.isFinite(control.steer) ? control.steer : 0)),
     };
+    const risk = Math.max(0, Math.min(1, (this.tireUtilization - 0.55) / 0.45));
+    const incident = this.mistakes.step(control, dt, risk,
+      this.mistakesEnabled && !this.isManual && !!this.brain && !this.isPitting && !this.isFinishedRace && this.speed > 10 && (this.recoveryTimer <= 0 || this.mistakes.remaining > 0));
+    control = incident.control;
+    this.incidentActive = incident.affected;
+    if (incident.affected) {
+      this.lapCompromised = true;
+      this.replayBuffer = [];
+      this.replayStepTimer = 0;
+      this.recoveryTimer = 2;
+    } else this.recoveryTimer = Math.max(0, this.recoveryTimer - dt);
     this.currentControl = { ...control };
+    this.updateSurface(track);
+    if (this.surfaceFractions.asphalt < 1) {
+      this.lapCompromised = true;
+      this.recoveryTimer = 2;
+      this.replayBuffer = [];
+      this.replayStepTimer = 0;
+    }
 
     if (this.isPitting) {
       this.effectiveThrottle = 0;
@@ -593,7 +640,9 @@ export class Car {
     this.weightFrontRatio = frontLoad / totalNormalLoadZ;
     const rollTransfer = currentMass * this.lateralG * Car.GRAVITY * this.cogHeight / this.trackWidthMeters;
     const rollGripLoss = Math.min(0.08, Math.abs(rollTransfer) / totalNormalLoadZ * 0.15);
-    const mu = this.baseTireGrip * this.lapGripFactor * (1 - rollGripLoss);
+    const fractions = this.surfaceFractions;
+    const surfaceMu = fractions.asphalt * this.baseTireGrip + fractions.grass * 0.45 + fractions.gravel * 0.60;
+    const mu = surfaceMu * this.lapGripFactor * (1 - rollGripLoss);
     const frontLimit = mu * frontLoad;
     const rearLimit = mu * rearLoad;
 
@@ -629,12 +678,13 @@ export class Car {
     const lateralForce = Math.max(-lateralLimit, Math.min(lateralLimit, requestedLateral));
     const yawLimit = Math.abs(nextForwardSpeed) > 0.001 ? lateralLimit / (currentMass * Math.abs(nextForwardSpeed)) : 0;
     this.angularVelocity = Math.max(-yawLimit, Math.min(yawLimit, requestedYaw));
+    this.tireUtilization = Math.min(1, Math.hypot(frontFx + rearFx, requestedLateral) / Math.max(1, frontLimit + rearLimit));
     const slipRatio = Math.abs(requestedLateral) > 0 ? Math.max(0, 1 - lateralLimit / Math.abs(requestedLateral)) : 0;
     this.isSkidding = slipRatio > 0.01 || (Math.abs(lateralSpeed) > 4.5 && speedMag > 18);
     this.understeerSlip = frontLateral / Math.max(1, frontLoad) < rearLateral / Math.max(1, rearLoad) ? slipRatio : 0;
     this.oversteerSlip = this.understeerSlip > 0 ? 0 : slipRatio;
 
-    if (this.isRaceMode && this.safeBrainBackup && this.brain && this.isSkidding && (this.oversteerSlip > 0.45 || Math.abs(this.angularVelocity) > 3.2)) {
+    if (!this.lapCompromised && this.isRaceMode && this.safeBrainBackup && this.brain && this.isSkidding && (this.oversteerSlip > 0.45 || Math.abs(this.angularVelocity) > 3.2)) {
       this.brain = this.safeBrainBackup.clone();
       this.replayBuffer = [];
     }
@@ -649,6 +699,12 @@ export class Car {
       .add(rightDir.mul((lateralForce + dragLateral) / currentMass));
     const previousVelocity = this.vel.clone();
     this.vel.addMut(acceleration.mul(dt));
+    // Soil/ploughing resistance is separate from tire grip, opposing the full
+    // velocity with a bounded impulse (including a sideways slide).
+    const soilDeceleration = Car.GRAVITY * (fractions.grass * 0.04 + fractions.gravel * 0.35);
+    const integratedSpeed = this.vel.mag();
+    if (integratedSpeed > 0 && soilDeceleration > 0) this.vel.mulMut(Math.max(0, 1 - soilDeceleration * dt / integratedSpeed));
+    const previousHeading = this.heading;
     this.heading += this.angularVelocity * dt;
     const newForwardDir = Vector2.fromAngle(this.heading);
     const measuredAcceleration = this.vel.sub(previousVelocity).div(dt);
@@ -660,7 +716,30 @@ export class Car {
     // 7. Position & Distance Update (1 px = 1 meter)
     const stepDelta = this.vel.mul(dt);
     this.prevPos.set(this.pos.x, this.pos.y);
-    this.pos.addMut(stepDelta);
+    const proposedPosition = this.pos.add(stepDelta);
+    const hit = track.sweepBarrier?.(this.pos, proposedPosition, previousHeading, this.heading);
+    if (hit) {
+      this.pos = Vector2.lerp(this.pos, proposedPosition, hit.fraction);
+      this.heading = previousHeading + (this.heading - previousHeading) * hit.fraction;
+      const inwardSpeed = this.vel.dot(hit.normal);
+      this.barrierImpactSpeed = Math.max(0, -inwardSpeed);
+      if (this.barrierImpactSpeed >= 12) {
+        this.eliminate('barrier', 0.45);
+        return null;
+      }
+      if (inwardSpeed < 0) this.vel.subMut(hit.normal.mul(inwardSpeed));
+      this.vel.mulMut(0.8);
+      this.pos.addMut(hit.normal.mul(0.03));
+      this.angularVelocity *= 0.5;
+      this.lapCompromised = true;
+      this.recoveryTimer = 2;
+      this.replayBuffer = [];
+      const collisionAcceleration = this.vel.sub(previousVelocity).div(dt);
+      this.longitudinalG = collisionAcceleration.dot(forwardDir) / Car.GRAVITY;
+      this.lateralG = collisionAcceleration.dot(rightDir) / Car.GRAVITY;
+    } else this.pos = proposedPosition;
+    this.updateSurface(track);
+    if (this.surfaceFractions.asphalt < 1) { this.lapCompromised = true; this.recoveryTimer = 2; }
     this.speed = this.vel.mag();
     this.speedKmh = this.speed * 3.6;
     this.maxSpeedInLap = Math.max(this.maxSpeedInLap, this.speed);
@@ -687,7 +766,7 @@ export class Car {
       const effectiveSpeed = isHighCurvature ? Math.max(directionalSpeed, approachSpeed) : directionalSpeed;
 
       // Positive directional progress along track
-      if (effectiveSpeed > 0 && effectiveAlignment > 0) {
+      if (this.surface === 'asphalt' && effectiveSpeed > 0 && effectiveAlignment > 0) {
         const alignBonus = Math.max(0.15, effectiveAlignment);
         this.fitness += effectiveSpeed * alignBonus * 0.15 * dt;
       } else if (effectiveSpeed < 0 && !isHighCurvature) {
@@ -696,7 +775,7 @@ export class Car {
       }
 
       // Penalty for wrong heading / driving in reverse direction (never terminate on high curvature)
-      if (effectiveAlignment < -0.20 && !isHighCurvature) {
+      if (this.recoveryTimer <= 0 && effectiveAlignment < -0.20 && !isHighCurvature) {
         const wrongWayPenalty = (250.0 * Math.abs(effectiveAlignment) + Math.abs(this.speed) * 6.0) * dt;
         this.fitness = Math.max(0, this.fitness - wrongWayPenalty);
 
@@ -704,6 +783,7 @@ export class Car {
           this.wrongWayTimer += dt;
           if (this.wrongWayTimer > 1.6) {
             // Terminate car driving backwards at speed on straight/gentle corner
+            this.eliminationReason = 'wrong-way';
             this.isAlive = false;
             this.effectiveThrottle = 0;
             this.lateralG = 0;
@@ -754,31 +834,51 @@ export class Car {
     return finishEvent;
   }
 
+  private footprint(halfLength: number): Vector2[] {
+    const forward = Vector2.fromAngle(this.heading), side = forward.normal();
+    return [-1, 1].flatMap(front => [-1, 1].map(left => this.pos.add(forward.mul(front * halfLength)).add(side.mul(left * 0.9))));
+  }
+
+  private updateSurface(track: Track): void {
+    const fractions = { asphalt: 0, grass: 0, gravel: 0 };
+    if (track.sampleSurface) {
+      for (const wheel of this.footprint(this.wheelbase / 2)) fractions[track.sampleSurface(wheel).surface] += 0.25;
+    } else fractions.asphalt = 1;
+    this.surfaceFractions = fractions;
+    this.surface = fractions.gravel > 0 ? 'gravel' : fractions.grass > 0 ? 'grass' : 'asphalt';
+  }
+
+  private eliminate(reason: 'barrier', penalty: number): void {
+    this.eliminationReason = reason;
+    this.isAlive = false;
+    this.effectiveThrottle = 0;
+    this.lateralG = this.longitudinalG = 0;
+    this.vel.set(0, 0);
+    this.speed = this.speedKmh = 0;
+    this.respawnTimer = 0.5;
+    this.fitness = Math.max(0, Math.round(this.fitness * penalty));
+    this.replayBuffer = [];
+    this.replayStepTimer = 0;
+  }
+
   private checkTrackProgress(track: Track): LapFinishEvent | null {
     if (this.fitness > this.peakFitness) {
       this.peakFitness = this.fitness;
     }
-    // A physical 5.5 x 1.8 m footprint, independent of the enlarged marker.
-    const bodyForward = Vector2.fromAngle(this.heading);
-    const bodySide = bodyForward.normal();
-    const corners = [-1, 1].flatMap(front => [-1, 1].map(side =>
-      this.pos.add(bodyForward.mul(front * 2.75)).add(bodySide.mul(side * 0.9))));
-    if (track.isOutOfBounds(this.pos) || corners.some(corner => track.isOutOfBounds(corner))) {
-      this.isAlive = false;
-      this.effectiveThrottle = 0;
-      this.lateralG = 0;
-      this.longitudinalG = 0;
-      this.vel.set(0, 0);
-      this.speed = 0;
-      this.speedKmh = 0;
-      this.respawnTimer = 0.5;
-      // Meaningful crash penalty costing substantially more than a small fixed value,
-      // while strictly preserving the relative ranking and gradient of checkpoint progress:
-      this.fitness = Math.max(0, Math.round(this.fitness * 0.45));
-      return null;
+    // Asphalt is a surface transition, not a collision. Legacy test doubles
+    // without barrier geometry retain their explicitly supplied hard boundary.
+    if (!track.sweepBarrier) {
+      const corners = this.footprint(2.75);
+      if (track.isOutOfBounds(this.pos) || corners.some(corner => track.isOutOfBounds(corner))) {
+        this.eliminate('barrier', 0.45); return null;
+      }
+    } else if (track.sampleSurface(this.pos).outsideBarrier) {
+      // Safety fallback for invalid/spawned positions already outside the fence.
+      this.eliminate('barrier', 0.45); return null;
     }
 
     if (this.isOutOfFuel && this.speed < 1.0) {
+      this.eliminationReason = 'fuel';
       this.isAlive = false;
       this.effectiveThrottle = 0;
       this.lateralG = 0;
@@ -791,7 +891,8 @@ export class Car {
       return null;
     }
 
-    if (this.framesSinceLastCheckpoint > 600) {
+    if (this.framesSinceLastCheckpoint > (this.recoveryTimer > 0 ? 1800 : 600)) {
+      this.eliminationReason = 'stuck';
       this.isAlive = false;
       this.effectiveThrottle = 0;
       this.lateralG = 0;
@@ -827,11 +928,11 @@ export class Car {
       crossedGate = segmentsIntersect(this.prevPos, this.pos, nextCp.p1, nextCp.p2);
     }
 
-    const isNearCp = clearedCpIdx !== 0 && distToCp < Math.min(3, track.width * 0.2);
+    const isNearCp = clearedCpIdx !== 0 && distToCp < Math.min(3, track.width * 0.2) && this.surface === 'asphalt';
     // (1) Checkpoint zaliczaj tylko przy ruchu zgodnym z tangentem toru
     const isMovingForwardAlongTrack = this.vel.dot(nextCp.tangent) > 0.5;
 
-    if (isMovingForwardAlongTrack && (crossedGate || isNearCp)) {
+    if (this.surface === 'asphalt' && isMovingForwardAlongTrack && (crossedGate || isNearCp)) {
       this.checkpointsCleared++;
 
       const forwardDir = Vector2.fromAngle(this.heading);
@@ -918,8 +1019,9 @@ export class Car {
           this.raceLapsCompleted++;
           // Substantial lap completion reward inversely proportional to lapTime
           const lapTimeBonus = Math.round(150000 / Math.max(10, finishedLapTime));
-          this.fitness += 30000 + lapTimeBonus;
-          if (!this.bestLapTime || finishedLapTime < this.bestLapTime) {
+          if (!this.lapCompromised) this.fitness += 30000 + lapTimeBonus;
+          const compromised = this.lapCompromised;
+          if (!compromised && (!this.bestLapTime || finishedLapTime < this.bestLapTime)) {
             this.bestLapTime = finishedLapTime;
             this.bestLapSplits = [...this.currentLapSplits];
             if (this.brain) {
@@ -934,6 +1036,7 @@ export class Car {
             this.pitStopsCount++;
           }
 
+          this.lapCompromised = this.incidentActive || this.recoveryTimer > 0;
           this.rollLapPerformanceVariation();
           this.currentLapTrajectory = [];
           this.maxSpeedInLap = 0;
@@ -942,6 +1045,7 @@ export class Car {
           this.currentLapSplits = [null, null, null, null];
 
           return {
+            compromised,
             lapTime: finishedLapTime,
             trajectory: finishedTrajectory,
             maxSpeed: finishedMaxSpeedKmh,

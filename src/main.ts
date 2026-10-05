@@ -37,6 +37,8 @@ class App {
   private isDrawMode: boolean = false;
   private isMouseDown: boolean = false;
   private rawDrawnPoints: Vector2[] = [];
+  private drawSourceBackup: Vector2[] = [];
+  private drawnTrackRejected = false;
   private mousePos: Vector2 | null = null;
   private straightAnchor: Vector2 | null = null;
   private isShiftHeld: boolean = false;
@@ -85,6 +87,7 @@ class App {
   }
 
   private setupBridgeSync(): void {
+    this.bridge.onTrackError = message => alert(message);
     const threadBadge = document.getElementById('thread-badge');
     if (threadBadge) {
       threadBadge.textContent = `⚡ ${this.bridge.cpuCores} RDZENI (WEB WORKER)`;
@@ -101,6 +104,12 @@ class App {
         car.heading = sc.angle;
         car.speedKmh = sc.speedKmh;
         car.isAlive = sc.isAlive;
+        car.surface = sc.surface;
+        car.surfaceFractions = { ...sc.surfaceFractions };
+        car.eliminationReason = sc.eliminationReason;
+        car.barrierImpactSpeed = sc.barrierImpactSpeed;
+        car.incidentActive = sc.incidentActive;
+        car.recoveryTimer = sc.recoveryTimer;
         car.isManual = sc.isManual;
 
         const rawCtrl = sc.ctrl;
@@ -241,6 +250,12 @@ class App {
         this.playerCar.heading = sp.angle;
         this.playerCar.speedKmh = sp.speedKmh;
         this.playerCar.isAlive = sp.isAlive;
+        this.playerCar.surface = sp.surface;
+        this.playerCar.surfaceFractions = { ...sp.surfaceFractions };
+        this.playerCar.eliminationReason = sp.eliminationReason;
+        this.playerCar.barrierImpactSpeed = sp.barrierImpactSpeed;
+        this.playerCar.incidentActive = sp.incidentActive;
+        this.playerCar.recoveryTimer = sp.recoveryTimer;
         const rawPlayerCtrl = sp.ctrl;
         const validPlayerCtrl: CarControl = {
           steer: typeof rawPlayerCtrl?.steer === 'number' && Number.isFinite(rawPlayerCtrl.steer)
@@ -384,7 +399,8 @@ class App {
     document.getElementById('btn-camera-fit')!.addEventListener('click', () => {
       this.followSelected = false;
       const rect = canvas.getBoundingClientRect();
-      const xs = this.track.points.map(p => p.center.x), ys = this.track.points.map(p => p.center.y);
+      const bounds = this.track.runoff.flatMap(p => [p.leftBarrier, p.rightBarrier]);
+      const xs = bounds.map(p => p.x), ys = bounds.map(p => p.y);
       const minX = Math.min(...xs), maxX = Math.max(...xs);
       const minY = Math.min(...ys), maxY = Math.max(...ys);
       this.cameraZoom = Math.max(0.25, Math.min(8, Math.min(rect.width / (maxX - minX + 100), rect.height / (maxY - minY + 100))));
@@ -426,6 +442,7 @@ class App {
     canvas.addEventListener('mousedown', (e) => {
       if (!this.isDrawMode) return;
       this.isMouseDown = true;
+      this.drawnTrackRejected = false;
       const pt = this.getCanvasMousePos(e);
       this.rawDrawnPoints = [pt];
       this.straightAnchor = (e.shiftKey || this.isShiftHeld) ? pt.clone() : null;
@@ -577,13 +594,17 @@ class App {
         btnDraw.classList.add('active');
         btnDraw.innerHTML = '<span class="btn-icon">✅</span> Zakończ Rysowanie';
         drawBanner.classList.remove('hidden');
+        this.drawnTrackRejected = false;
+        this.drawSourceBackup = this.rawDrawnPoints.map(p => p.clone());
         this.rawDrawnPoints = [];
       } else {
         btnDraw.classList.remove('active');
         btnDraw.innerHTML = '<span class="btn-icon">✏️</span> Rysuj Własny Tor';
         drawBanner.classList.add('hidden');
-        if (this.rawDrawnPoints.length > 5) {
+        if (this.rawDrawnPoints.length > 5 && !this.drawnTrackRejected) {
           this.finishDrawnTrack();
+        } else {
+          this.rawDrawnPoints = this.drawSourceBackup.map(p => p.clone());
         }
       }
     });
@@ -764,6 +785,7 @@ class App {
     const widthSlider = document.getElementById('slider-track-width') as HTMLInputElement;
     const widthLabel = document.getElementById('val-track-width')!;
     widthSlider.addEventListener('input', () => {
+      const previousWidth = this.trackWidth;
       this.trackWidth = parseInt(widthSlider.value, 10);
       widthLabel.textContent = this.trackWidth.toString();
       const dims = Car.getDimensionsForTrackWidth(this.trackWidth);
@@ -773,9 +795,14 @@ class App {
           : this.track.points.map((p) => p.center);
         const newPoints = Spline.generateClosedTrack(sourcePoints, dims.effectiveTrackWidth, 18);
         if (newPoints.length > 3) {
-          this.track = new Track(newPoints, dims.effectiveTrackWidth);
+          try { this.track = new Track(newPoints, dims.effectiveTrackWidth); }
+          catch (error) {
+            this.trackWidth = previousWidth;
+            widthSlider.value = String(previousWidth); widthLabel.textContent = String(previousWidth);
+            alert(error instanceof Error ? error.message : 'Niepoprawna szerokość toru.'); return;
+          }
           this.population.resetAll(this.track);
-          this.bridge.setTrackWidth(this.trackWidth);
+          this.bridge.setTrackWidth(this.trackWidth, sourcePoints.map(p => ({ x: p.x, y: p.y })));
           if (this.playerCar) {
             this.playerCar.reset(this.track.startPosition, this.track.startAngle, true);
             this.playerCar.updateDimensionsForTrackWidth(this.trackWidth);
@@ -1402,15 +1429,9 @@ class App {
         return false;
       }
 
-      if (typeof data.trackWidth === 'number' && !isNaN(data.trackWidth)) {
-        this.trackWidth = Math.max(5, Math.min(20, Math.round(data.trackWidth)));
-        const sliderWidth = document.getElementById('slider-track-width') as HTMLInputElement;
-        const valWidth = document.getElementById('val-track-width');
-        if (sliderWidth) sliderWidth.value = this.trackWidth.toString();
-        if (valWidth) valWidth.textContent = this.trackWidth.toString();
-      }
-
-      const dims = Car.getDimensionsForTrackWidth(this.trackWidth);
+      const nextWidth = typeof data.trackWidth === 'number' && Number.isFinite(data.trackWidth)
+        ? Math.max(5, Math.min(20, Math.round(data.trackWidth))) : this.trackWidth;
+      const dims = Car.getDimensionsForTrackWidth(nextWidth);
       const splinePoints = Spline.generateClosedTrack(parsedPoints, dims.effectiveTrackWidth, 18);
 
       if (splinePoints.length < 8) {
@@ -1418,7 +1439,11 @@ class App {
         return false;
       }
 
-      this.track = new Track(splinePoints, dims.effectiveTrackWidth);
+      const nextTrack = new Track(splinePoints, dims.effectiveTrackWidth);
+      this.track = nextTrack;
+      this.trackWidth = nextWidth;
+      (document.getElementById('slider-track-width') as HTMLInputElement).value = String(nextWidth);
+      document.getElementById('val-track-width')!.textContent = String(nextWidth);
       this.rawDrawnPoints = parsedPoints;
       this.population = new Population(10, this.track, this.population.rayCount, this.population.topology);
       this.selectedCar = null;
@@ -1439,7 +1464,7 @@ class App {
       alert(`Tor "${trackName}" został pomyślnie załadowany!`);
       return true;
     } catch (e) {
-      alert('Błąd: Plik nie jest poprawnym formatem JSON toru.');
+      alert(e instanceof Error ? e.message : 'Błąd: Niepoprawny plik toru.');
       return false;
     }
   }
@@ -1464,8 +1489,16 @@ class App {
     const dims = Car.getDimensionsForTrackWidth(this.trackWidth);
     const splinePoints = Spline.generateClosedTrack(this.rawDrawnPoints, dims.effectiveTrackWidth, 18);
     if (splinePoints.length >= 8) {
-      this.track = new Track(splinePoints, dims.effectiveTrackWidth);
+      try { this.track = new Track(splinePoints, dims.effectiveTrackWidth); }
+      catch (error) {
+        this.rawDrawnPoints = this.drawSourceBackup.map(p => p.clone());
+        this.drawnTrackRejected = true;
+        alert(error instanceof Error ? error.message : 'Niepoprawna geometria toru.');
+        return;
+      }
       this.population = new Population(10, this.track, this.population.rayCount, this.population.topology);
+      this.selectedCar = null;
+      this.bridge.setActiveCarColor(null);
       this.bridge.setCustomTrack(this.rawDrawnPoints.map(p => ({ x: p.x, y: p.y })), this.trackWidth);
       if (this.playerCar) {
         this.playerCar.reset(this.track.startPosition, this.track.startAngle, true);
@@ -1594,6 +1627,11 @@ class App {
   private updateHUD(): void {
     const leader = (this.isPlayerDriving && this.playerCar?.isAlive ? this.playerCar : this.population.currentLeader) || this.population.cars[0];
     const activeCar = this.selectedCar || leader;
+    const surfaces = { asphalt: 'ASFALT', grass: 'TRAWA', gravel: 'ŻWIR' };
+    const reasons = { barrier: 'UDERZENIE W BANDĘ', fuel: 'BRAK PALIWA', stuck: 'BRAK POSTĘPU', 'wrong-way': 'JAZDA POD PRĄD' };
+    document.getElementById('tele-surface')!.textContent = activeCar ? surfaces[activeCar.surface] : '—';
+    document.getElementById('tele-incident')!.textContent = activeCar?.eliminationReason
+      ? reasons[activeCar.eliminationReason] : activeCar?.incidentActive ? 'POMYŁKA KIEROWCY' : activeCar && activeCar.recoveryTimer > 0 ? 'ODZYSKIWANIE KONTROLI' : 'JAZDA';
 
     // Update telemetry header and brain tag
     const teleHeader = document.getElementById('telemetry-header-title');
@@ -1664,9 +1702,7 @@ class App {
     document.getElementById('stat-alive')!.textContent = `${this.population.aliveCount} / ${this.population.populationSize}`;
     document.getElementById('stat-fitness')!.textContent = Math.round(this.population.bestFitness).toLocaleString();
 
-    if (this.population.globalBestLap) {
-      document.getElementById('stat-best-lap')!.textContent = this.formatLapTime(this.population.globalBestLap);
-    }
+    document.getElementById('stat-best-lap')!.textContent = this.population.globalBestLap ? this.formatLapTime(this.population.globalBestLap) : '--:--.---';
 
     // Race Mode HUD elements
     const raceTag = document.getElementById('race-status-tag');

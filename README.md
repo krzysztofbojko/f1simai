@@ -6,8 +6,9 @@ Przeglądarkowy symulator wyścigów 2D w TypeScript i Vite. Dziesięć bolidów
 
 - Ciągły trening AI bez restartowania sprawdzonych bolidów przy automatycznej zmianie generacji; ochrona modeli najlepszych okrążeń, import i eksport.
 - Wyścig Grand Prix z procedurą startową, klasyfikacją, paliwem i uproszczonym postojem serwisowym.
-- Tory Grand Prix i owal, rysowanie własnej trasy oraz zapis i odczyt JSON.
-- Telemetria prędkości, przyspieszeń, paliwa, obciążeń osi i czasów okrążeń.
+- Tory Grand Prix i owal, rysowanie własnej trasy oraz zapis i odczyt JSON. Automatyczne pobocza z trawy i żwiru, szersze po zewnętrznej stronie zakrętów, oraz bandy.
+- Telemetria prędkości, przyspieszeń, paliwa, obciążeń osi, czasów, nawierzchni i przyczyny DNF.
+- Rzadkie błędy hamowania lub skrętu AI w treningu i wyścigu; ochrona rekordowych sieci przed oceną takich okrążeń.
 - Sterowanie gracza: WASD lub strzałki; P zgłasza postój.
 - Profile obliczeniowe, pauza i przyspieszenie symulacji.
 
@@ -31,8 +32,9 @@ npm run dev
 Vite wyświetli lokalny adres aplikacji, domyślnie `http://localhost:5173`.
 
 ```bash
-npm test               # regresje fizyki, wyścigu i ciągłego treningu
+npm test               # regresje fizyki, wyścigu, treningu, poboczy i pomyłek
 npm run test:learning  # ochrona wiedzy AI i zmiany generacji
+npm run test:runoff    # pobocza, bandy, powrót na asfalt i pomyłki AI
 npm run audit:physics  # wyniki prób numerycznych
 npm run build          # TypeScript i produkcyjne dist/
 npm run preview        # podgląd zbudowanej wersji
@@ -58,3 +60,5 @@ npm run preview        # podgląd zbudowanej wersji
 Projekt pierwotnie rozwijano przy użyciu Gemini Antigravity.
 
 Widok toru: przyciski +/− lub kółko myszy zmieniają zoom (25–800%). Przeciągnięcie przesuwa widok i wyłącza śledzenie. „Cały tor” dopasowuje trasę do okna. Wybierz zawodnika w tabeli lub kliknij auto, następnie włącz „Śledź zawodnika”; kamera podąża za wybranym autem także po zmianie generacji. Bez wcześniejszego wyboru przycisk wybiera aktualnego lidera.
+
+Wyjazd poza asfalt nie eliminuje bolidu: trawa zmniejsza przyczepność, a żwir dodatkowo wyhamowuje ruch. Lekki kontakt z bandą wygasza ruch w jej kierunku i zmniejsza prędkość wzdłuż bandy. Uderzenie z prędkością prostopadłą co najmniej 12 m/s powoduje DNF w wyścigu lub respawn w treningu. Samochód zatrzymany głęboko w żwirze może ugrzęznąć i zakończyć jazdę z powodu braku postępu.

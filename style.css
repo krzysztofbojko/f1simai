@@ -1497,3 +1497,6 @@ input[type="range"] {
 #sim-canvas { touch-action: none; }
 .camera-controls.hidden { display: none; }
 #btn-camera-follow[aria-pressed="true"] { color: #00d2be; border-color: #00d2be; background: rgba(0,210,190,.15); }
+
+.surface-telemetry { padding: 8px 12px; color: #b4c1cc; font: 11px 'JetBrains Mono', monospace; border-bottom: 1px solid rgba(255,255,255,.08); }
+#tele-surface { color: #d3b886; }

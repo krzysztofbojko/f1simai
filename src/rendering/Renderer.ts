@@ -65,18 +65,34 @@ export class Renderer {
 
     const ctx = this.ctx;
 
-    // 1. Gravel / Runoff buffer around the outside
-    ctx.beginPath();
-    ctx.strokeStyle = '#2d251e'; // Gravel border
-    ctx.lineWidth = track.width + Math.min(24, Math.max(10, track.width * 0.22));
-    ctx.lineCap = 'round';
-    ctx.lineJoin = 'round';
-    for (let i = 0; i <= pts.length; i++) {
-      const p = pts[i % pts.length].center;
-      if (i === 0) ctx.moveTo(p.x, p.y);
-      else ctx.lineTo(p.x, p.y);
+    // Shared generated geometry: grass beside asphalt, gravel up to the fence.
+    const strip = (a: Vector2, b: Vector2, c: Vector2, d: Vector2, color: string) => {
+      ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y);
+      ctx.lineTo(c.x, c.y); ctx.lineTo(d.x, d.y); ctx.closePath();
+      ctx.fillStyle = color; ctx.fill();
+    };
+    for (let i = 0; i < pts.length; i++) {
+      const next = (i + 1) % pts.length, a = pts[i], b = pts[next];
+      const r = track.runoff[i], s = track.runoff[next];
+      strip(a.left, b.left, s.leftBarrier, r.leftBarrier, '#796849');
+      strip(a.right, b.right, s.rightBarrier, r.rightBarrier, '#796849');
+      strip(a.left, b.left, s.leftGrass, r.leftGrass, '#456333');
+      strip(a.right, b.right, s.rightGrass, r.rightGrass, '#456333');
+      // Deterministic gravel flecks; drawing never consumes simulation randomness.
+      ctx.fillStyle = '#b4a07a';
+      for (const side of ['left', 'right'] as const) {
+        const inner = side === 'left' ? r.leftGrass : r.rightGrass;
+        const outer = side === 'left' ? r.leftBarrier : r.rightBarrier;
+        for (let j = 1; j <= 4; j++) {
+          const p = Vector2.lerp(inner, outer, j / 5);
+          ctx.fillRect(p.x + (i % 3) * 0.3, p.y, 0.35, 0.35);
+        }
+      }
     }
-    ctx.stroke();
+    ctx.strokeStyle = '#aeb9c3'; ctx.lineWidth = 0.65;
+    for (const segment of track.barrierSegments) {
+      ctx.beginPath(); ctx.moveTo(segment.p1.x, segment.p1.y); ctx.lineTo(segment.p2.x, segment.p2.y); ctx.stroke();
+    }
 
     // 2. Main Asphalt track ribbon
     ctx.beginPath();
@@ -92,11 +108,11 @@ export class Renderer {
     ctx.stroke();
 
     // 3. Red & White Kerbs (tarki) on corners
-    const kerbWidth = Math.min(9, Math.max(3.5, track.width * 0.14));
+    const kerbWidth = Math.min(1.2, Math.max(0.5, track.width * 0.06));
     for (let i = 0; i < pts.length; i++) {
       const pt = pts[i];
       const nextPt = pts[(i + 1) % pts.length];
-      const isCorner = Math.abs(pt.curvature) > 0.03;
+      const isCorner = Math.abs(pt.curvature) > 0.003;
 
       if (isCorner) {
         const isRed = i % 2 === 0;
@@ -119,7 +135,7 @@ export class Renderer {
 
     // 4. White track boundary lines
     ctx.strokeStyle = 'rgba(255, 255, 255, 0.85)';
-    ctx.lineWidth = Math.min(3.0, Math.max(1.6, track.width * 0.05));
+    ctx.lineWidth = 0.2;
 
     ctx.beginPath();
     for (let i = 0; i <= pts.length; i++) {

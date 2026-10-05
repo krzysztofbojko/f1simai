@@ -193,6 +193,11 @@ export class Population {
   }
 
   recordLap(lapEvent: LapFinishEvent, car: Car, isPlayer: boolean = false, track?: Track): void {
+    if (lapEvent.compromised) {
+      const record = this.teamRecords.find(r => r.color === car.color);
+      if (record) { record.lapsCount++; record.lastLapTime = lapEvent.lapTime; }
+      return; // Race timing counts it; contaminated performance never evaluates a brain.
+    }
     if (!this.globalBestLap || lapEvent.lapTime < this.globalBestLap) {
       this.globalBestLap = lapEvent.lapTime;
       if (lapEvent.trajectory.length > 5) {
@@ -391,14 +396,14 @@ export class Population {
             leader = car;
           }
 
-          if (record && car.fitness > record.bestFitness) {
+          if (record && !car.lapCompromised && car.fitness > record.bestFitness) {
             record.bestFitness = car.fitness;
 
             // Snapshot brain only upon significant progress (+300 pts), checkpoint clearing, lap completion, or initial brain
             const lastSnap = this.lastSnapshotFitness[i] ?? 0;
             const isSignificantProgress = (car.fitness - lastSnap) >= 300;
             const isCheckpoint = car.framesSinceLastCheckpoint === 0;
-            if (record.bestLapTime === null && car.brain && (isSignificantProgress || isCheckpoint || !record.bestBrain)) {
+            if (record.bestLapTime === null && !car.lapCompromised && car.brain && (isSignificantProgress || isCheckpoint || !record.bestBrain)) {
               record.bestBrain = car.brain.clone();
               this.lastSnapshotFitness[i] = car.fitness;
             }
@@ -415,15 +420,16 @@ export class Population {
       } else if (!this.isRaceMode) {
         // Individual car respawn & online team learning
         car.respawnTimer -= dt;
+        car.mistakes.cooldown = Math.max(0, car.mistakes.cooldown - dt);
         if (car.respawnTimer <= 0) {
           const slot = track.getGridSlot(i);
 
           if (!car.isManual) {
             // Snapshot before mutation if current brain holds an unsaved peak fitness
             const peakFit = Math.max(car.fitness, car.peakFitness || 0);
-            if (record && peakFit > record.bestFitness && car.brain) {
+            if (record && !car.lapCompromised && peakFit > record.bestFitness && car.brain) {
               record.bestFitness = peakFit;
-              if (record.bestLapTime === null) {
+              if (record.bestLapTime === null && !car.lapCompromised) {
                 record.bestBrain = car.brain.clone();
                 this.lastSnapshotFitness[i] = peakFit;
               }
@@ -458,7 +464,9 @@ export class Population {
           }
 
           const nextCpIdx = (slot.checkpointIdx + 1) % track.checkpoints.length;
+          const mistakeCooldown = car.mistakes.cooldown;
           car.reset(slot.pos, slot.heading, true, nextCpIdx);
+          car.mistakes.cooldown = mistakeCooldown;
           car.updateDimensionsForTrackWidth(track.width);
           car.isAlive = true;
 
@@ -540,9 +548,9 @@ export class Population {
       const record = this.teamRecords[i];
       if (car && record) {
         const peakFit = Math.max(car.fitness, car.peakFitness || 0);
-        if (peakFit > record.bestFitness) {
+        if (!car.lapCompromised && peakFit > record.bestFitness) {
           record.bestFitness = peakFit;
-          if (record.bestLapTime === null && car.brain) {
+          if (record.bestLapTime === null && !car.lapCompromised && car.brain) {
             record.bestBrain = car.brain.clone();
             this.lastSnapshotFitness[i] = peakFit;
           }
@@ -632,6 +640,7 @@ export class Population {
       newCar.bestLapSplits = record.bestLapSplits ? [...record.bestLapSplits] : [null, null, null, null];
       newCar.lastLapTime = record.lastLapTime;
       newCar.safeBrainBackup = teamBrain.clone();
+      if (preserveProvenCars && existingCar) newCar.mistakes.cooldown = existingCar.mistakes.cooldown;
       newCars.push(newCar);
     }
 

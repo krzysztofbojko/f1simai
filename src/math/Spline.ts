@@ -36,6 +36,9 @@ export class Spline {
     trackWidth: number = 90,
     targetSpacing: number = 20
   ): TrackPoint[] {
+    if (rawPoints.some(p => !Number.isFinite(p.x) || !Number.isFinite(p.y)) || !Number.isFinite(trackWidth) || trackWidth <= 0 || !Number.isFinite(targetSpacing) || targetSpacing <= 0) {
+      throw new Error('Tor zawiera niepoprawne współrzędne lub szerokość.');
+    }
     if (rawPoints.length < 4) return [];
 
     // Filter points that are too close
@@ -88,6 +91,7 @@ export class Spline {
     }
 
     const numPoints = Math.max(20, Math.round(totalLength / targetSpacing));
+    if (!Number.isFinite(totalLength) || numPoints > 4000) throw new Error('Tor jest zbyt duży lub ma niepoprawne współrzędne.');
     const stepLength = totalLength / numPoints;
     const uniformCenter: Vector2[] = [];
 

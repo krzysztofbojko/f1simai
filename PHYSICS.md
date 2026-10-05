@@ -1,12 +1,12 @@
 # Aktualny model fizyki
 
-Stan po poprawkach z 04.10.2026. Ten dokument zastępuje historyczny opis fizyki w `opis.md` i `opis.txt`.
+Stan po poprawkach z 05.10.2026. Ten dokument zastępuje historyczny opis fizyki w `opis.md` i `opis.txt`.
 
 ## Jednostki i geometria
 
 Świat używa metrów, sekund, kilogramów i radianów. Jedna jednostka współrzędnych odpowiada jednemu metrowi. Szerokość toru 14 m oznacza rzeczywistą szerokość geometrii 14 jednostek. Kamera odpowiada za skalowanie obrazu.
 
-Fizyczny obrys samochodu wynosi 5,5 × 1,8 m. Kontakt z granicą sprawdza środek i cztery narożniki. Powiększony symbol graficzny 9 × 3 jednostki służy czytelności i nie powiększa obrysu kolizji.
+Fizyczny obrys samochodu wynosi 5,5 × 1,8 m. Kolizja z bandą sprawdza ruch obrysu, w tym ścieżki narożników oraz obrót pomiędzy pozycjami, z przestrzennym podziałem do 0,25 m i doprecyzowaniem momentu kontaktu. Powiększony symbol graficzny 9 × 3 jednostki służy czytelności i nie powiększa obrysu kolizji.
 
 ## Siły i integracja
 
@@ -31,14 +31,30 @@ AI śledzi krótką trajektorię wzdłuż osi toru zamiast celować o całe chec
 
 Tankowanie ma przepływ 28 kg/s, cel 110 kg i czas co najmniej 3,2 s. Końcowy krok nalicza tylko pozostały czas tankowania. Postój wlicza się do czasu okrążenia i wyścigu. Początek postoju następuje przy zaliczeniu mety po zgłoszeniu zjazdu; brak fizycznego przejazdu aleją serwisową pozostaje uproszczeniem gry.
 
+## Pobocza i bandy
+
+Każdy tor generuje oddzielne krawędzie asfaltu, pas trawy, żwir i bandy. Bazowe pobocze na prostych wynosi 0,25 szerokości asfaltu na stronę (3,5 m przy torze 14 m). Trawa zajmuje do 0,08 szerokości toru. Pobocze zewnętrzne zakrętów jest projektowane na 1–4 szerokości toru na podstawie wygładzonej krzywizny i szacowanej prędkości dojazdu; rozszerzenie obejmuje wejście i wyjście. Poszerzanie ograniczono do 0,3 m na metr drogi. Sąsiedni asfalt może ograniczyć strefę poniżej docelowej szerokości. Przecinający się asfalt jest odrzucany przed wymianą bieżącego toru. Renderer, kamera i fizyka korzystają z jednej geometrii; JSON starszych torów pozostaje zgodny.
+
+Nawierzchnia jest próbkowana pod czterema kołami (rozstaw osi 3,6 m, szerokość 1,8 m). Wypadkowe μ stanowi średnią udziałów: asfalt 1,85, trawa 0,45, żwir 0,60. Dodatkowy opór przeciwny do całego wektora prędkości wynosi 0,04 g na trawie i 0,35 g na żwirze przy pełnym udziale nawierzchni. Impuls nie może odwrócić ruchu. To parametry uproszczonego modelu, nie kalibracja konkretnego toru. Pełny postój w żwirze może uniemożliwić ponowne ruszenie.
+
+Przekroczenie białej linii nie powoduje DNF. Po lekkim kontakcie z bandą usuwana jest prędkość skierowana w bandę, a pozostała mnożona przez 0,8; bolid jest odsuwany o 3 cm. Prędkość prostopadła do bandy co najmniej 12 m/s kończy jazdę. W wyścigu nie ma respawnu; trening przywraca auto po 0,5 s. Telemetria pokazuje nawierzchnię i przyczynę eliminacji. Odzyskiwanie kontroli dostaje do 30 s bez checkpointu, pozostała jazda zachowuje dotychczasowy limit 10 s.
+
+## Pomyłki AI i ochrona uczenia
+
+Ryzyko wynosi `clamp((wykorzystaniePrzyczepności − 0,55) / 0,45, 0, 1)`. Zdarzenia mają prawdopodobieństwo `1 − exp(−ryzyko * dt / 600)` w kroku czasu symulacji. Przy pełnym ryzyku daje to średnio jedną pomyłkę na 10 minut ekspozycji, z 30 s przerwy po zdarzeniu. Pomyłka trwa 0,2–0,6 s i zmniejsza hamowanie do 25% żądania albo zmienia skręt o 0,08–0,20. Nie wymusza wypadnięcia, nie zmienia wag sieci i nie dodaje sił. Pomyłki działają w treningu i wyścigu; nie działają podczas postoju, ręcznego sterowania, odzyskiwania kontroli lub po finiszu.
+
+Podczas pomyłki i odzyskiwania kontroli replay jest wyłączony i czyszczony. Dotknięte zdarzeniem lub wyjazdem na pobocze okrążenie liczy się w dystansie i czasie wyścigu, ale nie zastępuje PB, sieci mistrza ani profilu prędkości lidera i nie uruchamia cofnięcia za pogorszenie czasu. Po wyjeździe AI korzysta z geometrycznego celu na asfalcie, ogranicza gaz i hamuje zależnie od prędkości. Checkpointy pozostają uporządkowane i wymagają przejazdu po asfalcie.
+
 ## Ograniczenia
 
-Brak kontaktów samochód–samochód, impulsów zderzeń z barierą, modelu zawieszenia, temperatury i zużycia opon, skrzyni biegów, wiatru i map aero. Przekroczenie granicy wyklucza samochód. Model nie był kalibrowany względem danych konkretnego bolidu F1. Dawne czasy okrążeń i wagi AI nie są porównywalne z wynikami po zmianie fizyki oraz szerokości toru; zalecany jest nowy trening.
+Brak kontaktów samochód–samochód, pełnego modelu uszkodzeń, modelu zawieszenia, temperatury i zużycia opon, skrzyni biegów, wiatru i map aero. Model nie był kalibrowany względem danych konkretnego bolidu F1. Dawne czasy okrążeń i wagi AI nie są porównywalne z wynikami po zmianie fizyki oraz szerokości toru; zalecany jest nowy trening.
 
 ## Weryfikacja
 
 `npm run test:learning` sprawdza ochronę modeli PB, odzyskiwanie po rozbiciu, ciągłość generacji, czyszczenie nieudanych próbek i mapowanie telemetrii lidera; zawiera test 400 sekund rzeczywistej pętli treningowej.
 
-`npm test` uruchamia ten zestaw oraz sprawdza limity sił, hamowanie od spoczynku i w obu kierunkach, telemetrię, jazdę bokiem, brak paliwa, tankowanie i zegary, skalę, obrys oraz ukończenie okrążeń GP przez AI. Test workera z kontrolowanym zegarem sprawdza 1× przy tickerach 16 ms i 20 ms oraz pauzę. Dodatkowo sprawdza checkpointy pól startowych, ukończenie 10-okrążeniowego wyścigu przez AI, zamrożenie czasu po mecie i powrót do treningu. `npm run audit:physics` wypisuje wyniki numeryczne; `npm run build` sprawdza TypeScript i bundlowanie.
+`npm run test:runoff` sprawdza generowanie i ograniczanie poboczy, nawierzchnie pod kołami, brak dodawania energii przez opór, lekkie i mocne zderzenia, szybkie przecięcie położenia bandy, powrót AI na asfalt, kolejność checkpointów i ochronę PB. Statystykę zdarzeń porównuje przy 30/60/120 krokach na sekundę; dodatkowo wykonuje trzy testy rzeczywistej jazdy po 600 sekund.
 
-`AUDIT_PHYSICS.md` zachowuje dowody stanu sprzed napraw. Poprawiono osiem opisanych tam problemów i akumulator czasu; pełna dynamika yaw, zderzenia i fizyczna aleja serwisowa pozostają ograniczeniami modelu.
+`npm test` uruchamia oba zestawy oraz sprawdza limity sił, hamowanie od spoczynku i w obu kierunkach, telemetrię, jazdę bokiem, brak paliwa, tankowanie i zegary, skalę, obrys oraz ukończenie okrążeń GP przez AI. Test workera z kontrolowanym zegarem sprawdza 1× przy tickerach 16 ms i 20 ms oraz pauzę. Dodatkowo sprawdza checkpointy pól startowych, ukończenie 10-okrążeniowego wyścigu przez AI, zamrożenie czasu po mecie i powrót do treningu. `npm run audit:physics` wypisuje wyniki numeryczne; `npm run build` sprawdza TypeScript i bundlowanie.
+
+`AUDIT_PHYSICS.md` zachowuje dowody stanu sprzed napraw. Poprawiono osiem opisanych tam problemów i akumulator czasu; pełna dynamika yaw, kontakty między bolidami i fizyczna aleja serwisowa pozostają ograniczeniami modelu.

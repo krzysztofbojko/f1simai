@@ -9,7 +9,7 @@ import { pathToFileURL } from 'node:url';
 
 const output = await mkdtemp(join(tmpdir(), 'f1-physics-'));
 try {
-  await build({ configFile: false, logLevel: 'silent', plugins: [{ name: 'audit-worker-access', transform(code, id) { if (id.endsWith('/src/workers/sim.worker.ts')) return code + '\nexport function auditCars() { return population.cars; } export function auditRace() { return { raceState, raceWinner }; }'; } }], build: {
+  await build({ configFile: false, logLevel: 'silent', plugins: [{ name: 'audit-worker-access', transform(code, id) { if (id.endsWith('/src/workers/sim.worker.ts')) return code + '\nexport function auditCars() { return population.cars; } export function auditRace() { return { raceState, raceWinner }; } export function auditTrack() { return track; }'; } }], build: {
     outDir: output, emptyOutDir: true, minify: false,
     lib: { entry: { car: resolve('src/physics/Car.ts'), population: resolve('src/ai/Population.ts'), presets: resolve('src/track/Presets.ts'), worker: resolve('src/workers/sim.worker.ts') }, formats: ['es'], fileName: (_, name) => name + '.mjs' },
   } });
@@ -136,7 +136,7 @@ try {
       }
       close(c.speed, 0);
     }
-    // A footprint extending outside a 14 m road must be rejected.
+    // An explicitly hard-fence fixture rejects a body extending past its limit.
     const boundary = { ...track, isOutOfBounds: p => Math.abs(p.y) > 7 };
     const edge = car(); edge.pos.y = 6.5;
     edge.updatePhysics(idle, 1 / 60, boundary); assert.equal(edge.isAlive, false);
@@ -145,10 +145,15 @@ try {
     const performanceDescriptor = Object.getOwnPropertyDescriptor(globalThis, 'performance');
     let time = 0, tick;
     try {
-      globalThis.self = { postMessage() {} };
+      const messages = [];
+      globalThis.self = { postMessage(message) { messages.push(message); } };
       globalThis.setInterval = callback => { tick = callback; return 0; };
       Object.defineProperty(globalThis, 'performance', { configurable: true, value: { now: () => time } });
       const worker = await import(pathToFileURL(join(output, 'worker.mjs')));
+      const originalTrack = worker.auditTrack();
+      self.onmessage({ data: { type: 'SET_CUSTOM_TRACK', points: [{x:0,y:0},{x:200,y:200},{x:0,y:200},{x:200,y:0}], trackWidth:14 } });
+      assert.equal(worker.auditTrack(), originalTrack, 'invalid custom track replaced the old circuit');
+      assert.equal(messages.at(-1).type, 'TRACK_ERROR');
       for (const c of worker.auditCars()) { c.isManual = true; c.manualControl = idle; }
       self.onmessage({ data: { type: 'SET_PAUSED', isPaused: false } });
       for (let i = 0; i < 62; i++) { time += 16; tick(); }
@@ -169,6 +174,22 @@ try {
       time += 20; tick(); close(worker.auditCars()[0].totalRaceTime, finishTime);
       self.onmessage({ data: { type: 'STOP_RACE' } });
       assert.equal(worker.auditRace().raceState, 'IDLE');
+      self.onmessage({data:{type:'RESET_POPULATION'}});
+      const circuit=worker.auditTrack();
+      const idx=circuit.runoff.findIndex((r,i)=>r.leftWidth<4 && Math.abs(circuit.points[i].curvature)<0.0001);
+      const road=circuit.points[idx], fence=circuit.runoff[idx].leftBarrier;
+      const victim=worker.auditCars()[0]; victim.isManual=true; victim.manualControl=idle;
+      victim.pos=fence.sub(road.normal.mul(0.95)); victim.heading=road.tangent.heading();
+      victim.vel=road.normal.mul(30).add(road.tangent.mul(35)); victim.speed=victim.vel.mag();
+      self.onmessage({data:{type:'SET_SPEED',speed:1}});
+      self.onmessage({data:{type:'SET_PAUSED',isPaused:false}});
+      time+=20; tick();
+      assert.equal(victim.eliminationReason,'barrier');
+      const collisionSnapshot=messages.filter(m=>m.type==='SNAPSHOT').at(-1).snapshot.cars[0];
+      assert.equal(collisionSnapshot.eliminationReason,'barrier');
+      assert.equal(collisionSnapshot.isAlive,false);
+      assert.ok(collisionSnapshot.barrierImpactSpeed>=12);
+      assert.equal(typeof collisionSnapshot.surfaceFractions.gravel,'number');
     } finally {
       globalThis.self = savedSelf; globalThis.setInterval = savedInterval;
       Object.defineProperty(globalThis, 'performance', performanceDescriptor);

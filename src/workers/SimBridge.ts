@@ -21,6 +21,7 @@ export class SimBridge {
   private pendingAllModels: PendingRequest<any>[] = [];
   private pendingLoadAllModels: PendingRequest<boolean>[] = [];
   private nextRequestId = 1;
+  public onTrackError?: (message: string) => void;
   public onSnapshotCallback?: (snapshot: SimSnapshot) => void;
 
   constructor() {
@@ -105,6 +106,10 @@ export class SimBridge {
             }
             break;
 
+          case 'TRACK_ERROR':
+            this.onTrackError?.(data.message || 'Niepoprawna geometria toru.');
+            break;
+
           case 'BEST_BRAIN_RESULT':
             this.resolveNext(this.pendingBestBrain, { json: data.json ?? '', generation: data.generation ?? 0 }, data.requestId);
             break;
@@ -173,8 +178,8 @@ export class SimBridge {
     this.worker?.postMessage({ type: 'SET_SPEED', speed });
   }
 
-  public setTrackWidth(trackWidth: number): void {
-    this.worker?.postMessage({ type: 'SET_TRACK_WIDTH', trackWidth });
+  public setTrackWidth(trackWidth: number, points?: { x: number; y: number }[]): void {
+    this.worker?.postMessage({ type: 'SET_TRACK_WIDTH', trackWidth, points });
   }
 
   public setPreset(preset: 'gp' | 'oval'): void {
