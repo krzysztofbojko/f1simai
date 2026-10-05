@@ -62,3 +62,11 @@ Projekt pierwotnie rozwijano przy użyciu Gemini Antigravity.
 Widok toru: przyciski +/− lub kółko myszy zmieniają zoom (25–800%). Przeciągnięcie przesuwa widok i wyłącza śledzenie. „Cały tor” dopasowuje trasę do okna. Wybierz zawodnika w tabeli lub kliknij auto, następnie włącz „Śledź zawodnika”; kamera podąża za wybranym autem także po zmianie generacji. Bez wcześniejszego wyboru przycisk wybiera aktualnego lidera.
 
 Wyjazd poza asfalt nie eliminuje bolidu: trawa zmniejsza przyczepność, a żwir dodatkowo wyhamowuje ruch. Lekki kontakt z bandą wygasza ruch w jej kierunku i zmniejsza prędkość wzdłuż bandy. Uderzenie z prędkością prostopadłą co najmniej 12 m/s powoduje DNF w wyścigu lub respawn w treningu. Samochód zatrzymany głęboko w żwirze może ugrzęznąć i zakończyć jazdę z powodu braku postępu.
+
+### Poszukiwanie linii przejazdu
+
+Kierowcy rozpoczynają trening z różnymi profilami trajektorii. Profil określa przesunięcie na prostej, wyprzedzenie wejścia w zakręt, głębokość dojścia do wierzchołka i wyjście. Docelowe przesunięcie zależy od lokalnej i przewidywanej krzywizny; nie jest stałą jazdą środkiem ani jednym pasem wokół całego toru. Kontroler płynnie realizuje trajektorię, zachowując ograniczenia asfaltu, przyczepności i ruchu innych aut.
+
+Po czystym okrążeniu kierowca porównuje mediany ostatnich maksymalnie pięciu czasów dla profilu. Najpierw sprawdza profile początkowe, następnie regularnie generuje nowe próby wokół najlepszego. Okrążenie przejściowe po zmianie profilu i okrążenia zakłócone incydentami lub wyprzedzaniem nie oceniają profilu. Najlepszy profil pozostaje chroniony podczas mutacji. W wyścigu kierowca korzysta z najlepszego sprawdzonego wariantu. Wyniki poszukiwania pozostają przy bolidzie podczas indywidualnego respawnu i automatycznych zmian generacji.
+
+Jest to ograniczone poszukiwanie ewolucyjne parametrów trajektorii, współpracujące z istniejącym uczeniem sterowania; nie gwarantuje globalnego optimum. Zmiany paliwa i warunków ruchu mogą nadal wpływać na porównanie czasów. `node scripts/test-lines.mjs` sprawdza dobór profilu, ochronę najlepszego wariantu, nowe mutacje oraz przebieg zewnętrzna–wierzchołek–zewnętrzna.

@@ -112,6 +112,7 @@ class App {
         car.incidentActive = sc.incidentActive;
         car.battleOpponent = sc.battleOpponent;
         car.overtakingTargetName = sc.overtakingTargetName;
+        car.racingLineLabel = sc.racingLineLabel;
         car.yellowFlag = sc.yellowFlag;
         car.wreckRemoved = sc.wreckRemoved;
         car.recoveryTimer = sc.recoveryTimer;
@@ -1644,7 +1645,7 @@ class App {
     const reasons = { car: 'WYPADEK Z INNYM BOLIDEM', barrier: 'UDERZENIE W BANDĘ', fuel: 'BRAK PALIWA', stuck: 'BRAK POSTĘPU', 'wrong-way': 'JAZDA POD PRĄD' };
     document.getElementById('tele-surface')!.textContent = activeCar ? surfaces[activeCar.surface] : '—';
     document.getElementById('tele-incident')!.textContent = activeCar?.eliminationReason
-      ? activeCar.wreckRemoved ? 'DNF — BOLID USUNIĘTY' : reasons[activeCar.eliminationReason] : activeCar?.yellowFlag ? 'ŻÓŁTA FLAGA — ZAKAZ WYPRZEDZANIA' : activeCar?.incidentActive ? 'POMYŁKA KIEROWCY' : activeCar && activeCar.recoveryTimer > 0 ? 'ODZYSKIWANIE KONTROLI' : activeCar?.overtakingTargetName ? `WYPRZEDZANIE: ${activeCar.overtakingTargetName}` : activeCar?.battleOpponent ? `ATAK: ${activeCar.battleOpponent}` : 'JAZDA';
+      ? activeCar.wreckRemoved ? 'DNF — BOLID USUNIĘTY' : reasons[activeCar.eliminationReason] : activeCar?.yellowFlag ? 'ŻÓŁTA FLAGA — ZAKAZ WYPRZEDZANIA' : activeCar?.incidentActive ? 'POMYŁKA KIEROWCY' : activeCar && activeCar.recoveryTimer > 0 ? 'ODZYSKIWANIE KONTROLI' : activeCar?.overtakingTargetName ? `WYPRZEDZANIE: ${activeCar.overtakingTargetName}` : activeCar?.battleOpponent ? `ATAK: ${activeCar.battleOpponent}` : activeCar?.racingLineLabel || 'JAZDA';
 
     // Update telemetry header and brain tag
     const teleHeader = document.getElementById('telemetry-header-title');

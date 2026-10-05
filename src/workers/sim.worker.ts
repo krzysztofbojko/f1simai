@@ -97,6 +97,7 @@ export interface SerializedCar {
   incidentActive: boolean;
   battleOpponent: string;
   overtakingTargetName: string;
+  racingLineLabel: string;
   yellowFlag: boolean;
   wreckRemoved: boolean;
   recoveryTimer: number;
@@ -247,6 +248,7 @@ function serializeCar(car: Car, ctrl?: CarControl, isHeadless: boolean = false):
     incidentActive: car.incidentActive,
     battleOpponent: car.battleOpponent,
     overtakingTargetName: car.overtakingTargetName,
+    racingLineLabel: car.racingLineLabel,
     yellowFlag: car.yellowFlag,
     wreckRemoved: car.wreckRemoved,
     recoveryTimer: car.recoveryTimer,

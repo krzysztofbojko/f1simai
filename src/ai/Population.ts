@@ -1,3 +1,4 @@
+import { LineSearch } from './LineSearch';
 import { updateRaceSafety, planRaceLine } from './RaceTraffic';
 import { captureMotion, avoidTraffic, resolveTraffic } from '../physics/Traffic';
 import { Car, LapFinishEvent, TrajectoryPoint } from '../physics/Car';
@@ -183,6 +184,7 @@ export class Population {
         this.startingFuelKg,
         this.rayCount
       );
+      car.lineSearch = new LineSearch(i);
       car.currentCheckpointIdx = (slot.checkpointIdx + 1) % track.checkpoints.length;
       car.updateDimensionsForTrackWidth(track.width);
       this.cars.push(car);
@@ -195,6 +197,7 @@ export class Population {
   }
 
   recordLap(lapEvent: LapFinishEvent, car: Car, isPlayer: boolean = false, track?: Track): void {
+    if (!this.isRaceMode && !isPlayer) car.lineSearch?.finish(lapEvent.lapTime, !lapEvent.compromised);
     if (lapEvent.compromised) {
       const record = this.teamRecords.find(r => r.color === car.color);
       if (record) { record.lapsCount++; record.lastLapTime = lapEvent.lapTime; }
@@ -670,6 +673,7 @@ export class Population {
         this.startingFuelKg,
         this.rayCount
       );
+      newCar.lineSearch = this.cars[i]?.lineSearch ?? new LineSearch(i);
       newCar.currentCheckpointIdx = (slot.checkpointIdx + 1) % track.checkpoints.length;
       newCar.updateDimensionsForTrackWidth(track.width);
       newCar.bestLapTime = record.bestLapTime;

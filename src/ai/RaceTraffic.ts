@@ -49,6 +49,8 @@ export function planRaceLine(car: Car, cars: Car[], track: Track, dt: number): v
     plans.delete(car); car.overtakingTargetName = ''; car.raceLineOffset = 0; return;
   }
   const sample = track.sampleSurface(car.pos), limit = Math.max(0, track.width / 2 - 1.6);
+  const baseline = Math.max(-limit, Math.min(limit, car.lineSearch?.target(track, car.pos, car.isRaceMode) ?? 0));
+  car.racingLineLabel = car.lineSearch ? `LINIA ${(car.isRaceMode ? car.lineSearch.best : car.lineSearch.current) + 1} · ${baseline.toFixed(1)} m` : '';
   let plan = plans.get(car);
   // Reset also invalidates persistent plans from an earlier race.
   if (plan && !car.overtakingTargetName && plan.target.isAlive && car.raceLineOffset === 0) plan = undefined;
@@ -69,7 +71,7 @@ export function planRaceLine(car: Car, cars: Car[], track: Track, dt: number): v
       return Math.abs(distance) > (other === target ? 50 : 22) || Math.abs(lateral - lane) >= 2.8;
     });
   };
-  if (plan && gap(track, car.pos, plan.target.pos) < -9 && laneFree(0)) plan = undefined;
+  if (plan && gap(track, car.pos, plan.target.pos) < -9 && laneFree(baseline)) plan = undefined;
   if (!plan) {
     const target = cars.filter(other => other !== car && !other.wreckRemoved && !other.isPitting && !other.isFinishedRace)
       .map(other => ({other, distance: gap(track, car.pos, other.pos)}))
@@ -82,7 +84,7 @@ export function planRaceLine(car: Car, cars: Car[], track: Track, dt: number): v
       if (lane !== undefined) plan = {target,lane};
     }
   }
-  const desired = plan ? laneFree(plan.lane, plan.target) ? plan.lane : sample.lateral : laneFree(0) ? 0 : car.raceLineOffset;
+  const desired = plan ? laneFree(plan.lane, plan.target) ? plan.lane : sample.lateral : laneFree(baseline) ? baseline : car.raceLineOffset;
   car.raceLineOffset += Math.max(-1.8 * dt, Math.min(1.8 * dt, desired - car.raceLineOffset));
   car.raceLineOffset = Math.max(-limit, Math.min(limit, car.raceLineOffset));
   car.overtakingTargetName = plan?.target.isAlive && !car.yellowFlag ? plan.target.driverName : '';

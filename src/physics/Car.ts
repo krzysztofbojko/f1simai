@@ -1,3 +1,4 @@
+import { LineSearch } from '../ai/LineSearch';
 import { Vector2, IntersectionResult, segmentsIntersect } from '../math/Vector2';
 import { BattlePush } from '../ai/BattlePush';
 import { DriverMistakes } from '../ai/DriverMistakes';
@@ -144,6 +145,8 @@ export class Car {
   public battlePush = new BattlePush();
   public battleOpponent = '';
   public raceLineOffset = 0;
+  public lineSearch: LineSearch | null = null;
+  public racingLineLabel = '';
   public overtakingTargetName = '';
   public yellowFlag = false;
   public trafficWaiting = false;
