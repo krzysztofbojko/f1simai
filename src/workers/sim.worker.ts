@@ -576,7 +576,7 @@ function runSimulationSteps(): void {
     }
 
     const traffic = [...population.cars, ...(playerCar && isPlayerDriving ? [playerCar] : [])];
-    const trafficMotion = population.isRaceMode && playerCar && isPlayerDriving ? captureMotion(traffic) : null;
+    const trafficMotion = playerCar && isPlayerDriving ? captureMotion(traffic) : null;
     population.update(fixedDt, track, playerCar && isPlayerDriving ? [playerCar] : []);
 
     if (playerCar && isPlayerDriving) {
@@ -590,7 +590,7 @@ function runSimulationSteps(): void {
         }
       } else {
         playerCar.updateSensors(track);
-        const lapEvent = playerCar.updatePhysics(population.isRaceMode ? avoidTraffic(playerCar, traffic, playerControl, track) : playerControl, fixedDt, track);
+        const lapEvent = playerCar.updatePhysics(avoidTraffic(playerCar, traffic, playerControl, track), fixedDt, track);
         if (trafficMotion) resolveTraffic(traffic, trafficMotion, playerCar);
         if (lapEvent) {
           population.recordLap({...lapEvent, compromised: lapEvent.compromised || playerCar.lapCompromised}, playerCar, true, track);

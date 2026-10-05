@@ -107,6 +107,7 @@ export function resolveTraffic(cars: Car[], motion: Map<Car, Motion>, onlyCar?: 
       if (closing >= 8 && car.isAlive) {
         car.isAlive = false;
         car.eliminationReason = 'car';
+        car.respawnTimer = .5;
         car.effectiveThrottle = 0;
         car.vel.set(0, 0);
         car.angularVelocity = 0;

@@ -69,7 +69,7 @@ Po utracie rywala, poślizgu, pomyłce, wyjeździe na pobocze lub zgłoszeniu pi
 
 Bolidy w wyścigu mają nieprzenikające prostokątne obrysy 5,5 × 1,8 m. Ciągły test osi rozdzielających wykrywa kontakt na całej drodze ruchu; obrót dzielony jest na małe odcinki. Lekkie uderzenie rozdziela auta i stosuje niesprężysty impuls zależny od ich mas. Składowa prędkości względnej skierowana w kontakt ≥ 8 m/s oznacza wypadek i DNF obu uczestników. Jest to uproszczony próg modelu. Uszkodzone auta pozostają przeszkodami. Telemetria podaje „WYPADEK Z INNYM BOLIDEM”. Zdarzenie wyklucza okrążenie z oceny sieci, ale czas wyścigu nadal liczy się normalnie.
 
-AI ogranicza gaz i hamuje przed pojazdem w swoim korytarzu jazdy, uwzględniając odległość i prędkość zbliżania. Dotyczy to także dublowanych i zatrzymanych samochodów. Atak ustępuje hamowaniu bezpieczeństwa. Sterowanie ręczne nie jest korygowane, ale jego kolizje są fizyczne. W treningu niezależne próby modeli pozostają bez wzajemnych kolizji. Wyprzedzanie korzysta z bocznego przesunięcia celu sterowania, opisanego niżej.
+AI ogranicza gaz i hamuje przed pojazdem w swoim korytarzu jazdy, uwzględniając odległość i prędkość zbliżania. Dotyczy to także dublowanych i zatrzymanych samochodów. Atak ustępuje hamowaniu bezpieczeństwa. Sterowanie ręczne nie jest korygowane, ale jego kolizje są fizyczne. Trening również uwzględnia kontakt i unikanie innych aut. Po wypadku model jest zachowany, a bolid wraca po 0,5 s, gdy jego miejsce startowe jest wolne. Wyprzedzanie korzysta z bocznego przesunięcia celu sterowania, opisanego niżej.
 
 `npm run test:traffic` sprawdza najechanie od tyłu przy dużej prędkości, krzyżowanie trajektorii, lekkie kontakty, rozdzielenie obrysów, energię oraz hamowanie przed wolniejszym i zatrzymanym rywalem.
 
@@ -80,3 +80,7 @@ AI wybiera wolną linię po lewej lub prawej stronie rywala, z odstępem bocznym
 Każdy nieusunięty DNF tworzy lokalną żółtą strefę od 200 m przed wrakiem do 30 m za nim, liczoną wzdłuż trasy także przez metę. W niej AI odpuszcza atak, nie wybiera linii wyprzedzania żywych rywali i hamuje do 22 m/s (około 79 km/h). Omijanie nieruchomego wraku pozostaje dozwolone. Hamowanie bezpieczeństwa dotyczy również ręcznego sterowania przy żółtej fladze. To uproszczone zasady symulacji, nie odwzorowanie regulaminowego systemu sędziowania. Żółta flaga jest widoczna w telemetrii i etykietach aut. Oczekiwanie przy prędkości poniżej 3 m/s za blokującym pojazdem nie uruchamia DNF za brak postępu.
 
 Przy wykryciu DNF losowana jest obsługa po 1 albo 2 dalszych ukończonych okrążeniach lidera. Po upływie tego dystansu wrak znika z renderowania oraz wykrywania kolizji i przeszkód; kierowca zachowuje DNF w klasyfikacji. Gdy w danej strefie nie ma kolejnego wraku, żółta flaga gaśnie.
+
+### Zgodność rysunku i kolizji
+
+Rysowany bolid ma ten sam obrys 5,5 × 1,8 m co fizyczny model kontaktu. Koła, skrzydła i pozostałe stałe elementy są ograniczone do tego obrysu, zamiast dawnego powiększonego znacznika 9 × 3 m. Efekty dymu, podpisy i zaznaczenie kierowcy pozostają nakładkami. Wzajemne kolizje, hamowanie przed rywalem i wybór bocznej linii działają także w domyślnym treningu. Reset miejsca po wypadku nie jest traktowany jako ruch przez tor, a zajęty slot opóźnia respawn.

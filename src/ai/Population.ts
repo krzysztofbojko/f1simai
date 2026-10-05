@@ -319,7 +319,7 @@ export class Population {
   update(dt: number, track: Track, extraCars: Car[] = []): void {
     const traffic = [...this.cars, ...extraCars];
     if (this.isRaceMode) updateRaceSafety(traffic, track);
-    const motion = this.isRaceMode ? captureMotion(traffic) : null;
+    const motion = captureMotion(traffic);
     const laps: { car: Car; event: LapFinishEvent }[] = [];
     let maxFitness = -Infinity;
     let leader: Car | null = null;
@@ -351,7 +351,7 @@ export class Population {
       const record = this.teamRecords[i];
 
       if (car.isAlive) {
-        if (this.isRaceMode) planRaceLine(car, traffic, track, dt);
+        planRaceLine(car, traffic, track, dt);
         const prevCp = this.lastCarCheckpointIdx[i] ?? car.currentCheckpointIdx;
         // A rival must occupy the same local stretch, face the same direction,
         // and be ahead by at most 35 m. Nearby parallel track sections do not count.
@@ -375,7 +375,7 @@ export class Population {
         car.updateSensors(track);
         // Point 1: pass leader speeds for telemetry coaching, or use human player WASD input (learning enabled only in simulation step)
         let control = car.isManual ? car.manualControl : car.getAIControl(track, this.leaderCheckpointSpeeds, !this.isRaceMode);
-        if (this.isRaceMode) control = avoidTraffic(car, traffic, control, track);
+        control = avoidTraffic(car, traffic, control, track);
         const lapEvent = car.updatePhysics(control, dt, track);
 
         if (lapEvent) {
@@ -450,6 +450,10 @@ export class Population {
         car.mistakes.cooldown = Math.max(0, car.mistakes.cooldown - dt);
         if (car.respawnTimer <= 0) {
           const slot = track.getGridSlot(i);
+          if (traffic.some(other => other !== car && other.isAlive && other.pos.dist(slot.pos) < 6)) {
+            car.respawnTimer = .1;
+            continue;
+          }
 
           if (!car.isManual) {
             // Snapshot before mutation if current brain holds an unsaved peak fitness
@@ -496,6 +500,8 @@ export class Population {
           car.mistakes.cooldown = mistakeCooldown;
           car.updateDimensionsForTrackWidth(track.width);
           car.isAlive = true;
+          // Respawning is a placement, not motion through the entire circuit.
+          motion.set(car, {pos: car.pos.clone(), heading: car.heading});
 
           // Crash/respawn resilience: reset run-specific counters for this individual car,
           // preserving the generation's global best records and progress.

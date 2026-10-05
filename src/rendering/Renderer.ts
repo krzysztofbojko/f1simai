@@ -5,6 +5,7 @@ import { NeuralNetwork } from '../ai/NeuralNetwork';
 
 export class Renderer {
   private ctx: CanvasRenderingContext2D;
+  private viewZoom = 1;
   public showSensors: boolean = true;
   public showCheckpoints: boolean = false;
   public showRacingLine: boolean = true;
@@ -15,6 +16,7 @@ export class Renderer {
   }
 
   clear(width: number, height: number, zoom: number = 1): void {
+    this.viewZoom = Math.max(.01, zoom);
     const ctx = this.ctx;
 
     // Dark motorsport asphalt / grass background
@@ -427,7 +429,7 @@ export class Renderer {
       ctx.fillStyle = '#FF5252';
       ctx.font = 'bold 9px sans-serif';
       ctx.textAlign = 'center';
-      ctx.fillText('⚠ DNF — ŻÓŁTA', 0, -car.width - 2);
+      ctx.fillText('💥 DNF', 0, -car.width - 2);
       ctx.restore();
       return;
     }
@@ -437,7 +439,7 @@ export class Renderer {
     // Selection reticle and brackets around car
     if (isSelected) {
       ctx.save();
-      const ringRadius = Math.max(20, car.length * 0.85);
+      const ringRadius = Math.max(12 / this.viewZoom, car.length * .65);
       ctx.strokeStyle = car.color;
       ctx.lineWidth = 2.0;
       ctx.setLineDash([5, 4]);
@@ -447,8 +449,8 @@ export class Renderer {
       ctx.setLineDash([]);
 
       // 4 tactical target brackets
-      const bLen = 6;
-      const bOffset = ringRadius + 4;
+      const bLen = 6 / this.viewZoom;
+      const bOffset = ringRadius + 4 / this.viewZoom;
       ctx.strokeStyle = '#FFFFFF';
       ctx.lineWidth = 2;
       // Top-left
@@ -498,6 +500,12 @@ export class Renderer {
       ctx.arc(-halfL - 3, halfW + 2, 3.5 + Math.random() * 2, 0, Math.PI * 2);
       ctx.fill();
     }
+
+    // All solid car parts occupy exactly the same box used by collisions.
+    // Smoke, labels and selection markers are overlays, not vehicle geometry.
+    ctx.beginPath();
+    ctx.rect(-halfL, -halfW, length, width);
+    ctx.clip();
 
     // 1. Wheels (Pirelli Slicks)
     ctx.fillStyle = '#1A1A1A';
@@ -590,6 +598,8 @@ export class Renderer {
   private renderSpeedLabel(car: Car, isLeader: boolean, isPlayer: boolean, isSelected: boolean = false): void {
     const ctx = this.ctx;
     ctx.save();
+    ctx.translate(car.pos.x, car.pos.y);
+    ctx.scale(1 / this.viewZoom, 1 / this.viewZoom);
 
     const speedVal = Math.round(car.speedKmh);
     const surnameMatch = car.driverName.match(/^([^\s]+)\s+([^\s(]+)/);
@@ -622,8 +632,8 @@ export class Renderer {
     const padX = 6;
     const boxW = textWidth + padX * 2;
     const boxH = isLeader || isPlayer || isSelected || isPitting ? 16 : 14;
-    const posX = car.pos.x - boxW / 2;
-    const posY = car.pos.y - Math.max(24, car.width / 2 + 16);
+    const posX = -boxW / 2;
+    const posY = -Math.max(24, car.width * this.viewZoom / 2 + 16);
 
     // Dark pill container with team color border
     ctx.fillStyle = isPitting
@@ -677,7 +687,7 @@ export class Renderer {
 
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText(labelText, car.pos.x, posY + boxH / 2);
+    ctx.fillText(labelText, 0, posY + boxH / 2);
 
     ctx.restore();
   }

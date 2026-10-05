@@ -6,11 +6,12 @@ import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 const dir = await mkdtemp(join(tmpdir(), 'f1-traffic-'));
 try {
- await build({configFile:false,logLevel:'silent',build:{outDir:dir,lib:{entry:{traffic:resolve('src/physics/Traffic.ts'),car:resolve('src/physics/Car.ts'),vector:resolve('src/math/Vector2.ts'),race:resolve('src/ai/RaceTraffic.ts'),presets:resolve('src/track/Presets.ts'),track:resolve('src/track/Track.ts'),network:resolve('src/ai/NeuralNetwork.ts')},formats:['es'],fileName:(_,name)=>name+'.mjs'}}});
+ await build({configFile:false,logLevel:'silent',build:{outDir:dir,lib:{entry:{traffic:resolve('src/physics/Traffic.ts'),car:resolve('src/physics/Car.ts'),vector:resolve('src/math/Vector2.ts'),race:resolve('src/ai/RaceTraffic.ts'),presets:resolve('src/track/Presets.ts'),track:resolve('src/track/Track.ts'),network:resolve('src/ai/NeuralNetwork.ts'),population:resolve('src/ai/Population.ts')},formats:['es'],fileName:(_,name)=>name+'.mjs'}}});
  const {Car} = await import(pathToFileURL(join(dir,'car.mjs')));
  const {Vector2} = await import(pathToFileURL(join(dir,'vector.mjs')));
  const {captureMotion,resolveTraffic,avoidTraffic} = await import(pathToFileURL(join(dir,'traffic.mjs')));
  const {planRaceLine,updateRaceSafety} = await import(pathToFileURL(join(dir,'race.mjs')));
+ const {Population} = await import(pathToFileURL(join(dir,'population.mjs')));
  const {Track} = await import(pathToFileURL(join(dir,'track.mjs')));
  const {NeuralNetwork} = await import(pathToFileURL(join(dir,'network.mjs')));
  const car=(x,y,v=0)=>{const c=new Car(new Vector2(x,y),0);c.vel=new Vector2(v,0);c.speed=v;c.isRaceMode=true;return c;};
@@ -55,6 +56,21 @@ try {
  }
  assert.ok(passed,'driver failed to complete an actual pass and return to the racing line');
  assert.ok(maxOffset>2.8,'driver did not use another line');
+ // The default training mode must also have physical contact, not ghost cars.
+ const training=new Population(2,circuit);
+ const [trainingRear,trainingFront]=training.cars;
+ for(const c of training.cars) {c.reset(new Vector2(150,0),0,true,2);c.isManual=true;c.manualControl={throttle:0,brake:0,steer:0};}
+ trainingFront.pos=new Vector2(156.2,0);trainingRear.vel=new Vector2(60,0);trainingRear.speed=60;
+ training.update(1/60,circuit);
+ assert.equal(trainingRear.eliminationReason,'car');assert.equal(trainingFront.eliminationReason,'car');
+ assert.equal(trainingRear.length,5.5);assert.equal(trainingRear.width,1.8);
+ assert.deepEqual(Car.getDimensionsForTrackWidth(14),{length:5.5,width:1.8,effectiveTrackWidth:14});
+ // Respawn must wait for an occupied start slot instead of placing a car on another.
+ const slot=circuit.getGridSlot(0);
+ trainingFront.isAlive=true;trainingFront.pos=slot.pos.clone();trainingFront.vel.set(0,0);trainingFront.speed=0;
+ trainingRear.respawnTimer=0;
+ training.update(1/60,circuit);
+ assert.equal(trainingRear.isAlive,false,'respawn placed a car in an occupied slot');
  // Wrecks produce a local yellow and disappear only after one or two leader laps.
  a=car(150,0,35);b=car(190,0,0);b.isAlive=false;b.eliminationReason='car';
  updateRaceSafety([a,b],circuit);assert.equal(a.yellowFlag,true);assert.ok([1,2].includes(b.wreckClearLap));
@@ -90,6 +106,27 @@ try {
  const removed=car(400,0);removed.isAlive=false;removed.wreckRemoved=true;
  const clear=car(380,0,50),clearMotion=captureMotion([clear,removed]);clear.pos.x=420;
  resolveTraffic([clear,removed],clearMotion);assert.ok(clear.isAlive);assert.equal(clear.recoveryTimer,0);
+ // Independent SAT check of the rendered rectangles throughout real training.
+ const overlap=(first,second)=>{
+   const axes=[Vector2.fromAngle(first.heading),Vector2.fromAngle(first.heading).normal(),Vector2.fromAngle(second.heading),Vector2.fromAngle(second.heading).normal()];
+   const delta=second.pos.sub(first.pos);
+   return axes.every(axis=>{
+     const radius=c=>c.length/2*Math.abs(Vector2.fromAngle(c.heading).dot(axis))+c.width/2*Math.abs(Vector2.fromAngle(c.heading).normal().dot(axis));
+     return Math.abs(delta.dot(axis)) < radius(first)+radius(second)-.002;
+   });
+ };
+ const {Presets}=await import(pathToFileURL(join(dir,'presets.mjs')));
+ const checked=[];
+ for(const initialSeed of [145,456,789]) {
+   let seed=initialSeed;Math.random=()=>{seed=(Math.imul(seed,1664525)+1013904223)>>>0;return seed/4294967296;};
+   const gp=Presets.createGrandPrixTrack(14),pop=new Population(10,gp);
+   for(let step=0;step<120*60;step++) {
+     pop.update(1/60,gp);
+     for(let i=0;i<pop.cars.length;i++) for(let j=i+1;j<pop.cars.length;j++) assert.equal(overlap(pop.cars[i],pop.cars[j]),false,`rendered training bodies overlapped at seed ${initialSeed}, step ${step}, pair ${i}/${j}`);
+   }
+   checked.push({seed:initialSeed,laps:pop.teamRecords.reduce((sum,r)=>sum+r.lapsCount,0)});
+ }
+ console.log('120-second training runs without overlapping rendered bodies:',JSON.stringify(checked));
  console.log('Race traffic: actual pass completed, lateral separation',maxOffset.toFixed(2),'m; yellow flags and lap-based clearance passed.');
  console.log('Traffic regressions passed: swept rear-end/crossing collisions, light contact, separation, energy, passing and AI braking.');
 } finally {await rm(dir,{recursive:true,force:true});}

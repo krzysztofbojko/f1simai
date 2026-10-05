@@ -52,14 +52,14 @@ export class Car {
   public totalFuelConsumed: number = 0; // kg
 
   // Physical specifications (F1 Dimensions & Weights)
-  public length: number = 9; // Visual length (px)
-  public width: number = 3;  // Visual width (px)
+  public length: number = 5.5; // Physical and rendered length (m)
+  public width: number = 1.8; // Physical and rendered width (m)
 
   public static getDimensionsForTrackWidth(trackWidthMeters: number): { width: number; length: number; effectiveTrackWidth: number } {
-    // World geometry is in meters. The small enlarged marker is visual only.
+    // The rendered body matches the collision body, including at high zoom.
     const effectiveTrackWidth = Math.max(5, Math.min(20, trackWidthMeters));
-    const width = 3;
-    const length = 9;
+    const width = 1.8;
+    const length = 5.5;
 
     return { width, length, effectiveTrackWidth };
   }
@@ -362,7 +362,7 @@ export class Car {
       segmentFraction = 0;
       targetPosition = end;
     }
-    if (this.isRaceMode && this.raceLineOffset !== 0) {
+    if (this.raceLineOffset !== 0) {
       const road = track.sampleSurface(targetPosition);
       targetPosition = targetPosition.add(road.tangent.normal().mul(this.raceLineOffset));
     }
@@ -606,7 +606,7 @@ export class Car {
     if (!this.isFinishedRace) {
       this.totalRaceTime += dt;
     }
-    if (!(this.isRaceMode && this.trafficWaiting)) this.framesSinceLastCheckpoint++;
+    if (!this.trafficWaiting) this.framesSinceLastCheckpoint++;
 
     if (this.fitness > this.peakFitness) {
       this.peakFitness = this.fitness;

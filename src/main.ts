@@ -1550,13 +1550,13 @@ class App {
 
         for (let s = 0; s < steps; s++) {
           const traffic = [...this.population.cars, ...(this.playerCar ? [this.playerCar] : [])];
-          const trafficMotion = this.population.isRaceMode && this.playerCar ? captureMotion(traffic) : null;
+          const trafficMotion = this.playerCar ? captureMotion(traffic) : null;
           this.population.update(fixedDt, this.track, this.playerCar ? [this.playerCar] : []);
 
           if (this.playerCar && this.playerCar.isAlive) {
             this.playerCar.updateSensors(this.track);
             const input = this.getPlayerControl();
-            const control = this.population.isRaceMode ? avoidTraffic(this.playerCar, traffic, input, this.track) : input;
+            const control = avoidTraffic(this.playerCar, traffic, input, this.track);
             const lapEvent = this.playerCar.updatePhysics(control, fixedDt, this.track);
             if (trafficMotion) resolveTraffic(traffic, trafficMotion, this.playerCar);
             if (lapEvent) {
