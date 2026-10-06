@@ -19,13 +19,23 @@ export function gap(track: Track, from: Vector2, to: Vector2): number {
   return ((d + total / 2) % total + total) % total - total / 2;
 }
 
-/** Wreck clearance is measured in completed leader laps, not accelerated wall time. */
-export function updateRaceSafety(cars: Car[], track: Track): void {
+const blockedWreckTime = new WeakMap<Car, number>();
+/** Normally clear after leader laps; marshals also clear a completely blocked field. */
+export function updateRaceSafety(cars: Car[], track: Track, dt = 0): void {
+  const active = cars.filter(c => c.isAlive && !c.isFinishedRace && !c.isPitting);
+  const stoppedField = active.length > 0 && active.every(c => c.speed < 1);
+  const elapsed = Number.isFinite(dt) ? Math.max(0, dt) : 0;
   const leaderLap = Math.max(0, ...cars.map(c => c.raceLapsCompleted));
   for (const car of cars) {
-    if (car.isAlive || car.wreckRemoved) continue;
+    if (car.isAlive || car.wreckRemoved) { blockedWreckTime.delete(car); continue; }
+    const blocksQueue = stoppedField && active.some(c => {
+      const distance = gap(track, c.pos, car.pos);
+      return distance >= -5.5 && distance <= 60;
+    });
+    const blockedTime = blocksQueue ? (blockedWreckTime.get(car) ?? 0) + elapsed : 0;
+    blockedWreckTime.set(car, blockedTime);
     if (car.wreckClearLap === null) car.wreckClearLap = leaderLap + (Math.random() < .5 ? 1 : 2);
-    if (leaderLap >= car.wreckClearLap) car.wreckRemoved = true;
+    if (leaderLap >= car.wreckClearLap || blockedTime >= 30) car.wreckRemoved = true;
   }
   const wrecks = cars.filter(c => !c.isAlive && !c.wreckRemoved && !c.isPitting && !c.isFinishedRace);
   for (const car of cars) {
@@ -68,9 +78,10 @@ export function planRaceLine(car: Car, cars: Car[], track: Track, dt: number): v
       const lateral = track.sampleSurface(other.pos).lateral;
       const reserved = plans.get(other);
       // A follower's future lane cannot block the queue leader from bypassing a wreck.
-      // Actual occupied lanes remain protected by the physical clearance check below.
+      // Protect adjacent bodies and the forward corridor. A car more than one body
+      // length behind must yield, rather than veto the leader's escape lane.
       if (other !== target && reserved && (other.raceLineOffset !== 0 || other.overtakingTargetName) && distance > -5.5 && distance < 22 && Math.abs(reserved.lane - lane) < 2.8) return false;
-      return Math.abs(distance) > (other === target ? 50 : 22) || Math.abs(lateral - lane) >= 2.8;
+      return distance < -5.5 || Math.abs(distance) > (other === target ? 50 : 22) || Math.abs(lateral - lane) >= 2.8;
     });
   };
   if (plan && gap(track, car.pos, plan.target.pos) < -9 && laneFree(baseline)) plan = undefined;
@@ -81,7 +92,9 @@ export function planRaceLine(car: Car, cars: Car[], track: Track, dt: number): v
       .sort((a,b) => a.distance - b.distance)[0]?.other;
     if (target) {
       const lateral = track.sampleSurface(target.pos).lateral;
-      const candidates = [lateral + 3.2, lateral - 3.2].sort((a,b) => Math.abs(a-sample.lateral)-Math.abs(b-sample.lateral));
+      // Wreck bypasses need extra clearance for the curved approach, not just body width.
+      const clearance = target.isAlive ? 3.2 : 4.2;
+      const candidates = [Math.min(limit, lateral + clearance), Math.max(-limit, lateral - clearance)].sort((a,b) => Math.abs(a-sample.lateral)-Math.abs(b-sample.lateral));
       const lane = candidates.find(candidate => laneFree(candidate, target));
       if (lane !== undefined) plan = {target,lane};
     }

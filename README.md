@@ -5,7 +5,7 @@ Przeglądarkowy symulator wyścigów 2D w TypeScript i Vite. Dziesięć bolidów
 ## Funkcje
 
 - Ciągły trening AI bez restartowania sprawdzonych bolidów przy automatycznej zmianie generacji; ochrona modeli najlepszych okrążeń, import i eksport.
-- Wyścig Grand Prix z procedurą startową, klasyfikacją, paliwem i uproszczonym postojem serwisowym. AI wybiera boczną linię wyprzedzania i omija wraki; lokalne żółte flagi ograniczają tempo i zabraniają wyprzedzania. Wraki znikają po 1–2 okrążeniach lidera.
+- Wyścig Grand Prix z procedurą startową, klasyfikacją, paliwem i uproszczonym postojem serwisowym. AI wybiera boczną linię wyprzedzania i omija wraki; lokalne żółte flagi ograniczają tempo i zabraniają wyprzedzania. Wraki znikają po 1–2 okrążeniach lidera. Jeśli cała aktywna stawka stoi przez 30 sekund czasu symulacji, służby awaryjnie usuwają pobliskie wraki blokujące kolejkę, aby wyścig mógł ruszyć.
 - Tory Grand Prix i owal, rysowanie własnej trasy oraz zapis i odczyt JSON. Automatyczne pobocza z trawy i żwiru, szersze po zewnętrznej stronie zakrętów, oraz bandy.
 - Telemetria prędkości, przyspieszeń, paliwa, obciążeń osi, czasów, nawierzchni i przyczyny DNF.
 - Rzadkie błędy hamowania lub skrętu AI w treningu i wyścigu; ochrona rekordowych sieci przed oceną takich okrążeń.

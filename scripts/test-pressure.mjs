@@ -131,6 +131,7 @@ try {
      }
      if(population.cars.every(c=>!c.isAlive||c.isFinishedRace))break;
    }
+   if(process.argv.includes('--full')) assert.ok(population.cars.every(c=>!c.isAlive||c.isFinishedRace), `full field stalled before completing the race: seed ${seed}, pressure ${p}`);
    const finished=population.cars.filter(c=>c.isFinishedRace);
    const brakeSecondsPerLap=finished.reduce((sum,c)=>sum+braking.get(c).seconds/c.raceLapsCompleted,0)/Math.max(1,finished.length);
    const brakeEffortPerLap=finished.reduce((sum,c)=>sum+braking.get(c).effort/c.raceLapsCompleted,0)/Math.max(1,finished.length);

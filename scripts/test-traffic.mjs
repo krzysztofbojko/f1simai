@@ -106,6 +106,38 @@ try {
    assert.ok(cautious.pos.x<pace.pos.x,'moving rival was passed under yellow');
    assert.ok(cautious.isAlive,'yellow approach caused a crash');
  }
+ // A yellow queue must physically bypass a wreck, rather than remain stopped forever.
+ const yellowQueue=[car(210,0,12),car(197,3.2,12),car(184,-3.2,12)];
+ const yellowWreck=car(250,0);yellowWreck.isAlive=false;
+ for(const c of yellowQueue) {c.brain=NeuralNetwork.createTrainedDriverNetwork(25);c.currentCheckpointIdx=3;c.mistakesEnabled=false;}
+ const yellowField=[...yellowQueue,yellowWreck];
+ for(let step=0;step<1500 && yellowQueue.some(c=>c.pos.x<280);step++) {
+   updateRaceSafety(yellowField,circuit);
+   const motion=captureMotion(yellowField);
+   for(const c of yellowQueue) {
+     planRaceLine(c,yellowField,circuit,1/60);c.updateSensors(circuit);
+     c.updatePhysics(avoidTraffic(c,yellowField,c.getAIControl(circuit),circuit),1/60,circuit);
+   }
+   resolveTraffic(yellowField,motion);
+   assert.ok(yellowQueue.every(c=>c.isAlive),'yellow queue crashed while bypassing');
+ }
+ assert.ok(yellowQueue.every(c=>c.pos.x>280),'yellow queue failed to continue past the wreck: '+JSON.stringify(yellowQueue.map(c=>[c.pos.x,c.pos.y,c.speed,c.raceLineOffset])));
+ // A fully blocked field cannot complete the laps needed for normal wreck clearance.
+ // The fallback uses simulation seconds, resets when traffic moves and never clears live cars.
+ for(const dt of [1/30,1/60,1/120]) {
+   const waiting=car(210,0), obstruction=car(220,0);obstruction.isAlive=false;
+   for(let i=0;i<20/dt;i++) updateRaceSafety([waiting,obstruction],circuit,dt);
+   assert.equal(obstruction.wreckRemoved,false);
+   waiting.speed=2;updateRaceSafety([waiting,obstruction],circuit,dt);waiting.speed=0;
+   for(let i=0;i<29/dt;i++) updateRaceSafety([waiting,obstruction],circuit,dt);
+   assert.equal(obstruction.wreckRemoved,false,'movement must reset blocked-field timer');
+   for(let i=0;i<2/dt;i++) updateRaceSafety([waiting,obstruction],circuit,dt);
+   assert.equal(obstruction.wreckRemoved,true,'blocked field cannot wait for an impossible lap');
+   assert.ok(waiting.isAlive);assert.equal(waiting.yellowFlag,false);
+   waiting.currentCheckpointIdx=3;
+   for(let i=0;i<120;i++) waiting.updatePhysics(avoidTraffic(waiting,[waiting,obstruction],{throttle:1,brake:0,steer:0},circuit),1/60,circuit);
+   assert.ok(waiting.pos.x>215,'queue did not resume after marshal clearance');
+ }
  // Waiting behind blocked traffic is not a driver-stagnation DNF.
  const queued=car(150,0),blocked=car(156,0);queued.brain=NeuralNetwork.createTrainedDriverNetwork(25);queued.currentCheckpointIdx=2;queued.framesSinceLastCheckpoint=599;
  for(let step=0;step<120;step++) queued.updatePhysics(avoidTraffic(queued,[queued,blocked],{throttle:1,brake:0,steer:0},circuit),1/60,circuit);

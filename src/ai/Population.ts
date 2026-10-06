@@ -338,7 +338,7 @@ export class Population {
 
   update(dt: number, track: Track, extraCars: Car[] = []): void {
     const traffic = [...this.cars, ...extraCars];
-    if (this.isRaceMode) updateRaceSafety(traffic, track);
+    if (this.isRaceMode) updateRaceSafety(traffic, track, dt);
     const motion = captureMotion(traffic);
     const laps: { car: Car; event: LapFinishEvent }[] = [];
     let maxFitness = -Infinity;
