@@ -212,6 +212,7 @@ export class Car {
   public trafficWaiting = false;
   public wreckRemoved = false;
   public wreckClearLap: number | null = null;
+  public offRoadStillTime = 0;
   public mistakes = new DriverMistakes();
   public mistakesEnabled = true;
   public tireUtilization = 0;
@@ -334,6 +335,7 @@ export class Car {
     this.trafficWaiting = false;
     this.wreckRemoved = false;
     this.wreckClearLap = null;
+    this.offRoadStillTime = 0;
     this.tireUtilization = 0;
     this.damage = 0;
     this.respawnTimer = 0;
@@ -578,6 +580,9 @@ export class Car {
       // the car back without the asphalt-edge LiDAR treating escape as a wall.
       steer = Math.max(-1, Math.min(1, pursuitAngle / this.maxSteerAngle));
       throttle = this.speed > 12 ? 0 : Math.abs(pursuitAngle) < 0.8 ? 0.22 : 0.1;
+      // Soft ground can hold a car at a standstill: push harder the longer it has not moved.
+      this.offRoadStillTime = this.speed < 1.5 ? this.offRoadStillTime + 1 / 60 : 0;
+      if (this.speed < 4) throttle = Math.min(1, Math.max(throttle, 0.22) + this.offRoadStillTime * 0.4);
       brake = this.speed > 18 ? 0.45 : this.speed > 10 ? 0.15 : 0;
     }
     const expert: CarControl = { steer, throttle, brake };
@@ -611,7 +616,11 @@ export class Car {
     if (clampedSteer !== steer) { steer = clampedSteer; intervened = true; }
     // Pedals are mutually exclusive as on a drive-by-wire car.
     if (brake > 0.05) throttle = 0;
-    if (plan.guarded) {
+    // A car that is rotating away from the road direction is already losing it: the expert recovers.
+    const roadHeading = track.sampleSurface?.(this.pos).tangent.heading();
+    const headingError = roadHeading === undefined ? 0 : Math.atan2(Math.sin(this.heading - roadHeading), Math.cos(this.heading - roadHeading));
+    const unstable = this.speed > 12 && Math.abs(headingError) > 0.22 && headingError * this.angularVelocity > 0;
+    if (plan.guarded || unstable) {
       steer = expert.steer; throttle = expert.throttle; brake = expert.brake; intervened = true;
     } else if (plan.overspeedDelta > 0.2 && brake < expert.brake * 0.8) {
       // Far beyond the planned braking envelope: emergency braking.
@@ -1017,6 +1026,11 @@ export class Car {
       }
     }
 
+    // Leaving the asphalt is never rewarded: it costs fitness for as long as any wheel is outside.
+    if (this.surfaceFractions.asphalt < 1) {
+      this.fitness = Math.max(0, this.fitness - (80 + this.speed * 5) * (1 - this.surfaceFractions.asphalt * 0.5) * dt);
+    }
+
     // Penalty for skidding and loss of adhesion
     if (this.isSkidding) {
       const slipMagnitude = Math.abs(this.vel.dot(newForwardDir.normal())) + (this.understeerSlip + this.oversteerSlip) * 14.0;
@@ -1125,7 +1139,8 @@ export class Car {
       return null;
     }
 
-    if (this.framesSinceLastCheckpoint > (this.recoveryTimer > 0 ? 1800 : 600)) {
+    // A car that cannot drive out of the runoff within a few seconds is retired instead of idling for half a minute.
+    if (this.framesSinceLastCheckpoint > (this.recoveryTimer > 0 ? 1800 : 600) || (!this.isManual && this.surface !== 'asphalt' && this.offRoadStillTime > 4)) {
       this.eliminationReason = 'stuck';
       this.isAlive = false;
       this.effectiveThrottle = 0;
@@ -1173,11 +1188,13 @@ export class Car {
       const trackAlignment = forwardDir.dot(nextCp.tangent);
       const isClean = !this.isSkidding && trackAlignment > 0.45 && Math.abs(this.angularVelocity) < 2.0;
 
-      // Base checkpoint reward
-      this.fitness += 1200;
+      // Base checkpoint reward; a gate taken with a wheel off the asphalt earns nothing and costs fitness
+      const onAsphalt = this.surfaceFractions.asphalt >= 1;
+      if (onAsphalt) this.fitness += 1200;
+      else this.fitness = Math.max(0, this.fitness - 600);
 
       // Clean checkpoint bonus (higher reward for staying centered on racing line without sliding)
-      if (isClean) {
+      if (isClean && onAsphalt) {
         const halfWidth = Math.max(1, track.width * 0.5);
         const centerRatio = Math.max(0, Math.min(1, 1.0 - distToCp / halfWidth));
         this.fitness += 500 + Math.round(centerRatio * 500);
@@ -1190,13 +1207,13 @@ export class Car {
       if (Math.abs(nextCp.curvature) > 0.003) {
         const innerCurb = nextCp.curvature > 0 ? nextCp.p1 : nextCp.p2;
         const distToInner = this.pos.dist(innerCurb);
-        if (distToInner < track.width * 0.35 && isClean) {
+        if (distToInner < track.width * 0.35 && isClean && onAsphalt) {
           // Apex clipped cleanly!
           this.fitness += 800;
         }
       } else if (clearedCpIdx > 0) {
         const prevCp = track.checkpoints[(clearedCpIdx - 1 + cpCount) % cpCount];
-        if (Math.abs(prevCp.curvature) > 0.003 && this.speed > 22 && isClean) {
+        if (Math.abs(prevCp.curvature) > 0.003 && this.speed > 22 && isClean && onAsphalt) {
           // High speed corner exit acceleration reward!
           this.fitness += 600 + Math.round(this.speedKmh * 2);
         }
