@@ -104,5 +104,10 @@ export function planRaceLine(car: Car, cars: Car[], track: Track, dt: number): v
   car.raceLineOffset += Math.max(-1.8 * dt, Math.min(1.8 * dt, desired - car.raceLineOffset));
   car.raceLineOffset = Math.max(-limit, Math.min(limit, car.raceLineOffset));
   car.overtakingTargetName = plan?.target.isAlive && !car.yellowFlag ? plan.target.driverName : '';
-  if (plan) { plans.set(car,plan); car.lapCompromised = true; } else plans.delete(car);
+  if (plan) {
+    plans.set(car,plan);
+    // In training a pass is normal pack driving: slow laps never beat a best, and contacts/off-track still disqualify.
+    // In a race the lap is flagged as before.
+    if (car.isRaceMode) car.lapCompromised = true;
+  } else plans.delete(car);
 }

@@ -23,16 +23,23 @@ try {
   const population = new Population(Number(process.env.POP ?? 10), gp, 25);
   console.log('init ms', Date.now() - t0);
   if (expert) for (const c of population.cars) { const orig = c.getAIControl.bind(c); c.getAIControl = (t, l) => { const p = c.planDrive(t, l); c.currentControl = p.expert; return p.expert; }; }
+  const flips = {}; const lapStats = { clean: 0, compromised: 0 };
+  const prevComp = population.cars.map(c => c.lapCompromised), prevDmg = population.cars.map(() => 0);
+  const origRec = population.recordLap.bind(population);
+  population.recordLap = (e, c, ...r) => { (e.compromised ? lapStats.compromised++ : lapStats.clean++); return origRec(e, c, ...r); };
+  const sites = {};
+  for (const c of population.cars) { let v = c.lapCompromised; Object.defineProperty(c, 'lapCompromised', { get: () => v, set: (nv) => { if (nv && !v) { const l = new Error().stack.split('\n')[2].trim(); sites[l] = (sites[l] ?? 0) + 1; } v = nv; } }); }
   const deaths = {};
   const lastAlive = population.cars.map(() => true);
   const t1 = Date.now();
   for (let i = 0; i < seconds * 60; i++) {
     population.update(1 / 60, gp);
+    population.cars.forEach((c, k) => { if (!prevComp[k] && c.lapCompromised) { const why = c.pressureLearningBlocked ? 'pressure' : c.incidentActive ? 'mistake' : c.surfaceFractions.asphalt < 1 ? 'offAsphalt:' + c.surface : c.damage > prevDmg[k] ? 'contact' : population.cars.some(o => o !== c && o.pos.dist(c.pos) < 8) ? 'traffic-near' : 'other:rec' + (c.recoveryTimer > 0) + ':v' + Math.round(c.speed / 20); flips[why] = (flips[why] ?? 0) + 1; } prevComp[k] = c.lapCompromised; prevDmg[k] = c.damage; });
     if (process.argv.includes('--car') && i >= 60 * Number(process.env.TSTART ?? 0) && i < 60 * (Number(process.env.TSTART ?? 0) + 8) && i % 6 === 0) { const c = population.cars[Number(process.env.CAR ?? 2)]; const sm = gp.sampleSurface(c.pos); console.log((i / 60).toFixed(1), 'cp', c.currentCheckpointIdx, 'v', c.speed.toFixed(1), 'lat', sm.lateral.toFixed(1), 'headErr', (Math.atan2(Math.sin(c.heading - sm.tangent.heading()), Math.cos(c.heading - sm.tangent.heading()))).toFixed(2), 'yaw', c.angularVelocity.toFixed(2), 'ctrl', c.currentControl.steer.toFixed(2), c.currentControl.throttle.toFixed(2), c.currentControl.brake.toFixed(2), 'g', c.lateralG.toFixed(1), c.surface); }
     if (process.argv.includes('--trace') && i % 30 === 0 && i < 60 * 14) console.log((i / 60).toFixed(1), population.cars.map(c => `${c.isAlive ? '' : 'X'}${c.currentCheckpointIdx}:${c.speed.toFixed(0)}/${c.currentControl.steer.toFixed(1)}/${c.lateralG.toFixed(1)}`).join('  '));
     if ((i + 1) % (600 * 60) === 0) console.log('t', (i + 1) / 60, 'gen', population.generation, 'best', population.globalBestLap && +population.globalBestLap.toFixed(2), 'teamBests', population.teamRecords.map(r => r.bestLapTime && +r.bestLapTime.toFixed(1)).join(','));
     population.cars.forEach((c, k) => { if (lastAlive[k] && !c.isAlive) { const key = c.eliminationReason; deaths[key] = (deaths[key] ?? 0) + 1; if (process.argv.includes('--debug')) console.log('death', k, key, 'cp', c.currentCheckpointIdx, 'speed', c.speed.toFixed(1), 'ctrl', JSON.stringify(c.currentControl), c.surface, 'lat', gp.sampleSurface(c.pos).lateral.toFixed(1), 'dmg', c.damage.toFixed(2), 'at', (i / 60).toFixed(0)); if (key === 'car' && process.argv.includes('--near')) for (const o of population.cars) if (o !== c && o.pos.dist(c.pos) < 20) console.log('   near', o.isAlive ? 'alive' : 'dead', 'cp', o.currentCheckpointIdx, 'v', o.speed.toFixed(1), 'lat', gp.sampleSurface(o.pos).lateral.toFixed(1), 'offs', o.raceLineOffset.toFixed(1), 'ctrl', JSON.stringify(o.currentControl), 'dist', o.pos.dist(c.pos).toFixed(1), 'wait', o.trafficWaiting); } lastAlive[k] = c.isAlive; });
   }
   console.log('sim ms', Date.now() - t1);
-  console.log({ expert, bestLap: population.globalBestLap, deaths, laps: population.teamRecords.map(r => r.lapsCount), best: population.teamRecords.map(r => r.bestLapTime && +r.bestLapTime.toFixed(2)) });
+  console.log({ flips, lapStats, sites }); console.log({ expert, bestLap: population.globalBestLap, deaths, laps: population.teamRecords.map(r => r.lapsCount), best: population.teamRecords.map(r => r.bestLapTime && +r.bestLapTime.toFixed(2)) });
 } finally { await rm(output, { recursive: true, force: true }); }
