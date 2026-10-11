@@ -1,6 +1,8 @@
 import { random } from '../math/Random';
 import { normalizePressure, pressureProfile } from './DriverPressure';
 import { LineSearch } from './LineSearch';
+import { LineNet } from './LineNet';
+import { distillLineNetwork } from './Distill';
 import { updateRaceSafety, planRaceLine } from './RaceTraffic';
 import { captureMotion, avoidTraffic, resolveTraffic } from '../physics/Traffic';
 import { Car, LapFinishEvent, TrajectoryPoint } from '../physics/Car';
@@ -197,6 +199,8 @@ export class Population {
       car.lineSearchSeed = i;
       car.lineSearch = new LineSearch(i);
       car.lineSearchByPressure.set(0, car.lineSearch);
+      car.lineNet = new LineNet(distillLineNetwork(this.rayCount, track));
+      car.lineNetByPressure.set(0, car.lineNet);
       car.currentCheckpointIdx = (slot.checkpointIdx + 1) % track.checkpoints.length;
       car.updateDimensionsForTrackWidth(track.width);
       this.cars.push(car);
@@ -212,7 +216,10 @@ export class Population {
   recordLap(lapEvent: LapFinishEvent, car: Car, isPlayer: boolean = false, track?: Track): void {
     if (car.pressureLearningBlocked) lapEvent = {...lapEvent, compromised: true};
     const lapPressure = lapEvent.pressure ?? car.driverPressure;
-    if (!this.isRaceMode && !isPlayer) car.lineSearchByPressure.get(lapPressure)?.finish(lapEvent.lapTime, !lapEvent.compromised);
+    if (!this.isRaceMode && !isPlayer) {
+      car.lineSearchByPressure.get(lapPressure)?.finish(lapEvent.lapTime, !lapEvent.compromised);
+      car.lineNetByPressure.get(lapPressure)?.finish(lapEvent.lapTime, !lapEvent.compromised);
+    }
     if (lapEvent.compromised) {
       const record = this.teamRecords.find(r => r.color === car.color);
       if (record) { record.lapsCount++; record.lastLapTime = lapEvent.lapTime; }
@@ -698,6 +705,8 @@ export class Population {
       newCar.lineSearchSeed = this.cars[i]?.lineSearchSeed ?? i;
       if (this.cars[i]) newCar.pace = this.cars[i].pace;
       newCar.lineSearch = this.cars[i]?.lineSearch ?? new LineSearch(i);
+      newCar.lineNet = this.cars[i]?.lineNet ?? new LineNet(distillLineNetwork(this.rayCount, track));
+      newCar.lineNetByPressure = this.cars[i]?.lineNetByPressure ?? new Map([[this.driverPressure, newCar.lineNet]]);
       newCar.lineSearchByPressure = this.cars[i]?.lineSearchByPressure ?? new Map([[this.driverPressure, newCar.lineSearch]]);
       newCar.driverPressure = this.driverPressure;
       newCar.setDriverPressure(this.driverPressure, true);
@@ -783,6 +792,8 @@ export class Population {
       this.cars[i].bestLapPressure = 0;
       this.cars[i].lineSearch = new LineSearch(i);
       this.cars[i].lineSearchByPressure = new Map([[this.driverPressure, this.cars[i].lineSearch!]]);
+      this.cars[i].lineNet = new LineNet(distillLineNetwork(this.rayCount, track));
+      this.cars[i].lineNetByPressure = new Map([[this.driverPressure, this.cars[i].lineNet!]]);
       this.cars[i].setDriverPressure(this.driverPressure, true);
       this.cars[i].bestLapSplits = [null, null, null, null];
       this.cars[i].currentLapSplits = [null, null, null, null];

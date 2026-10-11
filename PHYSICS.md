@@ -119,3 +119,10 @@ Skutki: podsterowność przy nasyceniu przedniej osi, nadsterowność przy nasyc
 
 - `PaceSearch` (`src/ai/PaceSearch.ts`): auto, które zostaje na asfalcie, ma zapas, więc po każdym czystym okrążeniu planowana przyczepność w zakrętach i hamowanie rosną (`margin` 0,9–1,5). Jeśli okrążenie nie jest szybsze, wraca do sprawdzonego marginesu i próbuje drobniejszym krokiem. Zjazd z asfaltu, uderzenie w bandę lub wycofanie auta cofa margines i obniża sufit poszukiwań. W wyścigu używany jest sprawdzony `bestMargin`.
 - `LineSearch`: oprócz 5 bazowych linii mutacje (co 2. okrążenie) przesuwają linię osobno w 16 odcinkach toru (`trim`, do ±2,2 m), czyli wcześniejszy/późniejszy wierzchołek, szersze wejście itd. Zwycięska linia jest zachowana, a nowa kandydatka testowana obok.
+
+## Wyjścia pedałów i linia z sieci (`LineNet`)
+
+- Gaz i hamulec nigdy nie działają razem: w `updatePhysics` każde żądanie hamowania > 0,02 zeruje gaz, a mniejsze jest odrzucane (dotyczy sieci, eksperta i sterowania ręcznego).
+- Linia przejazdu pochodzi z osobnej sieci (`src/ai/LineNet.ts`). Wejścia: promienie LiDAR, prędkość, zakrzywienie toru w 4 punktach przed autem, położenie boczne i błąd kursu. Wyjście: pożądane położenie boczne jako ułamek użytecznej szerokości (do połowy szerokości − 2,3 m). Start: sieć wydestylowana z linii zewnątrz–wewnątrz–zewnątrz, która wykorzystuje całą szerokość.
+- Uczenie: zmutowana kopia jedzie jedno okrążenie i zostaje mistrzem tylko, gdy jest szybsza; co 4. okrążenie mistrz jest mierzony ponownie (szum gripu/mocy). Linia sama nie kosztuje prędkości — kara za offset dotyczy tylko odchylenia od linii (wyprzedzanie).
+- Najlepsza trasa jest rysowana cieńszą kreską.

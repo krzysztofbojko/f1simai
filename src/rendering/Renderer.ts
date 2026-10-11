@@ -345,7 +345,7 @@ export class Renderer {
     // 1. Outer ambient glow
     ctx.beginPath();
     ctx.strokeStyle = 'rgba(0, 210, 190, 0.2)';
-    ctx.lineWidth = 8;
+    ctx.lineWidth = 5;
     for (let i = 0; i < line.length; i++) {
       if (i === 0) ctx.moveTo(line[i].x, line[i].y);
       else ctx.lineTo(line[i].x, line[i].y);
@@ -356,7 +356,7 @@ export class Renderer {
     ctx.stroke();
 
     // 2. High-contrast telemetry gradient line
-    ctx.lineWidth = 3.5;
+    ctx.lineWidth = 2.2;
     for (let i = 0; i < line.length - 1; i++) {
       const p1 = line[i];
       const p2 = line[i + 1];

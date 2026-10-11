@@ -9,7 +9,7 @@ const dir = await mkdtemp(join(tmpdir(), 'f1-neural-'));
 try {
   await build({ configFile: false, logLevel: 'silent', build: { outDir: dir, lib: { entry: {
     car: resolve('src/physics/Car.ts'), vector: resolve('src/math/Vector2.ts'), presets: resolve('src/track/Presets.ts'),
-    network: resolve('src/ai/NeuralNetwork.ts'), population: resolve('src/ai/Population.ts'), traffic: resolve('src/physics/Traffic.ts'), pace: resolve('src/ai/PaceSearch.ts'), lines: resolve('src/ai/LineSearch.ts') },
+    network: resolve('src/ai/NeuralNetwork.ts'), population: resolve('src/ai/Population.ts'), traffic: resolve('src/physics/Traffic.ts'), pace: resolve('src/ai/PaceSearch.ts'), lines: resolve('src/ai/LineSearch.ts'), linenet: resolve('src/ai/LineNet.ts') },
     formats: ['es'], fileName: (_, name) => name + '.mjs' } } });
   const load = async name => import(pathToFileURL(join(dir, name + '.mjs')));
   const { Car, decodeDriverOutputs, encodeDriverTargets } = await load('car');
@@ -20,6 +20,7 @@ try {
   const { captureMotion, resolveTraffic } = await load('traffic');
   const { PaceSearch } = await load('pace');
   const { LineSearch } = await load('lines');
+  const { LineNet, lineInputs, seedLineTarget } = await load('linenet');
   let state = 99;
   Math.random = () => { state = (Math.imul(state, 1664525) + 1013904223) >>> 0; return state / 4294967296; };
   const gp = Presets.createGrandPrixTrack(14);
@@ -126,5 +127,21 @@ try {
   const search = new LineSearch(0);
   for (let i = 0; i < 14; i++) search.finish(60 + i * 0.01, true);
   assert.ok(search.profiles.some(p => p.trim.some(v => v !== 0)), 'per-section trims are explored');
+  // Pedals are exclusive: brake demand lifts the throttle at the physics boundary.
+  const pedalCar = new Car(gp.startPosition, gp.startAngle, new NeuralNetwork([30, 4, 3]), '#fff', 'pedals', 60, 25);
+  pedalCar.vel = Vector2.fromAngle(pedalCar.heading).mul(30); pedalCar.speed = 30;
+  pedalCar.updatePhysics({ throttle: 1, brake: 0.5, steer: 0 }, 1 / 60, gp);
+  assert.equal(pedalCar.currentControl.throttle, 0, 'throttle and brake never together');
+  pedalCar.updatePhysics({ throttle: 0.6, brake: 0.01, steer: 0 }, 1 / 60, gp);
+  assert.equal(pedalCar.currentControl.brake, 0, 'a token brake is dropped');
+  // Learned racing line: a faster candidate replaces the champion, a slower one does not.
+  const lineNet = new LineNet(new NeuralNetwork([25 + 7, 6, 1]));
+  lineNet.finish(60, true); // measures the seed line
+  const champion = lineNet.best;
+  lineNet.finish(61, true); // candidate slower
+  assert.equal(lineNet.best, champion, 'slower candidate rejected');
+  lineNet.finish(58, true);
+  assert.ok(lineNet.bestTime <= 60, 'faster candidate becomes champion: ' + lineNet.bestTime);
+  assert.ok(Math.abs(seedLineTarget(gp, 40)) <= 0.95 && lineInputs(gp, { pos: gp.startPosition, heading: gp.startAngle, speed: 20, rayDistances: new Array(25).fill(1) }).length === 32);
   console.log('Neural driving, dynamics, damage and wreck regressions passed.');
 } finally { await rm(dir, { recursive: true, force: true }); }

@@ -60,8 +60,9 @@ export function planRaceLine(car: Car, cars: Car[], track: Track, dt: number): v
     plans.delete(car); car.overtakingTargetName = ''; car.raceLineOffset = 0; return;
   }
   const sample = track.sampleSurface(car.pos), limit = Math.max(0, track.width / 2 - 1.6);
-  const baseline = Math.max(-limit, Math.min(limit, car.lineSearch?.target(track, car.pos, car.isRaceMode) ?? 0));
-  car.racingLineLabel = car.lineSearch ? `LINIA ${(car.isRaceMode ? car.lineSearch.best : car.lineSearch.current) + 1} · ${baseline.toFixed(1)} m` : '';
+  const learned = car.lineNet?.target(track, car, car.isRaceMode);
+  const baseline = Math.max(-limit, Math.min(limit, learned ?? car.lineSearch?.target(track, car.pos, car.isRaceMode) ?? 0));
+  car.racingLineLabel = learned !== undefined ? `LINIA ML · ${baseline.toFixed(1)} m` : car.lineSearch ? `LINIA ${(car.isRaceMode ? car.lineSearch.best : car.lineSearch.current) + 1} · ${baseline.toFixed(1)} m` : '';
   let plan = plans.get(car);
   // Reset also invalidates persistent plans from an earlier race.
   if (plan && !car.overtakingTargetName && plan.target.isAlive && car.raceLineOffset === 0) plan = undefined;
@@ -103,6 +104,7 @@ export function planRaceLine(car: Car, cars: Car[], track: Track, dt: number): v
   const desired = plan ? laneFree(plan.lane, plan.target) ? plan.lane : sample.lateral : laneFree(baseline) ? baseline : car.raceLineOffset;
   car.raceLineOffset += Math.max(-1.8 * dt, Math.min(1.8 * dt, desired - car.raceLineOffset));
   car.raceLineOffset = Math.max(-limit, Math.min(limit, car.raceLineOffset));
+  car.lineDeviation = Math.abs(car.raceLineOffset - baseline);
   car.overtakingTargetName = plan?.target.isAlive && !car.yellowFlag ? plan.target.driverName : '';
   if (plan) {
     plans.set(car,plan);

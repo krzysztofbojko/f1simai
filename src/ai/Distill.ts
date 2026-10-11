@@ -2,10 +2,12 @@ import { Car, encodeDriverTargets } from '../physics/Car';
 import { Presets } from '../track/Presets';
 import { Track } from '../track/Track';
 import { NeuralNetwork, type TopologySpecifier } from './NeuralNetwork';
+import { LINE_EXTRA_INPUTS, lineInputs, seedLineTarget } from './LineNet';
 
 interface Sample { inputs: number[]; targets: number[] }
 
 const cache = new WeakMap<Track, Map<string, NeuralNetwork>>();
+const lineCache = new WeakMap<Track, Map<number, NeuralNetwork>>();
 let fallbackTrack: Track | null = null;
 
 /** Small deterministic generator so a given track always distils the same teacher data. */
@@ -20,7 +22,7 @@ function rng(seed: number): () => number {
  * state is labelled with the expert's own response. The result is a network that
  * can drive the circuit by itself and that evolution/online learning then refine.
  */
-export function collectExpertSamples(track: Track, rayCount: number, seconds: number, seed = 1): Sample[] {
+export function collectExpertSamples(track: Track, rayCount: number, seconds: number, seed = 1, lineSamples?: Sample[]): Sample[] {
   const random = rng(seed);
   const samples: Sample[] = [];
   const dummy = new NeuralNetwork([rayCount + 5, 4, 3]);
@@ -48,8 +50,10 @@ export function collectExpertSamples(track: Track, rayCount: number, seconds: nu
       offsetTarget = random() < .3 ? 0 : (random() * 2 - 1) * offsetLimit;
     }
     car.raceLineOffset += Math.max(-1.8 * dt, Math.min(1.8 * dt, offsetTarget - car.raceLineOffset));
+    car.lineDeviation = Math.abs(car.raceLineOffset);
     car.updateSensors(track);
     const plan = car.planDrive(track);
+    if (lineSamples && step % 6 === 0) lineSamples.push({ inputs: lineInputs(track, car), targets: [seedLineTarget(track, track.sampleSurface(car.pos).index)] });
     if (step % 3 === 0) {
       samples.push({ inputs: plan.inputs, targets: [...encodeDriverTargets([plan.idealSteer, plan.expert.throttle, plan.expert.brake])] });
     }
@@ -74,7 +78,9 @@ export function distillDriverNetwork(rayCount: number, topology: TopologySpecifi
   const cached = perTrack.get(key);
   if (cached) return cached.clone();
 
-  const samples = collectExpertSamples(useTrack, rayCount, 240);
+  const lineSamples: Sample[] = [];
+  const samples = collectExpertSamples(useTrack, rayCount, 240, 1, lineSamples);
+  trainLineNetwork(useTrack, rayCount, lineSamples);
   const net = new NeuralNetwork(NeuralNetwork.resolveLayerSizes(rayCount + 5, topology, 3));
   const random = rng(7);
   const order = samples.map((_, i) => i);
@@ -85,4 +91,25 @@ export function distillDriverNetwork(rayCount: number, topology: TopologySpecifi
   }
   perTrack.set(key, net);
   return net.clone();
+}
+
+function trainLineNetwork(track: Track, rayCount: number, samples: Sample[]): void {
+  const net = new NeuralNetwork([rayCount + LINE_EXTRA_INPUTS, 14, 8, 1]);
+  const random = rng(11);
+  const order = samples.map((_, i) => i);
+  for (let epoch = 0; epoch < 30; epoch++) {
+    for (let i = order.length - 1; i > 0; i--) { const j = Math.floor(random() * (i + 1)); [order[i], order[j]] = [order[j], order[i]]; }
+    const rate = 0.03 * (1 - epoch / 40);
+    for (const index of order) net.train(samples[index].inputs, samples[index].targets, rate);
+  }
+  let perTrack = lineCache.get(track);
+  if (!perTrack) { perTrack = new Map(); lineCache.set(track, perTrack); }
+  perTrack.set(rayCount, net);
+}
+
+/** Seed racing-line network (full-width outside-inside-outside), distilled on sensor inputs. */
+export function distillLineNetwork(rayCount: number, track?: Track): NeuralNetwork {
+  const useTrack = track ?? (fallbackTrack ??= Presets.createGrandPrixTrack(14));
+  if (!lineCache.get(useTrack)?.has(rayCount)) distillDriverNetwork(rayCount, 'Standard', useTrack);
+  return lineCache.get(useTrack)!.get(rayCount)!.clone();
 }

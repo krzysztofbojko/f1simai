@@ -2,6 +2,7 @@ import { random } from '../math/Random';
 import { normalizePressure, pressureProfile } from '../ai/DriverPressure';
 import { PaceSearch } from '../ai/PaceSearch';
 import { LineSearch } from '../ai/LineSearch';
+import type { LineNet } from '../ai/LineNet';
 import { Vector2, IntersectionResult, segmentsIntersect } from '../math/Vector2';
 import { BattlePush } from '../ai/BattlePush';
 import { DriverMistakes } from '../ai/DriverMistakes';
@@ -197,12 +198,17 @@ export class Car {
   public battlePush = new BattlePush();
   public battleOpponent = '';
   public raceLineOffset = 0;
+  /** Distance (m) from the learned racing line while overtaking/avoiding; the line itself costs no speed. */
+  public lineDeviation = 0;
   public lineSearch: LineSearch | null = null;
   public pace = new PaceSearch();
   /** The car left the asphalt or touched a barrier by itself during the current lap. */
   public lapExcursion = false;
   public lineSearchSeed = this.id % 5;
   public lineSearchByPressure = new Map<number, LineSearch>();
+  /** Learned racing line (sensor-driven network); falls back to `lineSearch` when absent. */
+  public lineNet: LineNet | null = null;
+  public lineNetByPressure = new Map<number, LineNet>();
   public driverPressure = 0;
   public effectiveDriverPressure = 0;
   public bestLapPressure = 0;
@@ -480,7 +486,7 @@ export class Car {
         const estimatedCornerSpeed = Math.sqrt(Math.max(25, cornerRadius * safeLatGrip));
         const cornerAeroAcc = (0.5 * this.airDensity * this.downforceCoeff * estimatedCornerSpeed * estimatedCornerSpeed) / this.totalMass;
         const effectiveCornerGrip = safeLatGrip + cornerAeroAcc * 0.65;
-        const safeV = Math.sqrt(Math.max(25, cornerRadius * effectiveCornerGrip)) * (pushing ? 1.04 : 1) * (Math.abs(this.raceLineOffset) > .8 ? .88 : 1);
+        const safeV = Math.sqrt(Math.max(25, cornerRadius * effectiveCornerGrip)) * (pushing ? 1.04 : 1) * (this.lineDeviation > .8 ? .88 : 1);
 
         const maxAllowedV = Math.sqrt(safeV * safeV + 2.0 * aBrake * accumulatedDist);
 
@@ -621,7 +627,8 @@ export class Car {
     const clampedSteer = Math.max(plan.idealSteer - steerLimit, Math.min(plan.idealSteer + steerLimit, steer));
     if (clampedSteer !== steer) { steer = clampedSteer; intervened = true; }
     // Pedals are mutually exclusive as on a drive-by-wire car.
-    if (brake > 0.05) throttle = 0;
+    if (brake > 0.02) throttle = 0;
+    else brake = 0;
     // A car that is rotating away from the road direction is already losing it: the expert recovers.
     const roadHeading = track.sampleSurface?.(this.pos).tangent.heading();
     const headingError = roadHeading === undefined ? 0 : Math.atan2(Math.sin(this.heading - roadHeading), Math.cos(this.heading - roadHeading));
@@ -668,6 +675,11 @@ export class Car {
     if (this.lineSearch) this.lineSearchByPressure.set(this.driverPressure, this.lineSearch);
     this.lineSearch = this.lineSearchByPressure.get(next) ?? new LineSearch(this.lineSearchSeed);
     this.lineSearchByPressure.set(next, this.lineSearch);
+    if (this.lineNet) {
+      this.lineNetByPressure.set(this.driverPressure, this.lineNet);
+      this.lineNet = this.lineNetByPressure.get(next) ?? this.lineNet.fork();
+      this.lineNetByPressure.set(next, this.lineNet);
+    }
     this.pressureStart = this.effectiveDriverPressure;
     this.driverPressure = next;
     this.pressureElapsed = immediate ? 2 : 0;
@@ -704,6 +716,9 @@ export class Car {
       brake: Math.max(0, Math.min(1, Number.isFinite(control.brake) ? control.brake : 0)),
       steer: Math.max(-1, Math.min(1, Number.isFinite(control.steer) ? control.steer : 0)),
     };
+    // Throttle and brake are never applied together: any real brake demand lifts the throttle, a token one is dropped.
+    if (control.brake > 0.02) control.throttle = 0;
+    else control.brake = 0;
     const risk = Math.max(0, Math.min(1, (this.tireUtilization - 0.55) / 0.45));
     const incident = this.mistakes.step(control, dt, risk,
       this.mistakesEnabled && !this.isManual && !!this.brain && !this.isPitting && !this.isFinishedRace && this.speed > 10 && !this.yellowFlag && !this.wantsToPit && this.surface === 'asphalt' && (this.recoveryTimer <= 0 || this.mistakes.remaining > 0), pressureProfile(this.effectiveDriverPressure).mistakes);
