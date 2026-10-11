@@ -114,3 +114,8 @@ Skutki: podsterowność przy nasyceniu przedniej osi, nadsterowność przy nasyc
 - Banda: impuls z tarciem Coulomba (styczna prędkość maleje proporcjonalnie do uderzenia), zamiast mnożenia przez 0,8 w każdym kroku; uderzenie poza osią skręca auto.
 - Wrak zachowuje pęd i zwalnia 12 m/s² (`Car.coastWreck`), zatrzymuje go banda; ślizgający się wrak jest ruchomą przeszkodą w kontaktach.
 - `src/math/Random.ts`: `seedRandom(n)` daje powtarzalną symulację (domyślnie `Math.random`).
+
+## Poszukiwanie limitu i linii (trening)
+
+- `PaceSearch` (`src/ai/PaceSearch.ts`): auto, które zostaje na asfalcie, ma zapas, więc po każdym czystym okrążeniu planowana przyczepność w zakrętach i hamowanie rosną (`margin` 0,9–1,5). Jeśli okrążenie nie jest szybsze, wraca do sprawdzonego marginesu i próbuje drobniejszym krokiem. Zjazd z asfaltu, uderzenie w bandę lub wycofanie auta cofa margines i obniża sufit poszukiwań. W wyścigu używany jest sprawdzony `bestMargin`.
+- `LineSearch`: oprócz 5 bazowych linii mutacje (co 2. okrążenie) przesuwają linię osobno w 16 odcinkach toru (`trim`, do ±2,2 m), czyli wcześniejszy/późniejszy wierzchołek, szersze wejście itd. Zwycięska linia jest zachowana, a nowa kandydatka testowana obok.

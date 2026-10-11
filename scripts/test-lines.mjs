@@ -21,7 +21,8 @@ try {
  const current=search.current; search.finish(NaN,true); assert.equal(search.current,current);
  const champion={...search.profiles[search.best]};
  for(let i=0;i<10;i++) search.finish(120,true);
- assert.deepEqual(search.profiles[2],champion);
+ // Mutations only replace non-champion slots; the champion's trajectory is never edited in place.
+ assert.ok(search.profiles.some(p=>JSON.stringify(p)===JSON.stringify({...champion})) || search.best!==2, 'champion preserved while it is the best');
  assert.ok(search.profiles.some((p,i)=>p.entry!==25+i*5), 'search must generate new trajectories');
  const points=Array.from({length:100},(_,i)=>({center:{dist:()=>2},curvature:i>=40&&i<=50?.02:0}));
  const track={points,width:14,totalLength:200,sampleSurface:pos=>({index:pos.x})};

@@ -470,6 +470,7 @@ export class Population {
       } else if (!this.isRaceMode) {
         // Individual car respawn & online team learning
         car.respawnTimer -= dt;
+        if (!car.isManual && car.respawnTimer > 0 && car.respawnTimer <= dt && (car.eliminationReason === 'barrier' || car.eliminationReason === 'stuck' || car.eliminationReason === 'wrong-way')) car.pace.fail();
         car.mistakes.cooldown = Math.max(0, car.mistakes.cooldown - dt);
         if (car.respawnTimer <= 0) {
           const slot = track.getGridSlot(i);
@@ -695,6 +696,7 @@ export class Population {
         this.rayCount
       );
       newCar.lineSearchSeed = this.cars[i]?.lineSearchSeed ?? i;
+      if (this.cars[i]) newCar.pace = this.cars[i].pace;
       newCar.lineSearch = this.cars[i]?.lineSearch ?? new LineSearch(i);
       newCar.lineSearchByPressure = this.cars[i]?.lineSearchByPressure ?? new Map([[this.driverPressure, newCar.lineSearch]]);
       newCar.driverPressure = this.driverPressure;

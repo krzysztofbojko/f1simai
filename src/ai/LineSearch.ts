@@ -5,7 +5,10 @@ import type { Vector2 } from '../math/Vector2';
 export class LineSearch {
   readonly offsets = [-2.4, -1.2, 0, 1.2, 2.4];
   readonly times: number[][] = this.offsets.map(() => []);
-  readonly profiles = this.offsets.map((bias, i) => ({bias: bias*.35, amplitude: .12+i*.025, entry: 25+i*5, exit: 25}));
+  static readonly SECTIONS = 16;
+  /** `trim` shifts the line (metres) per section of the lap, so each corner is optimised on its own. */
+  readonly profiles: { bias: number; amplitude: number; entry: number; exit: number; trim: number[] }[] =
+    this.offsets.map((bias, i) => ({bias: bias*.35, amplitude: .12+i*.025, entry: 25+i*5, exit: 25, trim: new Array(LineSearch.SECTIONS).fill(0)}));
   current: number;
   private visits = 0;
   private transitionLap = false;
@@ -41,7 +44,10 @@ export class LineSearch {
     const shape = 1.6*curvatureAt(0) - .9*curvatureAt(profile.entry) - .6*curvatureAt(-profile.exit);
     const amplitude = track.width * profile.amplitude;
     const limit = Math.max(0, track.width/2 - 1.8);
-    return Math.max(-limit, Math.min(limit, profile.bias + amplitude*shape));
+    const section = Math.min(LineSearch.SECTIONS - 1, Math.floor(index / n * LineSearch.SECTIONS));
+    const next = (section + 1) % LineSearch.SECTIONS, blend = (index / n * LineSearch.SECTIONS) - section;
+    const trim = profile.trim[section] * (1 - blend) + profile.trim[next] * blend;
+    return Math.max(-limit, Math.min(limit, profile.bias + amplitude*shape + trim));
   }
   finish(time: number, clean: boolean): void {
     if (!clean || !Number.isFinite(time) || time <= 0) return;
@@ -54,7 +60,7 @@ export class LineSearch {
       .find(i => !this.times[i].length);
     const best = this.best;
     let next = unexplored ?? best;
-    if (unexplored === undefined && this.visits % 4 === 0) {
+    if (unexplored === undefined && this.visits % 2 === 0) {
       // Preserve the champion and evaluate a new nearby trajectory, not a fixed menu forever.
       next = (best + 1) % this.offsets.length;
       const champion = this.profiles[best];
@@ -63,8 +69,14 @@ export class LineSearch {
         bias: Math.max(-1.5, Math.min(1.5, champion.bias + perturb(.5))),
         amplitude: Math.max(.08, Math.min(.3, champion.amplitude + perturb(.025))),
         entry: Math.max(15, Math.min(65, champion.entry + perturb(8))),
-        exit: Math.max(15, Math.min(65, champion.exit + perturb(8)))
+        exit: Math.max(15, Math.min(65, champion.exit + perturb(8))),
+        // Re-route one to three sections of the lap (early/late apex, wider entry...).
+        trim: champion.trim.map(v => v)
       };
+      for (let k = 1 + Math.floor(random() * 3); k > 0; k--) {
+        const section = Math.floor(random() * LineSearch.SECTIONS);
+        this.profiles[next].trim[section] = Math.max(-2.2, Math.min(2.2, this.profiles[next].trim[section] + perturb(1.1)));
+      }
       this.times[next] = [];
     }
     if (next !== this.current) { this.current = next; this.transitionLap = true; }

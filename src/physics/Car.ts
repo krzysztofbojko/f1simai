@@ -1,5 +1,6 @@
 import { random } from '../math/Random';
 import { normalizePressure, pressureProfile } from '../ai/DriverPressure';
+import { PaceSearch } from '../ai/PaceSearch';
 import { LineSearch } from '../ai/LineSearch';
 import { Vector2, IntersectionResult, segmentsIntersect } from '../math/Vector2';
 import { BattlePush } from '../ai/BattlePush';
@@ -197,6 +198,9 @@ export class Car {
   public battleOpponent = '';
   public raceLineOffset = 0;
   public lineSearch: LineSearch | null = null;
+  public pace = new PaceSearch();
+  /** The car left the asphalt or touched a barrier by itself during the current lap. */
+  public lapExcursion = false;
   public lineSearchSeed = this.id % 5;
   public lineSearchByPressure = new Map<number, LineSearch>();
   public driverPressure = 0;
@@ -336,6 +340,7 @@ export class Car {
     this.wreckRemoved = false;
     this.wreckClearLap = null;
     this.offRoadStillTime = 0;
+    this.lapExcursion = false;
     this.tireUtilization = 0;
     this.damage = 0;
     this.respawnTimer = 0;
@@ -450,10 +455,11 @@ export class Car {
     // Corner safe lateral grip uses base tire friction with margin (~1.5G usable before aero)
     const pressure = pressureProfile(this.yellowFlag || this.isPitting || this.recoveryTimer > 0 || this.surface !== 'asphalt'
       ? Math.min(0, this.effectiveDriverPressure) : this.effectiveDriverPressure);
-    const safeLatGrip = this.baseTireGrip * Car.GRAVITY * pressure.cornerGrip;
+    const paceMargin = this.pace.value(this.isRaceMode);
+    const safeLatGrip = this.baseTireGrip * Car.GRAVITY * pressure.cornerGrip * paceMargin;
     // Estimated braking for planning; physical brake forces are unchanged.
     const pushing = this.battlePush.remaining > 0;
-    const aBrake = Car.PLANNED_BRAKE_DECEL * this.brakingAggression * pressure.braking * (pushing ? 1.08 : 1);
+    const aBrake = Car.PLANNED_BRAKE_DECEL * this.brakingAggression * pressure.braking * (1 + (paceMargin - 1) * 0.5) * (pushing ? 1.08 : 1);
 
     let accumulatedDist = 0;
     let prevPos = this.pos;
@@ -713,6 +719,7 @@ export class Car {
     this.updateSurface(track);
     if (this.surfaceFractions.asphalt < 1) {
       this.lapCompromised = true;
+      this.lapExcursion = true;
       this.recoveryTimer = 2;
       this.replayBuffer = [];
       this.replayStepTimer = 0;
@@ -954,6 +961,7 @@ export class Car {
       }
       this.pos.addMut(hit.normal.mul(0.03));
       this.lapCompromised = true;
+      this.lapExcursion = true;
       this.recoveryTimer = 2;
       this.replayBuffer = [];
       const collisionAcceleration = this.vel.sub(previousVelocity).div(dt);
@@ -961,7 +969,7 @@ export class Car {
       this.lateralG = collisionAcceleration.dot(rightDir) / Car.GRAVITY;
     } else this.pos = proposedPosition;
     this.updateSurface(track);
-    if (this.surfaceFractions.asphalt < 1) { this.lapCompromised = true; this.recoveryTimer = 2; }
+    if (this.surfaceFractions.asphalt < 1) { this.lapCompromised = true; this.lapExcursion = true; this.recoveryTimer = 2; }
     this.speed = this.vel.mag();
     this.speedKmh = this.speed * 3.6;
     this.maxSpeedInLap = Math.max(this.maxSpeedInLap, this.speed);
@@ -1272,6 +1280,8 @@ export class Car {
           const lapTimeBonus = Math.round(150000 / Math.max(10, finishedLapTime));
           if (!this.lapCompromised) this.fitness += 30000 + lapTimeBonus;
           const compromised = this.lapCompromised || this.pressureLearningBlocked;
+          if (!this.isManual) this.pace.finishLap(finishedLapTime, !compromised, this.lapExcursion);
+          this.lapExcursion = false;
           if (!compromised && (!this.bestLapTime || finishedLapTime < this.bestLapTime)) {
             this.bestLapTime = finishedLapTime;
             this.bestLapPressure = this.driverPressure;

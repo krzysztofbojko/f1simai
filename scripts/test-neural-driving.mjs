@@ -9,7 +9,7 @@ const dir = await mkdtemp(join(tmpdir(), 'f1-neural-'));
 try {
   await build({ configFile: false, logLevel: 'silent', build: { outDir: dir, lib: { entry: {
     car: resolve('src/physics/Car.ts'), vector: resolve('src/math/Vector2.ts'), presets: resolve('src/track/Presets.ts'),
-    network: resolve('src/ai/NeuralNetwork.ts'), population: resolve('src/ai/Population.ts'), traffic: resolve('src/physics/Traffic.ts') },
+    network: resolve('src/ai/NeuralNetwork.ts'), population: resolve('src/ai/Population.ts'), traffic: resolve('src/physics/Traffic.ts'), pace: resolve('src/ai/PaceSearch.ts'), lines: resolve('src/ai/LineSearch.ts') },
     formats: ['es'], fileName: (_, name) => name + '.mjs' } } });
   const load = async name => import(pathToFileURL(join(dir, name + '.mjs')));
   const { Car, decodeDriverOutputs, encodeDriverTargets } = await load('car');
@@ -18,6 +18,8 @@ try {
   const { NeuralNetwork } = await load('network');
   const { Population } = await load('population');
   const { captureMotion, resolveTraffic } = await load('traffic');
+  const { PaceSearch } = await load('pace');
+  const { LineSearch } = await load('lines');
   let state = 99;
   Math.random = () => { state = (Math.imul(state, 1664525) + 1013904223) >>> 0; return state / 4294967296; };
   const gp = Presets.createGrandPrixTrack(14);
@@ -110,5 +112,19 @@ try {
   const graze = probe(1.5), hit = probe(8);
   assert.ok(graze.alive && graze.along > 0.8, 'a graze keeps most speed: ' + graze.along);
   assert.ok(hit.along < graze.along);
+  // Limit probing: clean improving laps raise the margin, an excursion backs off and caps it.
+  const pace = new PaceSearch();
+  [60, 59.5, 59].forEach(t => pace.finishLap(t, true, false));
+  assert.ok(pace.margin > 1.05, 'margin grows on clean faster laps: ' + pace.margin);
+  const before = pace.margin;
+  pace.finishLap(61, false, true);
+  assert.ok(pace.margin < before && pace.ceiling <= before, 'excursion backs off');
+  for (let i = 0; i < 40; i++) pace.finishLap(60, true, false);
+  assert.ok(pace.margin <= pace.ceiling + 1e-9 && pace.margin <= PaceSearch.MAX);
+  assert.equal(pace.value(true), pace.bestMargin);
+  // Line search: new candidates alter individual lap sections.
+  const search = new LineSearch(0);
+  for (let i = 0; i < 14; i++) search.finish(60 + i * 0.01, true);
+  assert.ok(search.profiles.some(p => p.trim.some(v => v !== 0)), 'per-section trims are explored');
   console.log('Neural driving, dynamics, damage and wreck regressions passed.');
 } finally { await rm(dir, { recursive: true, force: true }); }
