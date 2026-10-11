@@ -87,8 +87,47 @@ class App {
     this.setupUIEvents();
     this.resizeCanvas();
 
+    this.setupAutosave();
+
     // Start simulation loop
     requestAnimationFrame(this.loop.bind(this));
+  }
+
+  private static readonly AUTOSAVE_KEY = 'f1_autosave_models';
+  private autosaveMarker = '';
+
+  /** Training results (best laps, brains, generation) survive page reloads for the same circuit. */
+  private setupAutosave(): void {
+    const circuit = () => `${this.track.totalLength.toFixed(1)}|${this.population.rayCount}`;
+    let restored = false;
+    const tryRestore = async () => {
+      restored = true;
+      try {
+        const raw = localStorage.getItem(App.AUTOSAVE_KEY);
+        if (!raw) return;
+        const saved = JSON.parse(raw);
+        if (saved.circuit !== circuit() || !saved.models) return;
+        if (await this.loadModelFromJSON(JSON.stringify(saved.models), true)) {
+          this.autosaveMarker = `${saved.models.generation}|${saved.models.globalBestLap}`;
+        }
+      } catch (e) { console.warn('Nie udało się odczytać autozapisu:', e); }
+    };
+    const save = async () => {
+      if (!this.bridge.isReady) return;
+      if (!restored) { await tryRestore(); return; }
+      try {
+        const models = await this.bridge.getAllModels();
+        if (!models || !Array.isArray(models.drivers)) return;
+        const marker = `${models.generation}|${models.globalBestLap}|${models.drivers.map((d: any) => d.bestLapTime).join(',')}`;
+        if (marker === this.autosaveMarker) return;
+        const write = (m: any) => localStorage.setItem(App.AUTOSAVE_KEY, JSON.stringify({ circuit: circuit(), savedAt: Date.now(), models: m }));
+        try { write(models); }
+        catch { write({ ...models, drivers: models.drivers.map((d: any) => ({ ...d, brain: null })) }); } // quota: keep records + best brains
+        this.autosaveMarker = marker;
+      } catch (e) { console.warn('Autozapis nie powiódł się:', e); }
+    };
+    window.setInterval(save, 10000);
+    window.setTimeout(() => { if (!restored) void save(); }, 1500);
   }
 
   private setupBridgeSync(): void {
@@ -1357,14 +1396,14 @@ class App {
     }
   }
 
-  public async loadModelFromJSON(content: string): Promise<boolean> {
+  public async loadModelFromJSON(content: string, silent = false): Promise<boolean> {
     try {
       const data = JSON.parse(content);
       if (data.type === 'F1_ALL_MODELS' || (Array.isArray(data.drivers) && data.drivers.length > 0)) {
         if (this.bridge && this.bridge.isReady) {
           const loaded = await this.bridge.loadAllModels(data);
           if (!loaded) {
-            alert('Nie udało się załadować modeli AI do workera.');
+            if (!silent) alert('Nie udało się załadować modeli AI do workera.');
             return false;
           }
         }
@@ -1406,7 +1445,7 @@ class App {
         }
         this.resetCarPositions();
         this.bridge.resetCarPositions();
-        alert(`Załadowano modele AI wszystkich kierowców (Gen ${data.generation || 1})!`);
+        if (!silent) alert(`Załadowano modele AI wszystkich kierowców (Gen ${data.generation || 1})!`);
         return true;
       } else if (data.layers || data.weights) {
         if (this.bridge && this.bridge.isReady) {
