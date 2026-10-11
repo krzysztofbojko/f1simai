@@ -118,7 +118,7 @@ class App {
       try {
         const models = await this.bridge.getAllModels();
         if (!models || !Array.isArray(models.drivers)) return;
-        const marker = `${models.generation}|${models.globalBestLap}|${models.drivers.map((d: any) => d.bestLapTime).join(',')}`;
+        const marker = `${models.generation}|${models.globalBestLap}|${models.drivers.map((d: any) => `${d.bestLapTime}/${d.pace?.margin}/${d.lineNet?.bestTime}`).join(',')}`;
         if (marker === this.autosaveMarker) return;
         const write = (m: any) => localStorage.setItem(App.AUTOSAVE_KEY, JSON.stringify({ circuit: circuit(), savedAt: Date.now(), models: m }));
         try { write(models); }

@@ -57,6 +57,24 @@ export class LineNet {
 
   constructor(base: NeuralNetwork) { this.current = base.clone(); this.best = base.clone(); }
 
+  toJSON(): { best: unknown; bestTime: number | null; strength: number } {
+    return { best: JSON.parse(this.best.toJSON()), bestTime: Number.isFinite(this.bestTime) ? this.bestTime : null, strength: this.strength };
+  }
+
+  /** Restore the champion; a network built for a different sensor layout is ignored. */
+  fromJSON(data: any): boolean {
+    try {
+      const loaded = NeuralNetwork.fromJSON(JSON.stringify(data?.best));
+      if (!loaded.hasSameTopology(this.best)) return false;
+      this.best = loaded;
+      this.current = loaded.clone();
+      this.bestTime = typeof data.bestTime === 'number' && data.bestTime > 0 ? data.bestTime : Infinity;
+      this.strength = typeof data.strength === 'number' ? Math.max(0.05, Math.min(0.3, data.strength)) : 0.2;
+      this.evaluatingCandidate = false;
+      return true;
+    } catch { return false; }
+  }
+
   /** Fresh search that starts from this champion (used when the driver pressure changes). */
   fork(): LineNet { return new LineNet(this.best); }
 

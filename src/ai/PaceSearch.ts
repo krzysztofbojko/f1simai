@@ -11,6 +11,19 @@ export class PaceSearch {
   private bestTime = Infinity;
   private step = 0.03;
 
+  toJSON(): { margin: number; bestMargin: number; ceiling: number; bestTime: number | null; step: number } {
+    return { margin: this.margin, bestMargin: this.bestMargin, ceiling: this.ceiling, bestTime: Number.isFinite(this.bestTime) ? this.bestTime : null, step: this.step };
+  }
+
+  fromJSON(data: any): void {
+    const clamp = (v: unknown, fallback: number) => typeof v === 'number' && Number.isFinite(v) ? Math.max(PaceSearch.MIN, Math.min(PaceSearch.MAX, v)) : fallback;
+    this.margin = clamp(data?.margin, 1);
+    this.bestMargin = clamp(data?.bestMargin, this.margin);
+    this.ceiling = clamp(data?.ceiling, PaceSearch.MAX);
+    this.bestTime = typeof data?.bestTime === 'number' && data.bestTime > 0 ? data.bestTime : Infinity;
+    this.step = typeof data?.step === 'number' ? Math.max(0.01, Math.min(0.05, data.step)) : 0.03;
+  }
+
   /** Margin used for planning: the proven one when racing, the probing one while training. */
   value(racing: boolean): number { return racing ? this.bestMargin : this.margin; }
 

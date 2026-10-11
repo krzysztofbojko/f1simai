@@ -143,5 +143,16 @@ try {
   lineNet.finish(58, true);
   assert.ok(lineNet.bestTime <= 60, 'faster candidate becomes champion: ' + lineNet.bestTime);
   assert.ok(Math.abs(seedLineTarget(gp, 40)) <= 0.95 && lineInputs(gp, { pos: gp.startPosition, heading: gp.startAngle, speed: 20, rayDistances: new Array(25).fill(1) }).length === 32);
+  // Pace margin and learned line survive a save/restore round trip (browser autosave).
+  const savedPace = new PaceSearch(); [60, 59].forEach(t => savedPace.finishLap(t, true, false)); savedPace.fail();
+  const restoredPace = new PaceSearch(); restoredPace.fromJSON(JSON.parse(JSON.stringify(savedPace.toJSON())));
+  assert.deepEqual(restoredPace.toJSON(), savedPace.toJSON());
+  const savedLine = new LineNet(new NeuralNetwork([32, 6, 1])); savedLine.finish(60, true);
+  const restoredLine = new LineNet(new NeuralNetwork([32, 6, 1]));
+  assert.ok(restoredLine.fromJSON(JSON.parse(JSON.stringify(savedLine.toJSON()))));
+  const probeIn = new Array(32).fill(0.3);
+  assert.equal(restoredLine.best.forward(probeIn)[0], savedLine.best.forward(probeIn)[0]);
+  assert.equal(restoredLine.bestTime, savedLine.bestTime);
+  assert.equal(new LineNet(new NeuralNetwork([20, 6, 1])).fromJSON(savedLine.toJSON()), false, 'different sensor layout is ignored');
   console.log('Neural driving, dynamics, damage and wreck regressions passed.');
 } finally { await rm(dir, { recursive: true, force: true }); }

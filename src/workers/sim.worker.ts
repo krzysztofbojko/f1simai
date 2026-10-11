@@ -1088,6 +1088,8 @@ self.onmessage = (e: MessageEvent) => {
           bestLapSplits: record?.bestLapSplits ? [...record.bestLapSplits] : (car.bestLapSplits ? [...car.bestLapSplits] : null),
           bestFitness: record?.bestFitness || car.fitness,
           lastLapTime: record?.lastLapTime ?? car.lastLapTime,
+          pace: car.pace.toJSON(),
+          lineNet: car.lineNet ? car.lineNet.toJSON() : null,
           lapsCount: record?.lapsCount ?? 0,
           avgSpeed: record?.avgSpeed ?? 0,
           topSpeed: record?.topSpeed ?? 0,
@@ -1161,6 +1163,8 @@ self.onmessage = (e: MessageEvent) => {
               if (typeof driverData.bestFitness === 'number' && record) {
                 record.bestFitness = driverData.bestFitness;
               }
+              if (driverData.pace) car.pace.fromJSON(driverData.pace);
+              if (driverData.lineNet && car.lineNet) car.lineNet.fromJSON(driverData.lineNet);
               // Classification columns: keep the last lap, lap count and speeds with the best time.
               if (typeof driverData.lastLapTime === 'number' && driverData.lastLapTime > 0) {
                 car.lastLapTime = driverData.lastLapTime;
