@@ -377,67 +377,6 @@ export class NeuralNetwork {
     return distillDriverNetwork(rayCount, topology, track);
   }
 
-  /** Legacy synthetic pre-training, kept for comparison and tests. */
-  static createSyntheticDriverNetwork(
-    rayCount: number,
-    topology: TopologySpecifier = 'Standard'
-  ): NeuralNetwork {
-    const inputCount = rayCount + 5;
-    const layerSizes = NeuralNetwork.resolveLayerSizes(inputCount, topology, 3);
-    const net = new NeuralNetwork(layerSizes);
-
-    // Generate diverse synthetic racing scenarios to teach the baseline F1 racing model
-    const dataset: { inputs: number[]; targets: number[] }[] = [];
-    const midRay = Math.floor(rayCount / 2);
-
-    for (let s = 0; s < 240; s++) {
-      const cpAngleDiff = (random() * 2 - 1); // [-1, 1]
-      const speedNorm = random(); // [0, 1]
-      const angularVel = (random() * 2 - 1) * 0.8;
-      const curvature = random(); // [0, 1]
-      const overspeed = (random() * 2 - 1); // [-1, 1]
-
-      const rays: number[] = [];
-      const leftDist = Math.max(0.05, Math.min(1.0, 0.5 + cpAngleDiff * 0.4 + (random() * 0.3 - 0.15)));
-      const rightDist = Math.max(0.05, Math.min(1.0, 0.5 - cpAngleDiff * 0.4 + (random() * 0.3 - 0.15)));
-
-      for (let r = 0; r < rayCount; r++) {
-        const ratio = r / Math.max(1, rayCount - 1);
-        const interpolated = leftDist * (1 - ratio) + rightDist * ratio;
-        rays.push(Math.max(0.05, Math.min(1.0, interpolated + (random() * 0.1 - 0.05))));
-      }
-
-      const leftRayAvg = rays.slice(0, midRay).reduce((a, b) => a + b, 0) / Math.max(1, midRay);
-      const rightRayAvg = rays.slice(midRay + 1).reduce((a, b) => a + b, 0) / Math.max(1, midRay);
-      const wallRepulsion = (rightRayAvg - leftRayAvg) * 0.8;
-
-      // Expert racing target calculations
-      const targetSteer = Math.max(-1, Math.min(1, cpAngleDiff * 1.35 + wallRepulsion * 0.65 - angularVel * 0.2));
-      const targetThrottle = overspeed > 0.2 || curvature > 0.6 ? 0.0 : 0.75;
-      const targetBrake = overspeed > 0.08 ? Math.min(0.85, (overspeed - 0.05) * 1.8) : -0.6;
-
-      const inputs: number[] = [
-        ...rays,
-        speedNorm,
-        angularVel,
-        cpAngleDiff,
-        curvature,
-        overspeed,
-      ];
-
-      dataset.push({ inputs, targets: [targetSteer, targetThrottle, targetBrake] });
-    }
-
-    // Train network for 30 epochs
-    for (let epoch = 0; epoch < 30; epoch++) {
-      for (const sample of dataset) {
-        net.train(sample.inputs, sample.targets, 0.035);
-      }
-    }
-
-    return net;
-  }
-
   toJSON(): string {
     return JSON.stringify({
       layerSizes: this.layerSizes,

@@ -12,7 +12,7 @@ try {
     network: resolve('src/ai/NeuralNetwork.ts'), population: resolve('src/ai/Population.ts'), traffic: resolve('src/physics/Traffic.ts'), pace: resolve('src/ai/PaceSearch.ts'), lines: resolve('src/ai/LineSearch.ts'), linenet: resolve('src/ai/LineNet.ts') },
     formats: ['es'], fileName: (_, name) => name + '.mjs' } } });
   const load = async name => import(pathToFileURL(join(dir, name + '.mjs')));
-  const { Car, decodeDriverOutputs, encodeDriverTargets } = await load('car');
+  const { Car, decodeDriverOutputs, encodeDriverTargets, driverInputCount } = await load('car');
   const { Vector2 } = await load('vector');
   const { Presets } = await load('presets');
   const { NeuralNetwork } = await load('network');
@@ -36,7 +36,7 @@ try {
   const slot = gp.getGridSlot(0);
   const makeCar = (brain) => { const c = new Car(slot.pos, slot.heading, brain, '#fff', 'test', 100, 25);
     c.currentCheckpointIdx = (slot.checkpointIdx + 1) % gp.checkpoints.length; c.mistakesEnabled = false; return c; };
-  const constant = (steer, throttle, brake) => { const net = new NeuralNetwork([30, 4, 3]);
+  const constant = (steer, throttle, brake) => { const net = new NeuralNetwork([36, 4, 3]);
     for (const layer of net.layers) { layer.weights.forEach(row => row.fill(0)); layer.biases.fill(0); }
     const out = net.layers.at(-1); out.biases[0] = steer; out.biases[1] = throttle; out.biases[2] = brake;
     net.layers[0].biases.fill(0.0); net.layers[0].weights.forEach(r => r.fill(0));
@@ -128,7 +128,7 @@ try {
   for (let i = 0; i < 14; i++) search.finish(60 + i * 0.01, true);
   assert.ok(search.profiles.some(p => p.trim.some(v => v !== 0)), 'per-section trims are explored');
   // Pedals are exclusive: brake demand lifts the throttle at the physics boundary.
-  const pedalCar = new Car(gp.startPosition, gp.startAngle, new NeuralNetwork([30, 4, 3]), '#fff', 'pedals', 60, 25);
+  const pedalCar = new Car(gp.startPosition, gp.startAngle, new NeuralNetwork([36, 4, 3]), '#fff', 'pedals', 60, 25);
   pedalCar.vel = Vector2.fromAngle(pedalCar.heading).mul(30); pedalCar.speed = 30;
   pedalCar.updatePhysics({ throttle: 1, brake: 0.5, steer: 0 }, 1 / 60, gp);
   assert.equal(pedalCar.currentControl.throttle, 0, 'throttle and brake never together');
@@ -155,7 +155,7 @@ try {
   assert.equal(restoredLine.bestTime, savedLine.bestTime);
   assert.equal(new LineNet(new NeuralNetwork([20, 6, 1])).fromJSON(savedLine.toJSON()), false, 'different sensor layout is ignored');
   // Track limits: only an excursion with all four wheels off the asphalt counts, once per exit.
-  const limitCar = new Car(gp.startPosition, gp.startAngle, new NeuralNetwork([30, 4, 3]), '#fff', 'limits', 60, 25);
+  const limitCar = new Car(gp.startPosition, gp.startAngle, new NeuralNetwork([36, 4, 3]), '#fff', 'limits', 60, 25);
   const centre = gp.checkpoints[10], normal = centre.tangent.normal();
   const place = lateral => { limitCar.pos = centre.center.add(normal.mul(lateral)); limitCar.heading = centre.tangent.heading(); limitCar.vel = centre.tangent.mul(1); limitCar.speed = 1; limitCar.isAlive = true; limitCar.updatePhysics(idle, 1 / 600, gp); };
   place(gp.width / 2 - 1.2); // one side of the car over the edge only
@@ -165,7 +165,7 @@ try {
   place(0); place(gp.width / 2 + 6);
   assert.equal(limitCar.trackLimitExits, 2, 'a second excursion counts again');
   // ERS: wide-open throttle drains the battery, braking harvests, and depletion costs power.
-  const ersCar = new Car(gp.startPosition, gp.startAngle, new NeuralNetwork([30, 4, 3]), '#fff', 'ers', 60, 25);
+  const ersCar = new Car(gp.startPosition, gp.startAngle, new NeuralNetwork([36, 4, 3]), '#fff', 'ers', 60, 25);
   const speedUp = (energy, steps) => { ersCar.reset(gp.startPosition, gp.startAngle, true, 1); ersCar.ersEnergy = energy; ersCar.vel = Vector2.fromAngle(ersCar.heading).mul(75); ersCar.speed = 75; for (let i = 0; i < steps; i++) ersCar.updatePhysics({ throttle: 1, brake: 0, steer: 0 }, 1 / 60, gp); return ersCar.speed; };
   const charged = speedUp(Car.ERS_CAPACITY, 15), chargedEnergy = ersCar.ersEnergy;
   const empty = speedUp(0, 15);
@@ -178,7 +178,7 @@ try {
   assert.ok(Math.abs(Car.tyreGrip(Car.TYRE_OPTIMUM, 0) - 1) < 1e-9, 'full grip at the optimum');
   assert.ok(Car.tyreGrip(60, 0) < 0.9 && Car.tyreGrip(150, 0) < 0.9, 'cold and overheated tyres lose grip');
   assert.ok(Car.tyreGrip(100, 1) < Car.tyreGrip(100, 0.3), 'wear lowers grip');
-  const tyreCar = new Car(gp.startPosition, gp.startAngle, new NeuralNetwork([30, 4, 3]), '#fff', 'tyres', 60, 25);
+  const tyreCar = new Car(gp.startPosition, gp.startAngle, new NeuralNetwork([36, 4, 3]), '#fff', 'tyres', 60, 25);
   const driveCorner = (race, steps) => { tyreCar.isRaceMode = race; tyreCar.reset(gp.startPosition, gp.startAngle, true, 1); tyreCar.vel = Vector2.fromAngle(tyreCar.heading).mul(45); tyreCar.speed = 45; for (let i = 0; i < steps; i++) tyreCar.updatePhysics({ throttle: 0.5, brake: 0, steer: 0.12 }, 1 / 60, stub); };
   driveCorner(false, 120);
   assert.equal(tyreCar.tyreTempFront, Car.TYRE_OPTIMUM, 'training runs on blankets');
@@ -186,7 +186,7 @@ try {
   driveCorner(true, 120);
   assert.ok(tyreCar.tyreTempFront !== 85 && tyreCar.tyreWearFront > 0, 'race tyres heat up and wear: ' + tyreCar.tyreTempFront);
   // Gearbox: 8 ratios, limiter-bound top speed, shift-cut and real gear/rpm bookkeeping.
-  const gearCar = new Car(gp.startPosition, gp.startAngle, new NeuralNetwork([30, 4, 3]), '#fff', 'gears', 60, 25);
+  const gearCar = new Car(gp.startPosition, gp.startAngle, new NeuralNetwork([36, 4, 3]), '#fff', 'gears', 60, 25);
   const gearsSeen = new Set(); let maxRpm = 0, cutSteps = 0, prevGear = 1, prevForce = 0;
   for (let i = 0; i < 60 * 45; i++) {
     gearCar.framesSinceLastCheckpoint = 0; // no checkpoints on the stub track
@@ -205,5 +205,14 @@ try {
   assert.ok(Math.abs(Car.rideHeightLift(0.0244, 0.0464) - 1) < 0.03, 'unit lift at a typical cornering height');
   assert.ok(Car.rideHeightLift(0.004, 0.010) < Car.rideHeightLift(0.016, 0.032), 'a choked floor loses downforce');
   assert.ok(gearCar.rideHeightFront < Car.FRH_STATIC && gearCar.rideHeightRear < Car.RRH_STATIC, 'downforce compresses the axles at speed');
+  // Network inputs: rays + 5 driving inputs + 6 vehicle-state inputs that follow the car.
+  const inputCar = new Car(gp.startPosition, gp.startAngle, new NeuralNetwork([36, 4, 3]), '#fff', 'inputs', 60, 25);
+  inputCar.updateDimensionsForTrackWidth(gp.width); inputCar.updateSensors(gp);
+  inputCar.tyreTempFront = 140; inputCar.tyreTempRear = 60; inputCar.tyreWearFront = 0.4; inputCar.ersEnergy = Car.ERS_CAPACITY / 2; inputCar.gear = 4;
+  const planned = inputCar.planDrive(gp).inputs;
+  assert.equal(planned.length, driverInputCount(25));
+  const vehicleState = planned.slice(-6);
+  assert.deepEqual([vehicleState[0], vehicleState[1]], [1, 0], 'tyre temperatures are normalised and clamped');
+  assert.ok(Math.abs(vehicleState[2] - 0.4) < 1e-9 && Math.abs(vehicleState[3] - 0.5) < 1e-9 && vehicleState[4] === 0.5, 'wear, ERS and gear: ' + vehicleState);
   console.log('Neural driving, dynamics, damage and wreck regressions passed.');
 } finally { await rm(dir, { recursive: true, force: true }); }

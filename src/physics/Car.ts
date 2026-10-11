@@ -41,6 +41,10 @@ export interface LapFinishEvent {
   fuelRemaining: number;
 }
 
+/** LiDAR rays + 5 driving inputs + 6 vehicle-state inputs (tyre temps, wear, ERS, gear, rpm). */
+export const DRIVER_EXTRA_INPUTS = 11;
+export const driverInputCount = (rayCount: number): number => rayCount + DRIVER_EXTRA_INPUTS;
+
 export interface DrivePlan {
   inputs: number[];
   expert: CarControl;
@@ -633,6 +637,13 @@ export class Car {
       cpAngleDiff,
       curvatureInput,
       overspeedDelta,
+      // Vehicle state: lets the network learn tyre / hybrid / gearbox dependent driving.
+      Math.max(0, Math.min(1, (this.tyreTempFront - 60) / 80)),
+      Math.max(0, Math.min(1, (this.tyreTempRear - 60) / 80)),
+      Math.max(0, Math.min(1, Math.max(this.tyreWearFront, this.tyreWearRear))),
+      Math.max(0, Math.min(1, this.ersEnergy / Car.ERS_CAPACITY)),
+      this.gear / 8,
+      Math.max(0, Math.min(1, (this.engineRpm - Car.IDLE_RPM) / (Car.REV_LIMIT - Car.IDLE_RPM))),
     ];
 
     const midRay = Math.floor(this.rayDistances.length / 2);

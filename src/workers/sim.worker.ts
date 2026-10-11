@@ -3,7 +3,7 @@ import { captureMotion, resolveTraffic, avoidTraffic } from '../physics/Traffic'
 import { Track, TimingGate } from '../track/Track';
 import { Presets } from '../track/Presets';
 import { Population, LapLeaderboardEntry } from '../ai/Population';
-import { Car, CarControl, TrajectoryPoint, CheckpointDelta } from '../physics/Car';
+import { Car, CarControl, TrajectoryPoint, CheckpointDelta, driverInputCount } from '../physics/Car';
 import { Spline } from '../math/Spline';
 import { Vector2 } from '../math/Vector2';
 import { TopologySpecifier } from '../ai/NeuralNetwork';
@@ -1073,6 +1073,8 @@ self.onmessage = (e: MessageEvent) => {
 
     case 'LOAD_BRAIN': {
       try {
+        const loadedSizes = JSON.parse(data.json)?.layerSizes;
+        if (Array.isArray(loadedSizes) && loadedSizes[0] !== driverInputCount(rayCount)) throw new Error('incompatible network inputs');
         for (let i = 0; i < 5; i++) {
           if (population.cars[i]?.brain) {
             population.cars[i].brain!.fromJSON(data.json);
@@ -1117,6 +1119,8 @@ self.onmessage = (e: MessageEvent) => {
           bestFitness: record?.bestFitness || car.fitness,
           lastLapTime: record?.lastLapTime ?? car.lastLapTime,
           pace: car.pace.toJSON(),
+          ers: Math.round(car.ersEnergy),
+          tyres: { tempFront: car.tyreTempFront, tempRear: car.tyreTempRear, wearFront: car.tyreWearFront, wearRear: car.tyreWearRear },
           lineNet: car.lineNet ? car.lineNet.toJSON() : null,
           lapsCount: record?.lapsCount ?? 0,
           avgSpeed: record?.avgSpeed ?? 0,
@@ -1131,7 +1135,8 @@ self.onmessage = (e: MessageEvent) => {
         requestId: data.requestId,
         data: {
           type: 'F1_ALL_MODELS',
-          version: 2,
+          version: 3,
+          inputCount: driverInputCount(rayCount),
           generation: population.generation,
           globalBestLap: population.globalBestLap,
           rayCount: rayCount,
@@ -1146,6 +1151,13 @@ self.onmessage = (e: MessageEvent) => {
       try {
         const payload = data.models;
         if (payload && Array.isArray(payload.drivers)) {
+          // Networks trained on a different input layout cannot drive this car: refuse the whole file.
+          const wantInputs = driverInputCount(rayCount);
+          for (const d of payload.drivers) {
+            for (const net of [d?.brain, d?.bestBrain]) {
+              if (net && Array.isArray(net.layerSizes) && net.layerSizes[0] !== wantInputs) throw new Error('incompatible network inputs');
+            }
+          }
           // Validate every serialized network on clones before mutating live state.
           for (let i = 0; i < population.cars.length; i++) {
             const car = population.cars[i];
@@ -1192,6 +1204,12 @@ self.onmessage = (e: MessageEvent) => {
                 record.bestFitness = driverData.bestFitness;
               }
               if (driverData.pace) car.pace.fromJSON(driverData.pace);
+              if (typeof driverData.ers === 'number') car.ersEnergy = Math.max(0, Math.min(Car.ERS_CAPACITY, driverData.ers));
+              if (driverData.tyres) {
+                const t = driverData.tyres, num = (v: unknown, d: number) => typeof v === 'number' && Number.isFinite(v) ? v : d;
+                car.tyreTempFront = num(t.tempFront, 85); car.tyreTempRear = num(t.tempRear, 85);
+                car.tyreWearFront = Math.max(0, Math.min(1, num(t.wearFront, 0))); car.tyreWearRear = Math.max(0, Math.min(1, num(t.wearRear, 0)));
+              }
               if (driverData.lineNet && car.lineNet) car.lineNet.fromJSON(driverData.lineNet);
               // Classification columns: keep the last lap, lap count and speeds with the best time.
               if (typeof driverData.lastLapTime === 'number' && driverData.lastLapTime > 0) {

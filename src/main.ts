@@ -5,7 +5,7 @@ import { Spline } from './math/Spline';
 import { Track } from './track/Track';
 import { Presets } from './track/Presets';
 import { Population, LapLeaderboardEntry } from './ai/Population';
-import { Car, CarControl } from './physics/Car';
+import { Car, CarControl, driverInputCount } from './physics/Car';
 import { Renderer } from './rendering/Renderer';
 import { SimBridge, type ComputeProfile, type TopologySpecifier } from './workers/SimBridge';
 import type { SimSnapshot } from './workers/sim.worker';
@@ -98,7 +98,7 @@ class App {
 
   /** Training results (best laps, brains, generation) survive page reloads for the same circuit. */
   private setupAutosave(): void {
-    const circuit = () => `${this.track.totalLength.toFixed(1)}|${this.population.rayCount}`;
+    const circuit = () => `${this.track.totalLength.toFixed(1)}|${this.population.rayCount}|in${driverInputCount(this.population.rayCount)}`;
     let restored = false;
     const tryRestore = async () => {
       restored = true;
@@ -1426,10 +1426,10 @@ class App {
           const record = this.population.teamRecords[i];
           const driverData = data.drivers.find((d: any) => d.color === car.color) || data.drivers[i];
           if (driverData) {
-            if (driverData.brain && car.brain) {
+            if (driverData.brain && car.brain && driverData.brain.layerSizes?.[0] === car.brain.layerSizes[0]) {
               car.brain.fromJSON(JSON.stringify(driverData.brain));
             }
-            if (driverData.bestBrain && record?.bestBrain) {
+            if (driverData.bestBrain && record?.bestBrain && driverData.bestBrain.layerSizes?.[0] === record.bestBrain.layerSizes[0]) {
               record.bestBrain.fromJSON(JSON.stringify(driverData.bestBrain));
             }
             if (typeof driverData.baseBrakingAggression === 'number') {

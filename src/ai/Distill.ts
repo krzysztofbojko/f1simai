@@ -1,4 +1,4 @@
-import { Car, encodeDriverTargets } from '../physics/Car';
+import { Car, driverInputCount, encodeDriverTargets } from '../physics/Car';
 import { Presets } from '../track/Presets';
 import { Track } from '../track/Track';
 import { NeuralNetwork, type TopologySpecifier } from './NeuralNetwork';
@@ -25,10 +25,20 @@ function rng(seed: number): () => number {
 export function collectExpertSamples(track: Track, rayCount: number, seconds: number, seed = 1, lineSamples?: Sample[]): Sample[] {
   const random = rng(seed);
   const samples: Sample[] = [];
-  const dummy = new NeuralNetwork([rayCount + 5, 4, 3]);
+  const dummy = new NeuralNetwork([driverInputCount(rayCount), 4, 3]);
   const n = track.checkpoints.length;
   const car = new Car(track.startPosition, track.startAngle, dummy, '#fff', 'teacher', 60, rayCount);
   car.mistakesEnabled = false;
+  // Teacher drives with the race-time vehicle model on, and the vehicle state is scrambled so
+  // the network sees (and learns to react to) cold / worn tyres, empty batteries and every gear.
+  car.isRaceMode = true;
+  const scrambleState = () => {
+    car.ersEnergy = random() * Car.ERS_CAPACITY;
+    // Half of the time the tyres stay at the nominal (training) state so the common case is learned precisely.
+    if (random() < 0.5) { car.tyreTempFront = car.tyreTempRear = Car.TYRE_OPTIMUM; car.tyreWearFront = car.tyreWearRear = 0; return; }
+    car.tyreTempFront = 65 + random() * 65; car.tyreTempRear = 65 + random() * 65;
+    car.tyreWearFront = random() * 0.6; car.tyreWearRear = random() * 0.6;
+  };
   car.updateDimensionsForTrackWidth(track.width);
   const dt = 1 / 60;
   let disturbance = 0, disturbanceLeft = 0, nextCheck = 0, offsetTarget = 0, nextOffset = 0;
@@ -41,10 +51,14 @@ export function collectExpertSamples(track: Track, rayCount: number, seconds: nu
     car.speed = car.vel.mag();
     car.mistakesEnabled = false;
     car.isAlive = true;
+    car.isRaceMode = true;
+    scrambleState();
   };
   for (let step = 0; step < seconds * 60; step++) {
     if (!car.isAlive) { respawn(); continue; }
     if (car.fuelKg < 15) car.fuelKg = 60;
+    if (step % 1200 === 600) scrambleState();
+    car.wantsToPit = false;
     if (step >= nextOffset) {
       nextOffset = step + 120 + Math.floor(random() * 360);
       offsetTarget = random() < .3 ? 0 : (random() * 2 - 1) * offsetLimit;
@@ -81,7 +95,7 @@ export function distillDriverNetwork(rayCount: number, topology: TopologySpecifi
   const lineSamples: Sample[] = [];
   const samples = collectExpertSamples(useTrack, rayCount, 240, 1, lineSamples);
   trainLineNetwork(useTrack, rayCount, lineSamples);
-  const net = new NeuralNetwork(NeuralNetwork.resolveLayerSizes(rayCount + 5, topology, 3));
+  const net = new NeuralNetwork(NeuralNetwork.resolveLayerSizes(driverInputCount(rayCount), topology, 3));
   const random = rng(7);
   const order = samples.map((_, i) => i);
   for (let epoch = 0; epoch < 40; epoch++) {

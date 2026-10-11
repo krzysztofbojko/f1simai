@@ -158,3 +158,11 @@ Skutki: podsterowność przy nasyceniu przedniej osi, nadsterowność przy nasyc
 - Prześwit przód/tył spada z prędkością (docisk ściska oś: sztywności 380/305 kN/m, start 30/55 mm) i podąża z opóźnieniem 0,15 s, żeby próg zerwania nie „migotał”.
 - Docisk mnoży `rideHeightLift(FRH, RRH)`: optimum przodu ok. 16 mm, tyłu ok. 35 mm, normalizacja do 1 przy typowych prześwitach w zakręcie, spadek do 75% przy prześwicie poniżej 8 / 15 mm (zerwanie przepływu). HUD pokazuje prześwity i ostrzeżenie.
 - Pominięto świadomie: zawieszenie 3-DOF, dobijanie deski, morświnowanie — duży koszt, a chaotyczna utrata docisku utrudnia uczenie.
+
+## Wejścia sieci kierowcy (rayCount + 11)
+
+Do 5 dotychczasowych wejść (prędkość, prędkość kątowa, kąt do bramki, zakrzywienie, nadmiar prędkości) doszło 6 wejść stanu pojazdu: temperatura opon przód/tył (60–140 °C → 0–1), maks. zużycie, stan baterii ERS, bieg/8 i obroty. Zmienia to układ wejść, więc stare zapisane modele (i stary autozapis) są odrzucane — uczenie zaczyna od nowa. Worker odmawia wczytania sieci o innej liczbie wejść (`driverInputCount` w `Car.ts`).
+
+Destylacja uczy te wejścia: nauczyciel jedzie z włączonym modelem opon i co 20 s (oraz po każdym respawnie) losowo zmienia temperaturę/zużycie opon i energię ERS; w połowie przypadków opony zostają w stanie nominalnym, żeby typowa jazda była odwzorowana precyzyjnie.
+
+Autozapis zawiera teraz też energię ERS i stan opon (temperatury, zużycie) każdego kierowcy; klucz autozapisu uwzględnia liczbę wejść sieci.

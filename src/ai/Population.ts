@@ -5,7 +5,7 @@ import { LineNet } from './LineNet';
 import { distillLineNetwork } from './Distill';
 import { updateRaceSafety, planRaceLine } from './RaceTraffic';
 import { captureMotion, avoidTraffic, resolveTraffic } from '../physics/Traffic';
-import { Car, LapFinishEvent, TrajectoryPoint } from '../physics/Car';
+import { Car, LapFinishEvent, TrajectoryPoint, driverInputCount } from '../physics/Car';
 import { NeuralNetwork, TopologySpecifier } from './NeuralNetwork';
 import { Track } from '../track/Track';
 
@@ -654,7 +654,7 @@ export class Population {
     }
 
     const newCars: Car[] = [];
-    const inputCount = this.rayCount + 5;
+    const inputCount = driverInputCount(this.rayCount);
 
     // 3. Evolve each team's car and position on staggered 2x2 starting grid
     for (let i = 0; i < this.populationSize; i++) {
