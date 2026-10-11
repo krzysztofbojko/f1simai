@@ -68,6 +68,7 @@ export interface RaceStanding {
   gapToLeader: string;
   gapToPrevious: string;
   pitStops: number;
+  trackLimitExits: number;
   isPitting: boolean;
   isAlive: boolean;
   bestLap: number | null;
@@ -132,6 +133,7 @@ export interface SerializedCar {
   isPitting: boolean;
   pitTimer: number;
   pitStopsCount: number;
+  trackLimitExits: number;
   raceLapsCompleted: number;
 }
 
@@ -298,6 +300,7 @@ function serializeCar(car: Car, ctrl?: CarControl, isHeadless: boolean = false):
     isPitting: car.isPitting,
     pitTimer: Math.max(0, Math.round(car.pitTimer * 10) / 10),
     pitStopsCount: car.pitStopsCount,
+    trackLimitExits: car.trackLimitExits,
     raceLapsCompleted: car.raceLapsCompleted
   };
 }
@@ -446,6 +449,7 @@ function calculateRaceStandings(): RaceStanding[] {
       gapToLeader,
       gapToPrevious,
       pitStops: car.pitStopsCount,
+      trackLimitExits: car.trackLimitExits,
       isPitting: car.isPitting,
       isAlive: car.isAlive,
       bestLap: car.bestLapTime,
@@ -858,6 +862,7 @@ self.onmessage = (e: MessageEvent) => {
           car.updateDimensionsForTrackWidth(track.width);
           car.fuelKg = 50.0;
           car.pitStopsCount = 0;
+        car.trackLimitExits = 0;
           car.raceLapsCompleted = 0;
           car.totalRaceTime = 0;
           car.isAlive = true;
@@ -873,6 +878,7 @@ self.onmessage = (e: MessageEvent) => {
         playerCar.updateDimensionsForTrackWidth(track.width);
         playerCar.fuelKg = 50.0;
         playerCar.pitStopsCount = 0;
+        playerCar.trackLimitExits = 0;
         playerCar.raceLapsCompleted = 0;
         playerCar.totalRaceTime = 0;
         playerCar.isAlive = true;
@@ -904,6 +910,7 @@ self.onmessage = (e: MessageEvent) => {
         car.fuelKg = population.startingFuelKg;
         car.isAlive = true;
         car.pitStopsCount = 0;
+        car.trackLimitExits = 0;
         car.raceLapsCompleted = 0;
         car.totalRaceTime = 0;
         car.isPitting = false;
@@ -937,6 +944,7 @@ self.onmessage = (e: MessageEvent) => {
         car.fuelKg = population.startingFuelKg;
         car.isAlive = true;
         car.pitStopsCount = 0;
+        car.trackLimitExits = 0;
         car.raceLapsCompleted = 0;
         car.totalRaceTime = 0;
         car.isPitting = false;

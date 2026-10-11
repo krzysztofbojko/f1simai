@@ -264,6 +264,9 @@ export class Car {
   public pitStopsCount: number = 0;
   public totalRaceTime: number = 0;
   public raceLapsCompleted: number = 0;
+  /** Number of times all four wheels were outside the asphalt (track-limit exits). */
+  public trackLimitExits = 0;
+  private fullyOffTrack = false;
   public isFinishedRace: boolean = false;
 
   constructor(
@@ -384,7 +387,9 @@ export class Car {
       this.pitStopsCount = 0;
       this.totalRaceTime = 0;
       this.raceLapsCompleted = 0;
+      this.trackLimitExits = 0;
     }
+    this.fullyOffTrack = false;
     this.rollLapPerformanceVariation();
   }
 
@@ -984,6 +989,9 @@ export class Car {
       this.lateralG = collisionAcceleration.dot(rightDir) / Car.GRAVITY;
     } else this.pos = proposedPosition;
     this.updateSurface(track);
+    const fullyOff = this.surfaceFractions.asphalt === 0;
+    if (fullyOff && !this.fullyOffTrack) this.trackLimitExits++;
+    this.fullyOffTrack = fullyOff;
     if (this.surfaceFractions.asphalt < 1) { this.lapCompromised = true; this.lapExcursion = true; this.recoveryTimer = 2; }
     this.speed = this.vel.mag();
     this.speedKmh = this.speed * 3.6;

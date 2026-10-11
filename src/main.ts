@@ -214,6 +214,7 @@ class App {
         car.isPitting = sc.isPitting;
         car.pitTimer = sc.pitTimer;
         car.pitStopsCount = sc.pitStopsCount;
+        car.trackLimitExits = sc.trackLimitExits ?? 0;
         car.raceLapsCompleted = sc.raceLapsCompleted;
       }
 
@@ -351,6 +352,7 @@ class App {
         this.playerCar.isPitting = sp.isPitting;
         this.playerCar.pitTimer = sp.pitTimer;
         this.playerCar.pitStopsCount = sp.pitStopsCount;
+        this.playerCar.trackLimitExits = sp.trackLimitExits ?? 0;
         this.playerCar.raceLapsCompleted = sp.raceLapsCompleted;
       }
 
@@ -1240,6 +1242,7 @@ class App {
       car.fuelKg = this.population.startingFuelKg;
       car.isAlive = true;
       car.pitStopsCount = 0;
+      car.trackLimitExits = 0;
       car.raceLapsCompleted = 0;
       car.totalRaceTime = 0;
       car.isPitting = false;
@@ -2012,6 +2015,10 @@ class App {
                 <div class="time-row">
                   <span class="time-lbl">LAST</span>
                   <span class="time-last-val">${lastTimeStr}</span>
+                </div>
+                <div class="time-row">
+                  <span class="time-lbl">POZA TOREM</span>
+                  <span class="time-last-val" title="Wyjazdy wszystkimi czterema kołami poza asfalt">${targetCar ? targetCar.trackLimitExits : 0}×</span>
                 </div>
                 <div class="time-row">
                   <span class="time-lbl">TERAZ</span>

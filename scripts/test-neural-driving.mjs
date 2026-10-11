@@ -154,5 +154,15 @@ try {
   assert.equal(restoredLine.best.forward(probeIn)[0], savedLine.best.forward(probeIn)[0]);
   assert.equal(restoredLine.bestTime, savedLine.bestTime);
   assert.equal(new LineNet(new NeuralNetwork([20, 6, 1])).fromJSON(savedLine.toJSON()), false, 'different sensor layout is ignored');
+  // Track limits: only an excursion with all four wheels off the asphalt counts, once per exit.
+  const limitCar = new Car(gp.startPosition, gp.startAngle, new NeuralNetwork([30, 4, 3]), '#fff', 'limits', 60, 25);
+  const centre = gp.checkpoints[10], normal = centre.tangent.normal();
+  const place = lateral => { limitCar.pos = centre.center.add(normal.mul(lateral)); limitCar.heading = centre.tangent.heading(); limitCar.vel = centre.tangent.mul(1); limitCar.speed = 1; limitCar.isAlive = true; limitCar.updatePhysics(idle, 1 / 600, gp); };
+  place(gp.width / 2 - 1.2); // one side of the car over the edge only
+  assert.equal(limitCar.trackLimitExits, 0, 'two wheels over the edge are not an exit');
+  place(gp.width / 2 + 6); place(gp.width / 2 + 6);
+  assert.equal(limitCar.trackLimitExits, 1, 'all four wheels off counts once');
+  place(0); place(gp.width / 2 + 6);
+  assert.equal(limitCar.trackLimitExits, 2, 'a second excursion counts again');
   console.log('Neural driving, dynamics, damage and wreck regressions passed.');
 } finally { await rm(dir, { recursive: true, force: true }); }
