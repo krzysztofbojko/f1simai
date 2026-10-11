@@ -139,3 +139,12 @@ Skutki: podsterowność przy nasyceniu przedniej osi, nadsterowność przy nasyc
 - Mnożnik przyczepności osi: dzwon temperaturowy (optimum 100 °C, zimno do 0,80, przegrzanie do 0,75) razy zużycie (do −25% przy W=1). Wchodzi do limitów osi i do planowanej przyczepności (kierowca zwalnia na zimnych/zużytych oponach).
 - Trening jedzie na „kocach” (100 °C, zużycie 0) — tak jak dotąd, żeby uczenie i porównania czasów nie zależały od stintu. Model działa w wyścigu (`isRaceMode`) albo po `Car.TYRE_MODEL_IN_TRAINING = true`. Auto startuje z 85 °C; pit stop daje nowy komplet. Zużycie > 70% wywołuje zjazd do boksu.
 - Kalibracja (`npm run diag:nn`, `TYRES=1`): temperatury ok. 80–115 °C, tempo wyścigowe ok. 3–5% wolniejsze od treningowego.
+
+## Skrzynia 8-biegowa
+
+- Przełożenia całkowite (bieg × przekładnia główna) maleją geometrycznie od 14,0 (1.) do 5,5 (8.) przy kole 0,36 m: 15 000 obr./min na 8. biegu to ok. 103 m/s (371 km/h). Dokument z `propozycje/` miał tabelę niezgodną z własnymi obrotami (bieg 8 ≈ 590 km/h), więc przełożenia policzono od nowa.
+- Automat: wyższy bieg przy 13 500 obr./min, niższy przy 7 500 (z ochroną przed przekręceniem > 14 200), cięcie zapłonu 48 ms na zmianę w górę, odstęp 0,18 s, limiter 15 000, poślizg sprzęgła na starcie (silnik trzymany w paśmie mocy).
+- Moc ICE = `ICE_POWER · gaz · f(obroty)`, gdzie `f` rośnie od 0,55 (4 000 obr./min, turbo-lag) do 1 przy 10 500 i dalej jest stałe (limit przepływu paliwa); to jedyny wpływ biegu na siłę napędową poza cięciem i limiterem.
+- Hamowanie silnikiem po zdjęciu gazu: `(45 + 25·obroty/15000) Nm` przez aktualne przełożenie (nie jest „gazem”, więc nie łamie wyłączności pedałów).
+- HUD pokazuje prawdziwy bieg i obroty, nie bieg wyliczany z prędkości.
+- Wpływ na tempo: ok. 1,5% wolniejsze okrążenia (cięcia zapłonu, pasmo mocy, hamowanie silnikiem).

@@ -154,6 +154,7 @@ class App {
         car.barrierImpactSpeed = sc.barrierImpactSpeed;
         car.damage = sc.damage ?? 0;
         car.ersEnergy = (sc.ersSoc ?? 0.85) * Car.ERS_CAPACITY;
+        car.gear = sc.gear ?? 1; car.engineRpm = sc.engineRpm ?? Car.IDLE_RPM;
         car.tyreTempFront = sc.tyreTempFront ?? 100; car.tyreTempRear = sc.tyreTempRear ?? 100;
         car.tyreWearFront = sc.tyreWearFront ?? 0; car.tyreWearRear = sc.tyreWearRear ?? 0;
         car.incidentActive = sc.incidentActive;
@@ -314,6 +315,7 @@ class App {
         this.playerCar.barrierImpactSpeed = sp.barrierImpactSpeed;
         this.playerCar.damage = sp.damage ?? 0;
         this.playerCar.ersEnergy = (sp.ersSoc ?? 0.85) * Car.ERS_CAPACITY;
+        this.playerCar.gear = sp.gear ?? 1; this.playerCar.engineRpm = sp.engineRpm ?? Car.IDLE_RPM;
         this.playerCar.tyreTempFront = sp.tyreTempFront ?? 100; this.playerCar.tyreTempRear = sp.tyreTempRear ?? 100;
         this.playerCar.tyreWearFront = sp.tyreWearFront ?? 0; this.playerCar.tyreWearRear = sp.tyreWearRear ?? 0;
         this.playerCar.incidentActive = sp.incidentActive;
@@ -1728,6 +1730,8 @@ class App {
     const effectivePressure = activeCar?.effectiveDriverPressure ?? this.driverPressure;
     const targetPressure = activeCar?.driverPressure ?? this.driverPressure;
     const pressureText = (p: number) => `${p > 0 ? '+' : ''}${Math.round(p)}`;
+    const rpmEl = document.getElementById('tele-rpm');
+    if (rpmEl) rpmEl.textContent = activeCar ? `${Math.round(activeCar.engineRpm / 10) * 10} rpm` : 'rpm';
     const tyreEl = document.getElementById('tele-tyres');
     if (tyreEl) tyreEl.textContent = activeCar ? `OPONY P ${Math.round(activeCar.tyreTempFront)}° T ${Math.round(activeCar.tyreTempRear)}° · zużycie ${Math.round(Math.max(activeCar.tyreWearFront, activeCar.tyreWearRear) * 100)}%` : 'OPONY';
     const ersEl = document.getElementById('tele-ers');
@@ -2073,16 +2077,7 @@ class App {
       const speedKmh = Math.round(activeCar.speedKmh);
       document.getElementById('tele-speed')!.textContent = speedKmh.toString();
 
-      let gear = '1';
-      if (speedKmh < 10) gear = 'N';
-      else if (speedKmh < 68) gear = '1';
-      else if (speedKmh < 112) gear = '2';
-      else if (speedKmh < 158) gear = '3';
-      else if (speedKmh < 204) gear = '4';
-      else if (speedKmh < 248) gear = '5';
-      else if (speedKmh < 288) gear = '6';
-      else if (speedKmh < 322) gear = '7';
-      else gear = '8';
+      const gear = speedKmh < 10 ? 'N' : String(activeCar.gear);
       document.getElementById('tele-gear')!.textContent = gear;
 
       // Fuel & Mass telemetry

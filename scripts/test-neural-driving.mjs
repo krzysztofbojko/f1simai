@@ -185,5 +185,21 @@ try {
   assert.equal(tyreCar.tyreGripFront, 1);
   driveCorner(true, 120);
   assert.ok(tyreCar.tyreTempFront !== 85 && tyreCar.tyreWearFront > 0, 'race tyres heat up and wear: ' + tyreCar.tyreTempFront);
+  // Gearbox: 8 ratios, limiter-bound top speed, shift-cut and real gear/rpm bookkeeping.
+  const gearCar = new Car(gp.startPosition, gp.startAngle, new NeuralNetwork([30, 4, 3]), '#fff', 'gears', 60, 25);
+  const gearsSeen = new Set(); let maxRpm = 0, cutSteps = 0, prevGear = 1, prevForce = 0;
+  for (let i = 0; i < 60 * 45; i++) {
+    gearCar.framesSinceLastCheckpoint = 0; // no checkpoints on the stub track
+    gearCar.updatePhysics({ throttle: 1, brake: 0, steer: 0 }, 1 / 60, stub);
+    gearsSeen.add(gearCar.gear); maxRpm = Math.max(maxRpm, gearCar.engineRpm);
+    if (gearCar.gear > prevGear) cutSteps++; prevGear = gearCar.gear;
+  }
+  assert.equal(gearCar.gear, 8, 'reaches top gear');
+  assert.ok([...gearsSeen].length === 8, 'uses all eight gears: ' + [...gearsSeen]);
+  assert.ok(maxRpm <= Car.REV_LIMIT + 1, 'never beyond the limiter: ' + maxRpm);
+  assert.ok(cutSteps >= 7, 'upshifts happened');
+  assert.ok(gearCar.speed > 90 && gearCar.speed < 108, 'top speed set by drag and the rev limit: ' + gearCar.speed);
+  assert.ok(Car.GEAR_RATIOS[1] > Car.GEAR_RATIOS[2] && Car.GEAR_RATIOS[7] > Car.GEAR_RATIOS[8], 'ratios fall with gear');
+  assert.ok(Car.icePowerFraction(4000) < Car.icePowerFraction(9000) && Math.abs(Car.icePowerFraction(12000) - 1) < 1e-9, 'power band');
   console.log('Neural driving, dynamics, damage and wreck regressions passed.');
 } finally { await rm(dir, { recursive: true, force: true }); }

@@ -131,6 +131,47 @@ export class Car {
   public static readonly ERS_CAPACITY = 4_000_000;    // battery, J
   public static readonly ERS_LAP_DEPLOY = 4_000_000;  // deployment allowed per lap, J
   public static readonly ERS_REGEN_EFFICIENCY = 0.88;
+  // 8-speed sequential gearbox. Ratios are overall (gear x final drive), geometric from 1st to 8th,
+  // sized so 15 000 rpm in 8th is ~103 m/s with a 0.36 m wheel.
+  public static readonly WHEEL_RADIUS = 0.36;
+  public static readonly GEAR_RATIOS: readonly number[] = [0, ...Array.from({ length: 8 }, (_, i) => 14 * Math.pow(5.5 / 14, i / 7))];
+  public static readonly IDLE_RPM = 4000;
+  public static readonly UPSHIFT_RPM = 13500;
+  public static readonly DOWNSHIFT_RPM = 7500;
+  public static readonly REV_LIMIT = 15000;
+  public static readonly SHIFT_CUT = 0.048;      // ignition cut on an upshift, s
+  public static readonly SHIFT_COOLDOWN = 0.18;  // minimum time between shifts, s
+  public gear = 1;
+  public engineRpm = Car.IDLE_RPM;
+  private shiftCutTimer = 0;
+  private shiftCooldown = 0;
+
+  /** Share of peak ICE power available at an engine speed: turbo spool below ~10 500 rpm, flat above (fuel-flow limited). */
+  static icePowerFraction(rpm: number): number {
+    const t = Math.max(0, Math.min(1, (rpm - Car.IDLE_RPM) / (10500 - Car.IDLE_RPM)));
+    return 0.55 + 0.45 * Math.sin(t * Math.PI / 2);
+  }
+
+  /** Automatic shift logic with hysteresis, shift-cut and over-rev protection on downshifts. Returns ICE power fraction (0 while cut). */
+  private stepGearbox(forwardSpeed: number, throttle: number, dt: number): number {
+    this.shiftCutTimer = Math.max(0, this.shiftCutTimer - dt);
+    this.shiftCooldown = Math.max(0, this.shiftCooldown - dt);
+    const wheelRpm = (g: number) => Math.abs(forwardSpeed) / Car.WHEEL_RADIUS * Car.GEAR_RATIOS[g] * 60 / (2 * Math.PI);
+    if (this.shiftCooldown <= 0) {
+      const rpm = wheelRpm(this.gear);
+      if (rpm >= Car.UPSHIFT_RPM && this.gear < 8) {
+        this.gear++; this.shiftCutTimer = Car.SHIFT_CUT; this.shiftCooldown = Car.SHIFT_COOLDOWN;
+      } else if (this.gear > 1 && (rpm <= Car.DOWNSHIFT_RPM || forwardSpeed < 3) && wheelRpm(this.gear - 1) <= 14200) {
+        this.gear--; this.shiftCooldown = Car.SHIFT_COOLDOWN;
+      }
+    }
+    const rpm = wheelRpm(this.gear);
+    // Clutch slip keeps the engine in its power band at launch.
+    this.engineRpm = this.gear === 1 && rpm < 6000 ? Math.max(rpm, Car.IDLE_RPM + throttle * 4800) : Math.max(Car.IDLE_RPM, Math.min(Car.REV_LIMIT, rpm));
+    if (this.shiftCutTimer > 0 || rpm >= Car.REV_LIMIT) return 0;
+    return Car.icePowerFraction(this.engineRpm);
+  }
+
   // Tyre thermal / wear model, per axle. Training runs on tyre blankets (optimal, no wear) unless forced.
   public static TYRE_MODEL_IN_TRAINING = false;
   public static readonly TYRE_OPTIMUM = 100;     // deg C
@@ -417,6 +458,7 @@ export class Car {
       this.tyreWearFront = this.tyreWearRear = 0;
     }
     this.ersDeployedLap = 0;
+    this.gear = 1; this.engineRpm = Car.IDLE_RPM; this.shiftCutTimer = 0; this.shiftCooldown = 0;
     this.fullyOffTrack = false;
     this.rollLapPerformanceVariation();
   }
@@ -891,9 +933,13 @@ export class Car {
     const frontLimit = mu * this.tyreGripFront * frontLoad;
     const rearLimit = mu * this.tyreGripRear * rearLoad;
 
+    const icePower = this.stepGearbox(forwardSpeed, actualThrottle, dt);
+    // Engine braking when off the throttle: compression drag through the current ratio.
+    const engineBrakeForce = actualThrottle < 0.02 && control.brake <= 0.02
+      ? (45 + 25 * this.engineRpm / Car.REV_LIMIT) * Car.GEAR_RATIOS[this.gear] / Car.WHEEL_RADIUS * Math.min(1, Math.abs(forwardSpeed) / 5) : 0;
     // Rolling resistance and braking share each axle's longitudinal tire budget.
     const rollingFront = Math.min(frontLimit, 0.012 * frontLoad);
-    const rollingRear = Math.min(rearLimit, 0.012 * rearLoad);
+    const rollingRear = Math.min(rearLimit, 0.012 * rearLoad + engineBrakeForce);
     // Hybrid power: MGU-K torque fill on a wide-open throttle, harvesting under braking and lift-and-coast.
     let ersPower = 0;
     this.ersDeploying = false;
@@ -911,7 +957,7 @@ export class Car {
       }
     }
     const engineForce = (actualThrottle > 0.005 || ersPower > 0)
-      ? (Car.ICE_POWER * actualThrottle + ersPower) * this.lapPowerFactor / Math.max(12, Math.abs(forwardSpeed)) : 0;
+      ? (Car.ICE_POWER * actualThrottle * icePower + ersPower) * this.lapPowerFactor / Math.max(12, Math.abs(forwardSpeed)) : 0;
     // Stability priority (traction control / brake-by-wire): each axle keeps the lateral
     // force it was using last step, so power or braking never silently removes the grip
     // that is holding the car on its line. Drive and brake use the rest of the friction circle.
