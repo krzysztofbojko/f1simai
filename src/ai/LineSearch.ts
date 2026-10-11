@@ -1,3 +1,4 @@
+import { random } from '../math/Random';
 import type { Track } from '../track/Track';
 import type { Vector2 } from '../math/Vector2';
 /** Evolve bounded corner trajectories from clean completed training laps. */
@@ -57,7 +58,7 @@ export class LineSearch {
       // Preserve the champion and evaluate a new nearby trajectory, not a fixed menu forever.
       next = (best + 1) % this.offsets.length;
       const champion = this.profiles[best];
-      const perturb = (scale: number) => (Math.random()*2-1)*scale;
+      const perturb = (scale: number) => (random()*2-1)*scale;
       this.profiles[next] = {
         bias: Math.max(-1.5, Math.min(1.5, champion.bias + perturb(.5))),
         amplitude: Math.max(.08, Math.min(.3, champion.amplitude + perturb(.025))),

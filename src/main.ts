@@ -113,6 +113,7 @@ class App {
         car.surfaceFractions = { ...sc.surfaceFractions };
         car.eliminationReason = sc.eliminationReason;
         car.barrierImpactSpeed = sc.barrierImpactSpeed;
+        car.damage = sc.damage ?? 0;
         car.incidentActive = sc.incidentActive;
         car.battleOpponent = sc.battleOpponent;
         car.overtakingTargetName = sc.overtakingTargetName;
@@ -268,6 +269,7 @@ class App {
         this.playerCar.surfaceFractions = { ...sp.surfaceFractions };
         this.playerCar.eliminationReason = sp.eliminationReason;
         this.playerCar.barrierImpactSpeed = sp.barrierImpactSpeed;
+        this.playerCar.damage = sp.damage ?? 0;
         this.playerCar.incidentActive = sp.incidentActive;
         this.playerCar.battleOpponent = sp.battleOpponent;
         this.playerCar.overtakingTargetName = sp.overtakingTargetName;
@@ -1681,7 +1683,7 @@ class App {
     document.getElementById('tele-pressure')!.textContent = activeCar?.isManual ? 'RĘCZNIE'
       : `PRESJA ${pressureText(effectivePressure)}${Math.abs(targetPressure-effectivePressure) > .1 ? ` → ${pressureText(targetPressure)}` : ''}`;
     document.getElementById('tele-incident')!.textContent = activeCar?.eliminationReason
-      ? activeCar.wreckRemoved ? 'DNF — BOLID USUNIĘTY' : reasons[activeCar.eliminationReason] : activeCar?.yellowFlag ? 'ŻÓŁTA FLAGA — ZAKAZ WYPRZEDZANIA' : activeCar?.incidentActive ? 'POMYŁKA KIEROWCY' : activeCar && activeCar.recoveryTimer > 0 ? 'ODZYSKIWANIE KONTROLI' : activeCar?.overtakingTargetName ? `WYPRZEDZANIE: ${activeCar.overtakingTargetName}` : activeCar?.battleOpponent ? `ATAK: ${activeCar.battleOpponent}` : activeCar?.racingLineLabel || 'JAZDA';
+      ? activeCar.wreckRemoved ? 'DNF — BOLID USUNIĘTY' : reasons[activeCar.eliminationReason] : activeCar?.yellowFlag ? 'ŻÓŁTA FLAGA — ZAKAZ WYPRZEDZANIA' : activeCar?.incidentActive ? 'POMYŁKA KIEROWCY' : activeCar && activeCar.recoveryTimer > 0 ? 'ODZYSKIWANIE KONTROLI' : activeCar?.overtakingTargetName ? `WYPRZEDZANIE: ${activeCar.overtakingTargetName}` : activeCar?.battleOpponent ? `ATAK: ${activeCar.battleOpponent}` : activeCar?.racingLineLabel || (activeCar && activeCar.damage > 0.05 ? `USZKODZENIA ${Math.round(Math.min(1, activeCar.damage) * 100)}%` : 'JAZDA');
 
     // Update telemetry header and brain tag
     const teleHeader = document.getElementById('telemetry-header-title');

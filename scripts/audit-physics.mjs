@@ -109,7 +109,11 @@ try {
     assert.ok(results['turn-0.1'].lateralG < 0 && results['turn0.1'].lateralG > 0);
     close(results['turn-0.1'].lateralG, -results['turn0.1'].lateralG);
     assert.ok(results['turn-0.1'].roll < 0 && results['turn0.1'].roll > 0);
-    assert.ok(Math.abs(results['release0.1'].yawRate) > 0 && Math.abs(results['release0.1'].yawRate) < results['turn0.1'].yawRate);
+    // Steering actuator lag: a one-frame input builds yaw gradually (well below the kinematic
+    // 0.33 rad/s target) and the response does not vanish the instant the wheel is released.
+    const kinematicYaw = 30 / 3.6 * Math.tan(0.1 * 0.4);
+    assert.ok(results['turn0.1'].yawRate > 0 && results['turn0.1'].yawRate < kinematicYaw * 0.5);
+    assert.ok(Math.abs(results['release0.1'].yawRate) > 0 && Math.abs(results['release0.1'].yawRate) < kinematicYaw);
     close(results.emptyTank.speedKmh, 0); close(results.emptyTank.fuelKg, 0);
     close(results.pit.fuelKg, Car.MAX_FUEL_CAPACITY);
     close(results.pit.lapTime, results.pit.totalRaceTime); assert.equal(results.pit.pitting, false);

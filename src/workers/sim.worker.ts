@@ -95,6 +95,7 @@ export interface SerializedCar {
   surfaceFractions: Car['surfaceFractions'];
   eliminationReason: Car['eliminationReason'];
   barrierImpactSpeed: number;
+  damage: number;
   incidentActive: boolean;
   battleOpponent: string;
   overtakingTargetName: string;
@@ -252,6 +253,7 @@ function serializeCar(car: Car, ctrl?: CarControl, isHeadless: boolean = false):
     surfaceFractions: { ...car.surfaceFractions },
     eliminationReason: car.eliminationReason,
     barrierImpactSpeed: car.barrierImpactSpeed,
+    damage: car.damage,
     incidentActive: car.incidentActive,
     battleOpponent: car.battleOpponent,
     overtakingTargetName: car.overtakingTargetName,
@@ -594,6 +596,7 @@ function runSimulationSteps(): void {
 
     if (playerCar && isPlayerDriving) {
       if (!playerCar.isAlive) {
+        playerCar.coastWreck(fixedDt, track);
         if (raceState === 'IDLE') {
           playerCar.respawnTimer -= fixedDt;
           if (playerCar.respawnTimer <= 0) {

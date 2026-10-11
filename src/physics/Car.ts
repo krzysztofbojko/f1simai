@@ -1,3 +1,4 @@
+import { random } from '../math/Random';
 import { normalizePressure, pressureProfile } from '../ai/DriverPressure';
 import { LineSearch } from '../ai/LineSearch';
 import { Vector2, IntersectionResult, segmentsIntersect } from '../math/Vector2';
@@ -38,14 +39,60 @@ export interface LapFinishEvent {
   fuelRemaining: number;
 }
 
+export interface DrivePlan {
+  inputs: number[];
+  expert: CarControl;
+  idealSteer: number;
+  pushing: boolean;
+  offRoad: boolean;
+  overspeedDelta: number;
+  minCenterClearance: number;
+  guarded: boolean;
+}
+
+const STEER_ENCODING = 0.95;
+const PEDAL_ENCODING = 0.9;
+/** Map tanh network outputs to controls; encoded targets keep tanh away from saturation. */
+export function decodeDriverOutputs(outputs: number[]): CarControl {
+  const pedal = (v: number) => { const x = Math.max(0, Math.min(1, (v ?? 0) / PEDAL_ENCODING)); return x < 0.03 ? 0 : x; };
+  return {
+    steer: Math.max(-1, Math.min(1, (outputs[0] ?? 0) / STEER_ENCODING)),
+    throttle: pedal(outputs[1]),
+    brake: pedal(outputs[2]),
+  };
+}
+export function encodeDriverTargets(t: ArrayLike<number>): [number, number, number] {
+  return [
+    Math.max(-1, Math.min(1, t[0])) * STEER_ENCODING,
+    Math.max(0, Math.min(1, t[1])) * PEDAL_ENCODING,
+    Math.max(0, Math.min(1, t[2])) * PEDAL_ENCODING,
+  ];
+}
+
 export class Car {
   // Identification
-  public id: number = Math.floor(Math.random() * 9000) + 1000;
+  public id: number = Math.floor(random() * 9000) + 1000;
   public driverName: string = 'Bolid AI';
 
   // Spatial Scale: 1 px = 1 meter (50 px grid = 50 meters)
   public static readonly METERS_PER_PIXEL: number = 1.0;
   public static readonly GRAVITY: number = 9.81; // m/s^2
+  /** Closing speed (m/s) at which a single contact wrecks a car; smaller hits accumulate as damage ∝ v². */
+  public static readonly CRASH_CLOSING_SPEED: number = 12;
+  /** Tyre cornering stiffness in N per N of vertical load per radian of slip angle. */
+  public static readonly STEERING_LAG: number = 0.09; // s
+  /** The front axle saturates slightly before the rear: a stable, understeer-biased balance at the limit. */
+  public static readonly FRONT_GRIP_BIAS: number = 1.0;
+  /** Slip-angle / yaw-inertia model above ~8 m/s (false = purely kinematic response). */
+  public static DYNAMIC_YAW = true;
+  /** Fraction of the lateral force in use that drive/brake may not take from the friction circle. */
+  public static readonly STABILITY_RESERVE: number = 1.1;
+  public static readonly YAW_FEEDBACK: number = 0.1;
+  public static readonly CORNERING_STIFFNESS: number = 22;
+  /** Yaw inertia in kg·m² per kg of total mass (≈1170 kg·m² for a 900 kg car). */
+  public static readonly YAW_INERTIA_FACTOR: number = 1.3;
+  /** Conservative planning deceleration: ~55% of low-speed tyre braking (0.9·μ·g) before downforce. */
+  public static readonly PLANNED_BRAKE_DECEL: number = 8.5;
 
   // Simulation mass and fuel parameters
   public static readonly BASE_DRY_MASS: number = 798; // kg
@@ -76,7 +123,6 @@ export class Car {
   public readonly trackWidthMeters: number = 1.8; // Meters
   public readonly cogHeight: number = 0.32; // Center of gravity height (meters)
   public readonly maxEnginePower: number = 750000; // 750 kW (~1000 HP)
-  public readonly launchTractionForce: number = 12500; // N
   public readonly maxSteerAngle: number = 0.40; // ~23 degrees
   public readonly dragCoeff: number = 1.00; // Cd * A [m^2]
   public readonly airDensity: number = 1.225; // kg/m^3
@@ -105,6 +151,9 @@ export class Car {
   public longitudinalG: number = 0;  // Acceleration / Braking G-force
   public pitchAngle: number = 0;     // Nose dive (braking) or squat (accel) in radians
   public rollAngle: number = 0;      // Body roll into outside tires in radians
+  private frontLateralInUse = 0;     // N of lateral tyre force used last step (stability reserve)
+  private rearLateralInUse = 0;
+  public wheelAngle: number = 0;     // Actual road-wheel angle (rad), lagging the steering command
   public weightFrontRatio: number = 0.46; // Dynamic front weight distribution
   public understeerSlip: number = 0; // 0 to 1
   public oversteerSlip: number = 0;  // 0 to 1
@@ -166,6 +215,8 @@ export class Car {
   public mistakes = new DriverMistakes();
   public mistakesEnabled = true;
   public tireUtilization = 0;
+  /** Accumulated impact damage 0..1; at 1 the car is out. Reduces downforce and adds drag until repaired in the pits. */
+  public damage = 0;
   public isAlive: boolean = true;
   public isRaceMode: boolean = false;
   public respawnTimer: number = 0;
@@ -223,9 +274,9 @@ export class Car {
     this.color = color;
     this.driverName = driverName;
     this.fuelKg = initialFuel;
-    this.baseBrakingAggression = 1.05 + Math.random() * 0.30; // Pro F1 driving style
+    this.baseBrakingAggression = 1.05 + random() * 0.30; // Pro F1 driving style
     this.brakingAggression = this.baseBrakingAggression;
-    this.lapsUntilStyleShift = Math.floor(Math.random() * 3) + 2; // Shifts every 2-4 laps
+    this.lapsUntilStyleShift = Math.floor(random() * 3) + 2; // Shifts every 2-4 laps
     this.rayAngles = Car.generateRayAngles(rayCount);
     this.rayDistances = new Array(this.rayAngles.length).fill(1);
     this.rollLapPerformanceVariation();
@@ -238,16 +289,16 @@ export class Car {
   }
 
   public rollLapPerformanceVariation(): void {
-    this.lapPowerFactor = 1.0 + (Math.random() * 0.04 - 0.02);
-    this.lapGripFactor = 1.0 + (Math.random() * 0.05 - 0.025);
-    this.lapDragFactor = 1.0 + (Math.random() * 0.03 - 0.015);
+    this.lapPowerFactor = 1.0 + (random() * 0.04 - 0.02);
+    this.lapGripFactor = 1.0 + (random() * 0.05 - 0.025);
+    this.lapDragFactor = 1.0 + (random() * 0.03 - 0.015);
 
     // Style shift: driver's style shifts by a few % (+/- 5%) every few laps
     this.lapsUntilStyleShift--;
     if (this.lapsUntilStyleShift <= 0) {
-      const shiftPct = (Math.random() * 0.10 - 0.05); // -5% to +5%
+      const shiftPct = (random() * 0.10 - 0.05); // -5% to +5%
       this.brakingAggression = Math.max(0.70, Math.min(1.35, this.baseBrakingAggression * (1.0 + shiftPct)));
-      this.lapsUntilStyleShift = Math.floor(Math.random() * 3) + 2;
+      this.lapsUntilStyleShift = Math.floor(random() * 3) + 2;
     }
   }
 
@@ -284,6 +335,7 @@ export class Car {
     this.wreckRemoved = false;
     this.wreckClearLap = null;
     this.tireUtilization = 0;
+    this.damage = 0;
     this.respawnTimer = 0;
     this.isOutOfFuel = false;
     this.fitness = 0;
@@ -298,6 +350,8 @@ export class Car {
     this.longitudinalG = 0;
     this.pitchAngle = 0;
     this.rollAngle = 0;
+    this.wheelAngle = 0;
+    this.frontLateralInUse = this.rearLateralInUse = 0;
     this.understeerSlip = 0;
     this.oversteerSlip = 0;
     this.isSkidding = false;
@@ -333,13 +387,12 @@ export class Car {
     }
   }
 
-  getAIControl(track: Track, leaderSpeeds?: number[], _enableLearning: boolean = false): CarControl {
-    if (!this.brain || !this.isAlive) {
-      const idleCtrl: CarControl = { throttle: 0, brake: 0, steer: 0 };
-      this.currentControl = idleCtrl;
-      return idleCtrl;
-    }
-
+  /**
+   * Sensor-to-feature pipeline plus a rule-based "expert" controller. The expert is
+   * the teacher used to pre-train networks and the guardian that takes over in
+   * emergencies; ordinary driving is decided by the neural network.
+   */
+  planDrive(track: Track, leaderSpeeds?: number[]): DrivePlan {
     // AI pit strategy: request pit stop if fuel reserve is low
     if (this.fuelKg < 12.0 && !this.isPitting) {
       this.wantsToPit = true;
@@ -360,7 +413,7 @@ export class Car {
       const distance = this.pos.distSq(start.add(edge.mul(fraction)));
       if (distance < nearestDistance) { nearestDistance = distance; segmentIndex = index; segmentFraction = fraction; }
     }
-    let remaining = Math.max(5, Math.min(12, 4 + this.speed * 0.25));
+    let remaining = Math.max(8, Math.min(14, 5 + this.speed * 0.25));
     let targetPosition = track.checkpoints[segmentIndex].center;
     for (let step = 0; step < n; step++) {
       const start = track.checkpoints[segmentIndex].center;
@@ -398,7 +451,7 @@ export class Car {
     const safeLatGrip = this.baseTireGrip * Car.GRAVITY * pressure.cornerGrip;
     // Estimated braking for planning; physical brake forces are unchanged.
     const pushing = this.battlePush.remaining > 0;
-    const aBrake = 6.0 * this.brakingAggression * pressure.braking * (pushing ? 1.08 : 1);
+    const aBrake = Car.PLANNED_BRAKE_DECEL * this.brakingAggression * pressure.braking * (pushing ? 1.08 : 1);
 
     let accumulatedDist = 0;
     let prevPos = this.pos;
@@ -444,18 +497,22 @@ export class Car {
       overspeedDelta,
     ];
 
-    const outputs = this.brain.forward(inputs);
-
     const midRay = Math.floor(this.rayDistances.length / 2);
     const leftRayAvg = this.rayDistances.slice(0, midRay).reduce((a, b) => a + b, 0) / Math.max(1, midRay);
     const rightRayAvg = this.rayDistances.slice(midRay + 1).reduce((a, b) => a + b, 0) / Math.max(1, midRay);
     const wallRepulsion = (rightRayAvg - leftRayAvg) * 0.8;
 
-    const lookaheadDistance = Math.max(5, targetPosition.dist(this.pos));
+    const lookaheadDistance = Math.max(8, targetPosition.dist(this.pos));
     const pursuitAngle = Math.atan2(2 * this.wheelbase * Math.sin(cpAngleDiff * Math.PI), lookaheadDistance);
-    const idealSteer = Math.max(-1, Math.min(1, pursuitAngle / this.maxSteerAngle + wallRepulsion * 0.1));
-    // Learned steering is a bounded correction to a geometrically valid path.
-    let steer = Math.max(-1, Math.min(1, idealSteer + outputs[0] * 0.025));
+    // Yaw-rate feedback: steer toward the yaw rate the pursuit arc needs (catches
+    // slides and spins that a purely geometric controller cannot see).
+    const desiredYawRate = this.speed * 2 * Math.sin(cpAngleDiff * Math.PI) / lookaheadDistance;
+    const yawFeedback = this.speed > 6 ? Math.max(-0.6, Math.min(0.6, Car.YAW_FEEDBACK * (desiredYawRate - this.angularVelocity) / this.maxSteerAngle)) : 0;
+    // Steering lock usable at this speed: the kinematic angle for the grip-limited turn
+    // plus a slip-angle allowance; more lock only saturates the front axle.
+    const gripSteer = Math.min(1, (this.baseTireGrip * Car.GRAVITY * this.wheelbase / Math.max(1, this.speed * this.speed) + 0.14) / this.maxSteerAngle);
+    const idealSteer = Math.max(-gripSteer, Math.min(gripSteer, pursuitAngle / this.maxSteerAngle + wallRepulsion * 0.1 + yawFeedback));
+    let steer = idealSteer;
 
     // Check forward clearance using central LiDAR rays
     const forwardDistNorm = this.rayDistances[midRay] ?? 1.0;
@@ -491,9 +548,10 @@ export class Car {
         // Approaching barrier/wall: lift to maintain control, never demand acceleration
         throttle = 0.20;
       } else {
-        // Emergency wall proximity: cut throttle completely and apply emergency stability braking
-        throttle = 0.0;
-        brake = 0.40;
+        // Emergency wall proximity: cut throttle and brake; once nearly stopped creep
+        // along the pursuit path instead of waiting in front of the wall forever.
+        if (this.speed < 4) { throttle = 0.3; brake = 0; }
+        else { throttle = 0.0; brake = 0.40; }
       }
 
       // Telemetry coaching from session leader (only when firmly outside braking zones and clear of walls):
@@ -522,30 +580,65 @@ export class Car {
       throttle = this.speed > 12 ? 0 : Math.abs(pursuitAngle) < 0.8 ? 0.22 : 0.1;
       brake = this.speed > 18 ? 0.45 : this.speed > 10 ? 0.15 : 0;
     }
+    const expert: CarControl = { steer, throttle, brake };
+    return {
+      inputs, expert, idealSteer, pushing, offRoad, overspeedDelta, minCenterClearance,
+      guarded: offRoad || minCenterClearance <= 0.12 || this.yellowFlag || this.isPitting || this.recoveryTimer > 0,
+    };
+  }
+
+  /**
+   * Neural driving. The network's three outputs are the actual steering, throttle
+   * and brake demand. The rule-based expert only overrides inside hard safety
+   * envelopes (leaving asphalt, wall proximity, far over the braking plan,
+   * steering far from the road) and then becomes the training label.
+   */
+  getAIControl(track: Track, leaderSpeeds?: number[], _enableLearning: boolean = false): CarControl {
+    if (!this.brain || !this.isAlive) {
+      const idleCtrl: CarControl = { throttle: 0, brake: 0, steer: 0 };
+      this.currentControl = idleCtrl;
+      return idleCtrl;
+    }
+    const plan = this.planDrive(track, leaderSpeeds);
+    const driven = decodeDriverOutputs(this.brain.forward(plan.inputs));
+    const expert = plan.expert;
+    let { steer, throttle, brake } = driven;
+    let intervened = false;
+
+    // Steering stays within a corridor around a geometrically valid path.
+    const steerLimit = 0.3;
+    const clampedSteer = Math.max(plan.idealSteer - steerLimit, Math.min(plan.idealSteer + steerLimit, steer));
+    if (clampedSteer !== steer) { steer = clampedSteer; intervened = true; }
+    // Pedals are mutually exclusive as on a drive-by-wire car.
+    if (brake > 0.05) throttle = 0;
+    if (plan.guarded) {
+      steer = expert.steer; throttle = expert.throttle; brake = expert.brake; intervened = true;
+    } else if (plan.overspeedDelta > 0.2 && brake < expert.brake * 0.8) {
+      // Far beyond the planned braking envelope: emergency braking.
+      throttle = 0; brake = expert.brake; intervened = true;
+    } else if (this.speed < 8 && expert.throttle > 0.15 && throttle < expert.throttle * 0.8) {
+      // Launch / crawl assist: a stalled car must never wait for the network to move it.
+      throttle = expert.throttle; brake = 0; intervened = true;
+    } else if (plan.minCenterClearance < 0.2 && throttle > 0.3) {
+      throttle = 0.3; intervened = true;
+    }
+    if (this.isSkidding) throttle = Math.min(throttle, 0.55);
     const control: CarControl = { steer, throttle, brake };
     this.currentControl = control;
 
-    // Online learning via replay buffer
-    if (_enableLearning && !this.pressureLearningBlocked && !pushing && !this.incidentActive && this.recoveryTimer <= 0 && (!track.sampleSurface || !offRoad)) {
+    // Online learning: the network is corrected toward the expert only where the
+    // guardian had to intervene (DAgger-style); free driving is left to selection.
+    if (_enableLearning && intervened && !plan.offRoad && !this.pressureLearningBlocked && !plan.pushing && !this.incidentActive && this.recoveryTimer <= 0) {
       this.replayStepTimer++;
-
-      if (!this.isSkidding && (Math.abs(steer) > 0.08 || this.speed > 25)) {
-        this.replayBuffer.push({
-          inputs,
-          targets: [idealSteer, throttle, brake],
-          reward: this.speedKmh,
-        });
-        if (this.replayBuffer.length > 50) {
-          this.replayBuffer.shift();
-        }
-      }
-
-      if (this.replayStepTimer % 90 === 0 && this.replayBuffer.length >= 6 && this.brain) {
-        const topSamples = [...this.replayBuffer]
-          .sort((a, b) => b.reward - a.reward)
-          .slice(0, 3);
-        for (const sample of topSamples) {
-          this.brain.train(sample.inputs, sample.targets, 0.001);
+      this.replayBuffer.push({
+        inputs: plan.inputs,
+        targets: [plan.idealSteer, expert.throttle, expert.brake],
+        reward: this.speedKmh,
+      });
+      if (this.replayBuffer.length > 50) this.replayBuffer.shift();
+      if (this.replayStepTimer % 30 === 0 && this.replayBuffer.length >= 6 && this.brain) {
+        for (const sample of this.replayBuffer.slice(-3)) {
+          this.brain.train(sample.inputs, encodeDriverTargets(sample.targets), 0.004);
         }
       }
     }
@@ -636,6 +729,7 @@ export class Car {
       if (this.pitTimer <= 0) {
         this.isPitting = false;
         this.wantsToPit = false;
+        this.damage = 0; // nose/wing change during the stop
         this.isOutOfFuel = false;
         this.fuelKg = Math.min(Car.MAX_FUEL_CAPACITY, this.fuelKg);
       }
@@ -687,11 +781,11 @@ export class Car {
 
     // 3. Gravity and Aerodynamics Normal Load (Fz)
     const gravityForce = currentMass * Car.GRAVITY; // Gravity F = m * g
-    const downforceMag = 0.5 * this.airDensity * this.downforceCoeff * (speedMag * speedMag);
+    const downforceMag = 0.5 * this.airDensity * this.downforceCoeff * (1 - 0.35 * this.damage) * (speedMag * speedMag);
     const totalNormalLoadZ = gravityForce + downforceMag; // Gravity + Aero Downforce
 
     // Aerodynamic drag opposes the entire velocity relative to still air.
-    const dragMagnitude = 0.5 * this.airDensity * this.dragCoeff * this.lapDragFactor * speedMag * speedMag;
+    const dragMagnitude = 0.5 * this.airDensity * this.dragCoeff * this.lapDragFactor * (1 + 0.15 * this.damage) * speedMag * speedMag;
     const dragScale = speedMag > 0 ? Math.min(dragMagnitude / speedMag, currentMass / dt) : 0;
     const dragForward = -forwardSpeed * dragScale;
     const dragLateral = -lateralSpeed * dragScale;
@@ -714,10 +808,19 @@ export class Car {
     const rollingRear = Math.min(rearLimit, 0.012 * rearLoad);
     const engineForce = actualThrottle > 0.005
       ? this.maxEnginePower * actualThrottle * this.lapPowerFactor / Math.max(12, Math.abs(forwardSpeed)) : 0;
-    const driveForce = Math.min(Math.max(0, rearLimit - rollingRear), engineForce);
+    // Stability priority (traction control / brake-by-wire): each axle keeps the lateral
+    // force it was using last step, so power or braking never silently removes the grip
+    // that is holding the car on its line. Drive and brake use the rest of the friction circle.
+    const longitudinalBudget = (limit: number, lateralInUse: number) => {
+      const reserve = Math.min(limit, Car.STABILITY_RESERVE * lateralInUse);
+      return Math.sqrt(Math.max(0, limit * limit - reserve * reserve));
+    };
+    const frontLongLimit = longitudinalBudget(frontLimit, this.frontLateralInUse);
+    const rearLongLimit = longitudinalBudget(rearLimit, this.rearLateralInUse);
+    const driveForce = Math.min(Math.max(0, rearLongLimit - rollingRear), engineForce);
     const brakeDemand = control.brake * (frontLimit + rearLimit);
-    const brakeFront = Math.min(Math.max(0, frontLimit - rollingFront), brakeDemand * 0.56);
-    const brakeRear = Math.min(Math.max(0, rearLimit - rollingRear), brakeDemand * 0.44);
+    const brakeFront = Math.min(Math.max(0, frontLongLimit - rollingFront), brakeDemand * 0.56);
+    const brakeRear = Math.min(Math.max(0, rearLongLimit - rollingRear), brakeDemand * 0.44);
     const vStar = forwardSpeed + (driveForce + dragForward) / currentMass * dt;
     const resistance = brakeFront + brakeRear + rollingFront + rollingRear;
     const resistanceScale = resistance > 0 ? Math.min(1, currentMass * Math.abs(vStar) / (dt * resistance)) : 0;
@@ -733,25 +836,62 @@ export class Car {
     const nextForwardSpeed = forwardSpeed + longitudinalForce / currentMass * dt;
     const targetYaw = nextForwardSpeed / this.wheelbase * Math.tan(control.steer * this.maxSteerAngle);
     // Finite steering response; this remains a bounded hybrid, not a yaw-inertia solver.
+    // Steering actuator: the road wheels follow the command with a short lag.
+    this.wheelAngle += (control.steer * this.maxSteerAngle - this.wheelAngle) * (1 - Math.exp(-dt / Car.STEERING_LAG));
+    const yawPrevious = this.angularVelocity;
     const requestedYaw = this.angularVelocity + (targetYaw - this.angularVelocity) * (1 - Math.exp(-dt / 0.05));
     const turnForce = currentMass * nextForwardSpeed * requestedYaw;
     // Turning and slide correction act in the SAME axis and must be summed algebraically.
     const slideForce = -currentMass * lateralSpeed * Math.min(12, 1 / dt);
     const requestedLateral = turnForce + slideForce;
-    const lateralForce = Math.max(-lateralLimit, Math.min(lateralLimit, requestedLateral));
+    const kinematicLateral = Math.max(-lateralLimit, Math.min(lateralLimit, requestedLateral));
     const yawLimit = Math.abs(nextForwardSpeed) > 0.001 ? lateralLimit / (currentMass * Math.abs(nextForwardSpeed)) : 0;
-    this.angularVelocity = Math.max(-yawLimit, Math.min(yawLimit, requestedYaw));
-    this.tireUtilization = Math.min(1, Math.hypot(frontFx + rearFx, requestedLateral) / Math.max(1, frontLimit + rearLimit));
-    const slipRatio = Math.abs(requestedLateral) > 0 ? Math.max(0, 1 - lateralLimit / Math.abs(requestedLateral)) : 0;
+    const kinematicYaw = Math.max(-yawLimit, Math.min(yawLimit, requestedYaw));
+
+    // Dynamic single-track model: slip angles -> saturating axle forces -> yaw
+    // torque on a rigid body with yaw inertia. Below ~10 m/s slip angles become
+    // ill-conditioned, so the kinematic response above takes over smoothly.
+    const dynamicWeight = Car.DYNAMIC_YAW && nextForwardSpeed > 0 ? Math.max(0, Math.min(1, (nextForwardSpeed - 8) / 8)) : 0;
+    let lateralForce = kinematicLateral;
+    let slipRatio = Math.abs(requestedLateral) > 0 ? Math.max(0, 1 - lateralLimit / Math.abs(requestedLateral)) : 0;
+    let frontSlip = slipRatio, rearSlip = slipRatio;
+    let dynamicFrontForce = 0, dynamicRearForce = 0;
+    this.angularVelocity = kinematicYaw;
+    if (dynamicWeight > 0) {
+      const toRear = this.wheelbase * 0.46, toFront = this.wheelbase - toRear; // CoG to axles
+      const u = Math.max(1, nextForwardSpeed);
+      const wheelAngle = this.wheelAngle;
+      const alphaFront = wheelAngle - Math.atan2(lateralSpeed + toFront * yawPrevious, u);
+      const alphaRear = -Math.atan2(lateralSpeed - toRear * yawPrevious, u);
+      const axleForce = (alpha: number, load: number, limit: number) =>
+        limit > 1 ? limit * Math.tanh(Car.CORNERING_STIFFNESS * load * alpha / limit) : 0;
+      const frontForce = axleForce(alphaFront, frontLoad, frontLateral * Car.FRONT_GRIP_BIAS);
+      const rearForce = axleForce(alphaRear, rearLoad, rearLateral);
+      const yawInertia = currentMass * Car.YAW_INERTIA_FACTOR;
+      const yawAcceleration = (toFront * frontForce - toRear * rearForce) / yawInertia;
+      dynamicFrontForce = frontForce; dynamicRearForce = rearForce;
+      const dynamicYaw = Math.max(-3.5, Math.min(3.5, yawPrevious + yawAcceleration * dt));
+      const dynamicLateral = frontForce + rearForce;
+      lateralForce = kinematicLateral * (1 - dynamicWeight) + dynamicLateral * dynamicWeight;
+      this.angularVelocity = kinematicYaw * (1 - dynamicWeight) + dynamicYaw * dynamicWeight;
+      const demand = (alpha: number, load: number, limit: number) => limit > 1 ? Math.max(0, 1 - limit / Math.max(1e-6, Car.CORNERING_STIFFNESS * load * Math.abs(alpha))) : 0;
+      const dynFront = demand(alphaFront, frontLoad, frontLateral * Car.FRONT_GRIP_BIAS), dynRear = demand(alphaRear, rearLoad, rearLateral);
+      // Slip is only meaningful from the slip-angle model; the kinematic request mixes in slide damping.
+      frontSlip = dynFront; rearSlip = dynRear;
+      slipRatio = Math.max(frontSlip, rearSlip);
+    }
+    if (dynamicWeight > 0) { this.frontLateralInUse = Math.abs(dynamicFrontForce); this.rearLateralInUse = Math.abs(dynamicRearForce); }
+    else { const share = frontLoad / Math.max(1, frontLoad + rearLoad); this.frontLateralInUse = Math.abs(lateralForce) * share; this.rearLateralInUse = Math.abs(lateralForce) * (1 - share); }
+    this.tireUtilization = Math.min(1, Math.hypot(frontFx + rearFx, lateralForce) / Math.max(1, frontLimit + rearLimit));
     this.isSkidding = slipRatio > 0.01 || (Math.abs(lateralSpeed) > 4.5 && speedMag > 18);
-    this.understeerSlip = frontLateral / Math.max(1, frontLoad) < rearLateral / Math.max(1, rearLoad) ? slipRatio : 0;
+    this.understeerSlip = frontSlip >= rearSlip ? slipRatio : 0;
     this.oversteerSlip = this.understeerSlip > 0 ? 0 : slipRatio;
 
     if (!this.lapCompromised && this.safeBrainPressure === this.driverPressure && this.isRaceMode && this.safeBrainBackup && this.brain && this.isSkidding && (this.oversteerSlip > 0.45 || Math.abs(this.angularVelocity) > 3.2)) {
       this.brain = this.safeBrainBackup.clone();
       this.replayBuffer = [];
     }
-    if (this.isSkidding && Math.random() < 0.28) {
+    if (this.isSkidding && random() < 0.28) {
       this.skidMarks.push(this.pos.clone());
       if (this.skidMarks.length > 60) this.skidMarks.shift();
     }
@@ -786,14 +926,24 @@ export class Car {
       this.heading = previousHeading + (this.heading - previousHeading) * hit.fraction;
       const inwardSpeed = this.vel.dot(hit.normal);
       this.barrierImpactSpeed = Math.max(0, -inwardSpeed);
-      if (this.barrierImpactSpeed >= 12) {
-        this.eliminate('barrier', 0.45);
+      if (inwardSpeed < 0) {
+        // Contact impulse: the wall removes the normal momentum and scrubs
+        // tangential speed in proportion (Coulomb friction), so a graze costs a
+        // little speed while a hard hit sheds a lot. No per-step blanket damping.
+        this.vel.subMut(hit.normal.mul(inwardSpeed * 1.1));
+        const tangential = this.vel.sub(hit.normal.mul(this.vel.dot(hit.normal)));
+        const tangentialSpeed = tangential.mag();
+        if (tangentialSpeed > 1e-6) this.vel.subMut(tangential.mul(Math.min(tangentialSpeed, 0.35 * Math.abs(inwardSpeed) * 1.1) / tangentialSpeed));
+        // Off-centre impact twists the car: lateral offset of the body relative to the wall.
+        const lever = Math.sign(this.vel.cross(hit.normal) || 1);
+        this.angularVelocity = this.angularVelocity * 0.5 + lever * Math.min(1.2, this.barrierImpactSpeed * 0.06);
+        this.damage += (this.barrierImpactSpeed / Car.CRASH_CLOSING_SPEED) ** 2;
+      }
+      if (this.barrierImpactSpeed >= Car.CRASH_CLOSING_SPEED || this.damage >= 1) {
+        this.eliminate('barrier', 0.45, true);
         return null;
       }
-      if (inwardSpeed < 0) this.vel.subMut(hit.normal.mul(inwardSpeed));
-      this.vel.mulMut(0.8);
       this.pos.addMut(hit.normal.mul(0.03));
-      this.angularVelocity *= 0.5;
       this.lapCompromised = true;
       this.recoveryTimer = 2;
       this.replayBuffer = [];
@@ -897,6 +1047,26 @@ export class Car {
     return finishEvent;
   }
 
+  /** Dead car: slides to rest under gravel/skid deceleration, stopped by fences. */
+  coastWreck(dt: number, track: Track): void {
+    if (this.isAlive || this.speed < 0.05 || !Number.isFinite(dt) || dt <= 0) return;
+    const decel = 12;
+    const speed = Math.max(0, this.speed - decel * dt);
+    this.vel.mulMut(speed / this.speed);
+    this.angularVelocity *= Math.max(0, 1 - 3 * dt);
+    const next = this.pos.add(this.vel.mul(dt));
+    const nextHeading = this.heading + this.angularVelocity * dt;
+    const hit = track.sweepBarrier?.(this.pos, next, this.heading, nextHeading);
+    if (hit) {
+      this.pos = Vector2.lerp(this.pos, next, hit.fraction);
+      this.vel.set(0, 0);
+    } else { this.pos = next; this.heading = nextHeading; }
+    this.prevPos.set(this.pos.x, this.pos.y);
+    this.speed = this.vel.mag();
+    this.speedKmh = this.speed * 3.6;
+    if (this.speed < 0.05) { this.vel.set(0, 0); this.speed = this.speedKmh = 0; }
+  }
+
   private footprint(halfLength: number): Vector2[] {
     const forward = Vector2.fromAngle(this.heading), side = forward.normal();
     return [-1, 1].flatMap(front => [-1, 1].map(left => this.pos.add(forward.mul(front * halfLength)).add(side.mul(left * 0.9))));
@@ -911,13 +1081,14 @@ export class Car {
     this.surface = fractions.gravel > 0 ? 'gravel' : fractions.grass > 0 ? 'grass' : 'asphalt';
   }
 
-  private eliminate(reason: 'barrier', penalty: number): void {
+  private eliminate(reason: 'barrier', penalty: number, keepMomentum = false): void {
     this.eliminationReason = reason;
     this.isAlive = false;
     this.effectiveThrottle = 0;
     this.lateralG = this.longitudinalG = 0;
-    this.vel.set(0, 0);
-    this.speed = this.speedKmh = 0;
+    // A wrecked car keeps its remaining momentum and slides to rest (see coastWreck).
+    if (keepMomentum) { this.vel.mulMut(0.7); this.speed = this.vel.mag(); this.speedKmh = this.speed * 3.6; }
+    else { this.vel.set(0, 0); this.speed = this.speedKmh = 0; }
     this.respawnTimer = 0.5;
     this.fitness = Math.max(0, Math.round(this.fitness * penalty));
     this.replayBuffer = [];

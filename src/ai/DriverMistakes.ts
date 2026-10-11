@@ -1,3 +1,4 @@
+import { random as simRandom } from '../math/Random';
 import type { CarControl } from '../physics/Car';
 
 /** Simulation-time Poisson hazard. A mistake perturbs controls, never momentum. */
@@ -7,7 +8,7 @@ export class DriverMistakes {
   public count = 0;
   private steerBias = 0;
   private lateBrake = false;
-  constructor(private random: () => number = () => Math.random()) {}
+  constructor(private random: () => number = () => simRandom()) {}
 
   static probability(risk: number, dt: number, multiplier = 1): number {
     return -Math.expm1(-Math.max(0, Math.min(1, risk)) * Math.max(0, dt) * Math.max(0, multiplier) / 600);

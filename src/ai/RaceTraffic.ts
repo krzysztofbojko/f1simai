@@ -1,3 +1,4 @@
+import { random } from '../math/Random';
 import { Car } from '../physics/Car';
 import { Track } from '../track/Track';
 import { Vector2 } from '../math/Vector2';
@@ -34,7 +35,7 @@ export function updateRaceSafety(cars: Car[], track: Track, dt = 0): void {
     });
     const blockedTime = blocksQueue ? (blockedWreckTime.get(car) ?? 0) + elapsed : 0;
     blockedWreckTime.set(car, blockedTime);
-    if (car.wreckClearLap === null) car.wreckClearLap = leaderLap + (Math.random() < .5 ? 1 : 2);
+    if (car.wreckClearLap === null) car.wreckClearLap = leaderLap + (random() < .5 ? 1 : 2);
     if (leaderLap >= car.wreckClearLap || blockedTime >= 30) car.wreckRemoved = true;
   }
   const wrecks = cars.filter(c => !c.isAlive && !c.wreckRemoved && !c.isPitting && !c.isFinishedRace);

@@ -6,12 +6,14 @@
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
-    "test": "node scripts/audit-physics.mjs --test && node scripts/test-learning.mjs && node scripts/test-runoff.mjs && node scripts/test-traffic.mjs && node scripts/test-lines.mjs && node scripts/test-pressure.mjs --unit",
+    "test": "node scripts/audit-physics.mjs --test && node scripts/test-learning.mjs && node scripts/test-runoff.mjs && node scripts/test-traffic.mjs && node scripts/test-lines.mjs && node scripts/test-pressure.mjs --unit && node scripts/test-neural-driving.mjs",
     "test:learning": "node scripts/test-learning.mjs",
     "audit:physics": "node scripts/audit-physics.mjs",
     "test:runoff": "node scripts/test-runoff.mjs",
     "test:traffic": "node scripts/test-traffic.mjs",
-    "test:pressure": "node scripts/test-pressure.mjs"
+    "test:pressure": "node scripts/test-pressure.mjs",
+    "test:neural": "node scripts/test-neural-driving.mjs",
+    "diag:nn": "node scripts/diag-nn.mjs"
   },
   "devDependencies": {
     "typescript": "^7.0.2",

@@ -1,3 +1,7 @@
+import { random } from '../math/Random';
+import { distillDriverNetwork } from './Distill';
+import type { Track } from '../track/Track';
+
 export interface NetworkLayer {
   weights: number[][]; // [outputNodes][inputNodes]
   biases: number[];
@@ -72,10 +76,10 @@ export class NeuralNetwork {
       for (let o = 0; o < outputs; o++) {
         const row: number[] = [];
         for (let inp = 0; inp < inputs; inp++) {
-          row.push((Math.random() * 2 - 1) * scale);
+          row.push((random() * 2 - 1) * scale);
         }
         weights.push(row);
-        biases.push((Math.random() * 2 - 1) * 0.1);
+        biases.push((random() * 2 - 1) * 0.1);
       }
 
       this.layers.push({
@@ -131,13 +135,13 @@ export class NeuralNetwork {
     for (let l = 0; l < this.layers.length; l++) {
       const layer = this.layers[l];
       for (let o = 0; o < layer.biases.length; o++) {
-        if (Math.random() < rate) {
-          layer.biases[o] += (Math.random() * 2 - 1) * strength;
+        if (random() < rate) {
+          layer.biases[o] += (random() * 2 - 1) * strength;
         }
         for (let i = 0; i < layer.weights[o].length; i++) {
-          if (Math.random() < rate) {
+          if (random() < rate) {
             // Gaussian-like perturbation
-            const delta = (Math.random() + Math.random() + Math.random() - 1.5) * strength;
+            const delta = (random() + random() + random() - 1.5) * strength;
             layer.weights[o][i] += delta;
             // Clamp weights to prevent explosion
             layer.weights[o][i] = Math.max(-3.0, Math.min(3.0, layer.weights[o][i]));
@@ -278,11 +282,11 @@ export class NeuralNetwork {
       const layer = child.layers[l];
       const parentBLayer = parentB.layers[l];
       for (let o = 0; o < layer.biases.length; o++) {
-        if (Math.random() < 0.5) {
+        if (random() < 0.5) {
           layer.biases[o] = parentBLayer.biases[o];
         }
         for (let i = 0; i < layer.weights[o].length; i++) {
-          if (Math.random() < 0.5) {
+          if (random() < 0.5) {
             layer.weights[o][i] = parentBLayer.weights[o][i];
           }
         }
@@ -364,7 +368,17 @@ export class NeuralNetwork {
     }
   }
 
+  /** Driver network distilled from the rule-based expert on a real circuit. */
   static createTrainedDriverNetwork(
+    rayCount: number,
+    topology: TopologySpecifier = 'Standard',
+    track?: Track
+  ): NeuralNetwork {
+    return distillDriverNetwork(rayCount, topology, track);
+  }
+
+  /** Legacy synthetic pre-training, kept for comparison and tests. */
+  static createSyntheticDriverNetwork(
     rayCount: number,
     topology: TopologySpecifier = 'Standard'
   ): NeuralNetwork {
@@ -377,20 +391,20 @@ export class NeuralNetwork {
     const midRay = Math.floor(rayCount / 2);
 
     for (let s = 0; s < 240; s++) {
-      const cpAngleDiff = (Math.random() * 2 - 1); // [-1, 1]
-      const speedNorm = Math.random(); // [0, 1]
-      const angularVel = (Math.random() * 2 - 1) * 0.8;
-      const curvature = Math.random(); // [0, 1]
-      const overspeed = (Math.random() * 2 - 1); // [-1, 1]
+      const cpAngleDiff = (random() * 2 - 1); // [-1, 1]
+      const speedNorm = random(); // [0, 1]
+      const angularVel = (random() * 2 - 1) * 0.8;
+      const curvature = random(); // [0, 1]
+      const overspeed = (random() * 2 - 1); // [-1, 1]
 
       const rays: number[] = [];
-      const leftDist = Math.max(0.05, Math.min(1.0, 0.5 + cpAngleDiff * 0.4 + (Math.random() * 0.3 - 0.15)));
-      const rightDist = Math.max(0.05, Math.min(1.0, 0.5 - cpAngleDiff * 0.4 + (Math.random() * 0.3 - 0.15)));
+      const leftDist = Math.max(0.05, Math.min(1.0, 0.5 + cpAngleDiff * 0.4 + (random() * 0.3 - 0.15)));
+      const rightDist = Math.max(0.05, Math.min(1.0, 0.5 - cpAngleDiff * 0.4 + (random() * 0.3 - 0.15)));
 
       for (let r = 0; r < rayCount; r++) {
         const ratio = r / Math.max(1, rayCount - 1);
         const interpolated = leftDist * (1 - ratio) + rightDist * ratio;
-        rays.push(Math.max(0.05, Math.min(1.0, interpolated + (Math.random() * 0.1 - 0.05))));
+        rays.push(Math.max(0.05, Math.min(1.0, interpolated + (random() * 0.1 - 0.05))));
       }
 
       const leftRayAvg = rays.slice(0, midRay).reduce((a, b) => a + b, 0) / Math.max(1, midRay);

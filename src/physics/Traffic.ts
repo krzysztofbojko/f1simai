@@ -74,7 +74,7 @@ export function resolveTraffic(cars: Car[], motion: Map<Car, Motion>, onlyCar?: 
   for (let i = 0; i < cars.length; i++) for (let j = i + 1; j < cars.length; j++) {
     const a = cars[i], b = cars[j];
     if (onlyCar && a !== onlyCar && b !== onlyCar) continue;
-    if (a.wreckRemoved || b.wreckRemoved || (!a.isAlive && !b.isAlive) || a.isPitting || b.isPitting || a.isFinishedRace || b.isFinishedRace) continue;
+    if (a.wreckRemoved || b.wreckRemoved || (!a.isAlive && !b.isAlive && a.speed < 0.5 && b.speed < 0.5) || a.isPitting || b.isPitting || a.isFinishedRace || b.isFinishedRace) continue;
     const ma = motion.get(a), mb = motion.get(b);
     if (!ma || !mb) continue;
     const hit = contact(a, b, ma, mb);
@@ -89,7 +89,7 @@ export function resolveTraffic(cars: Car[], motion: Map<Car, Motion>, onlyCar?: 
     const fa = Vector2.fromAngle(a.heading), fb = Vector2.fromAngle(b.heading);
     const radius = 2.75 * (Math.abs(fa.dot(hit.normal)) + Math.abs(fb.dot(hit.normal))) + .9 * (Math.abs(fa.normal().dot(hit.normal)) + Math.abs(fb.normal().dot(hit.normal)));
     const overlap = Math.max(.02, radius - b.pos.sub(a.pos).dot(hit.normal) + .02);
-    const ia = a.isAlive ? 1 / a.totalMass : 0, ib = b.isAlive ? 1 / b.totalMass : 0, inv = ia + ib;
+    const ia = a.isAlive || a.speed > 0.5 ? 1 / a.totalMass : 0, ib = b.isAlive || b.speed > 0.5 ? 1 / b.totalMass : 0, inv = ia + ib;
     a.pos.subMut(hit.normal.mul(overlap * ia / inv));
     b.pos.addMut(hit.normal.mul(overlap * ib / inv));
     if (closing > 0) {
@@ -104,12 +104,13 @@ export function resolveTraffic(cars: Car[], motion: Map<Car, Motion>, onlyCar?: 
       car.replayBuffer = [];
       car.battlePush.remaining = 0;
       car.battleOpponent = '';
-      if (closing >= 8 && car.isAlive) {
+      if (closing > 0 && car.isAlive) car.damage += (closing / Car.CRASH_CLOSING_SPEED) ** 2;
+      if ((closing >= Car.CRASH_CLOSING_SPEED || car.damage >= 1) && car.isAlive) {
+        // The wreck keeps the momentum left after the impulse and slides to rest.
         car.isAlive = false;
         car.eliminationReason = 'car';
         car.respawnTimer = .5;
         car.effectiveThrottle = 0;
-        car.vel.set(0, 0);
         car.angularVelocity = 0;
       }
       car.speed = car.vel.mag();

@@ -1,10 +1,11 @@
+import { random as simRandom } from '../math/Random';
 /** Short, voluntary race attacks. Timing uses simulation seconds, not frames. */
 export class BattlePush {
   remaining = 0;
   cooldown = 0;
   opponent = '';
   count = 0;
-  constructor(private random: () => number = () => Math.random()) {}
+  constructor(private random: () => number = () => simRandom()) {}
   reset(): void { this.remaining = 0; this.cooldown = 0; this.opponent = ''; this.count = 0; }
   step(dt: number, opponent: string | null, eligible: boolean, multiplier = 1): void {
     if (!Number.isFinite(dt) || dt <= 0) return;

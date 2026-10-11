@@ -18,7 +18,7 @@ Fizyczny obrys samochodu wynosi 5,5 × 1,8 m. Kolizja z bandą sprawdza ruch obr
 - Napęd, hamowanie i toczenie wykorzystują wspólny budżet siły wzdłużnej osi. Żądanie hamowania rozdzielane jest 56/44 i ograniczane osobno na osiach.
 - Siła boczna każdej osi korzysta z pozostałego koła tarcia `sqrt((mu*Fz)^2-Fx^2)`. Skręt i korekcja poślizgu są sumowane w tej samej osi i wspólnie ograniczane.
 - Globalny wektor prędkości jest aktualizowany jeden raz z wynikowej siły. Zmiana orientacji nadwozia sama nie obraca pędu.
-- Sterowanie ma odpowiedź pierwszego rzędu o stałej 0,05 s; prędkość kątowa jest ograniczana dostępną siłą boczną przy każdej prędkości. To nadal model hybrydowy, bez momentu bezwładności yaw i pełnego modelu sił zależnych od kątów poślizgu osi.
+- Powyżej ok. 8 m/s działa dynamiczny model jednośladu (patrz „Dynamika poślizgu”); poniżej — kinematyczna odpowiedź pierwszego rzędu (0,05 s), ograniczona dostępną siłą boczną. Przejście jest płynne (8–16 m/s).
 - Telemetria G jest podpisanym przyspieszeniem ze zmiany prędkości, rzutowanym na osie pojazdu z początku kroku. Nie jest obcinana przed wykorzystaniem w transferze mas.
 
 Worker używa stałego kroku 1/60 s i akumulatora rzeczywistego czasu. Tryb Balanced 1× nie wykonuje dodatkowych kroków tylko dlatego, że ticker uruchamia się co 16 ms. Po pauzie nie nadrabia czasu zatrzymania. Długie opóźnienia ograniczane są do 0,25 s, a liczba kroków do budżetu profilu, aby uniknąć spirali nadrabiania. Profile Performance i Turbo celowo przyspieszają symulację; MAX wykorzystuje dostępny budżet.
@@ -27,7 +27,7 @@ Worker używa stałego kroku 1/60 s i akumulatora rzeczywistego czasu. Tryb Bala
 
 Poprawka treningu z 05.10.2026: po ukończeniu pierwszego okrążenia rekordowa sieć zespołu jest nadpisywana tylko po poprawie czasu PB, a nie przy wzroście kumulowanego fitness. Automatyczne cykle generacji zachowują jadące bolidy z ukończonym okrążeniem, wraz z pozycją, prędkością, paliwem, aktywną siecią i bieżącym okrążeniem. Ręczna „Nowa Gen” nadal rozpoczyna jazdę ze startu, zachowując zapisane rekordowe modele. Po przywróceniu modelu z PB usuwane są próbki nieudanej próby z replay buffer. Profil prędkości lidera jest przypisywany do przestrzennie odpowiadających checkpointów.
 
-AI śledzi krótką trajektorię wzdłuż osi toru zamiast celować o całe checkpointy naprzód przez wąskie zakręty. Sieć wnosi ograniczoną korektę skrętu. Progi sensorów zależą od szerokości drogi, a plan hamowania jest konserwatywną heurystyką, nie dokładnym solverem maksymalnego tempa.
+AI śledzi krótką trajektorię wzdłuż osi toru zamiast celować o całe checkpointy naprzód przez wąskie zakręty. Sterowanie wykonuje sieć neuronowa (szczegóły w sekcji „Sieć neuronowa jako kierowca”). Progi sensorów zależą od szerokości drogi, a plan hamowania jest konserwatywną heurystyką, nie dokładnym solverem maksymalnego tempa.
 
 Tankowanie ma przepływ 28 kg/s, cel 110 kg i czas co najmniej 3,2 s. Końcowy krok nalicza tylko pozostały czas tankowania. Postój wlicza się do czasu okrążenia i wyścigu. Początek postoju następuje przy zaliczeniu mety po zgłoszeniu zjazdu; brak fizycznego przejazdu aleją serwisową pozostaje uproszczeniem gry.
 
@@ -47,7 +47,7 @@ Podczas pomyłki i odzyskiwania kontroli replay jest wyłączony i czyszczony. D
 
 ## Ograniczenia
 
-Brak kontaktów samochód–samochód, pełnego modelu uszkodzeń, modelu zawieszenia, temperatury i zużycia opon, skrzyni biegów, wiatru i map aero. Model nie był kalibrowany względem danych konkretnego bolidu F1. Dawne czasy okrążeń i wagi AI nie są porównywalne z wynikami po zmianie fizyki oraz szerokości toru; zalecany jest nowy trening.
+Brak modelu zawieszenia, temperatury i zużycia opon, skrzyni biegów, wiatru i map aero; uszkodzenia ograniczają się do jednego skalara (docisk/opór). Model nie był kalibrowany względem danych konkretnego bolidu F1. Dawne czasy okrążeń i wagi AI nie są porównywalne z wynikami po zmianie fizyki oraz szerokości toru; zalecany jest nowy trening.
 
 ## Weryfikacja
 
@@ -88,3 +88,29 @@ Rysowany bolid ma ten sam obrys 5,5 × 1,8 m co fizyczny model kontaktu. Koła, 
 ### Ciągłość treningu bez czystego rekordu
 
 Automatyczna zmiana generacji nie tworzy ponownie stawki. Zachowuje wszystkie obiekty bolidów, pozycje, prędkości, paliwo, bieżące okrążenia i aktywne sieci, także gdy kierowca nie ma jeszcze czystego PB. Wyprzedzanie, pomyłki i ruch pod żółtą flagą nie pozbawiają tej ochrony. Martwy bolid nadal czeka na swój indywidualny respawn. Dopiero ręczna „Nowa Gen” ustawia całą stawkę na starcie.
+
+
+## Sieć neuronowa jako kierowca (stan po audycie z 11.10.2026)
+
+Wyjścia sieci `[skręt, gaz, hamulec]` są faktycznym sterowaniem (`Car.getAIControl`, `decodeDriverOutputs`). Regułowy kontroler (`Car.planDrive`: pościg geometryczny + profil prędkości z krzywizny) jest teraz **nauczycielem** i **strażnikiem**:
+
+- **Destylacja** (`src/ai/Distill.ts`): nowa sieć uczy się naśladować nauczyciela na prawdziwym torze (240 s jazdy z zakłóceniami skrętu i losowymi przesunięciami linii, etykiety nauczyciela w odwiedzonych stanach — DAgger). Wynik jest cache'owany na tor/topologię. `NeuralNetwork.createTrainedDriverNetwork(rays, topology, track?)` bez toru korzysta z presetu GP.
+- **Autorytet sieci:** skręt w korytarzu ±0,3 wokół skrętu geometrycznego, gaz i hamulec w pełnym zakresie; pedały wykluczają się (hamulec > 5% zeruje gaz).
+- **Strażnik** przejmuje sterowanie tylko przy: zjeździe z asfaltu, bliskości bandy, żółtej fladze, postoju w boksie, odzyskiwaniu kontroli, nadmiernej prędkości względem planu hamowania (hamowanie awaryjne), postoju z gazem wymaganym przez nauczyciela (launch assist).
+- **Uczenie:** (1) ewolucja — mutacje rekordowych sieci i selekcja po czasie okrążenia (PB), (2) online backprop wyłącznie w stanach, w których strażnik musiał interweniować (korekta typu DAgger).
+- Planowane opóźnienie hamowania: `Car.PLANNED_BRAKE_DECEL = 8,5 m/s²` × agresja (wcześniej 6,0).
+
+`npm run diag:nn -- 600` pokazuje okrążenia, DNF i rekordy zespołów; `--expert` porównuje z samym nauczycielem.
+
+## Dynamika poślizgu
+
+Model jednośladu (`Car.updatePhysics`): kąty znoszenia osi → siła boczna `Fy = Fmax·tanh(Cα·α/Fmax)` (Cα = 22·Fz, Fmax z koła tarcia osi) → moment na bryłę o bezwładności `Iz = 1,3·m`. Napęd i hamowanie mają **priorytet stabilności**: oś zachowuje siłę boczną użytą w poprzednim kroku (×1,1), a napęd/hamulec dostają resztę koła tarcia (jak TC/ESC). Skręt koła podąża za poleceniem z opóźnieniem 0,09 s.
+
+Skutki: podsterowność przy nasyceniu przedniej osi, nadsterowność przy nasyceniu tylnej, `isSkidding`/`understeerSlip`/`oversteerSlip` wynikają z kątów znoszenia, a nie z samego żądania. Kierowca regułowy ma sprzężenie od prędkości kątowej i ogranicza skręt do tego, co wykorzystuje oś. `Car.DYNAMIC_YAW = false` przywraca czysto kinematyczny model (diagnostyka).
+
+## Kolizje, uszkodzenia, wraki
+
+- `Car.damage` (0…1) rośnie o `(v/12)²` przy każdym kontakcie (bandy i inne auta); ≥ 1 albo pojedynczy kontakt ≥ 12 m/s (`Car.CRASH_CLOSING_SPEED`) = DNF. Uszkodzenie zmniejsza docisk do 35% i zwiększa opór do 15%; postój w boksie naprawia.
+- Banda: impuls z tarciem Coulomba (styczna prędkość maleje proporcjonalnie do uderzenia), zamiast mnożenia przez 0,8 w każdym kroku; uderzenie poza osią skręca auto.
+- Wrak zachowuje pęd i zwalnia 12 m/s² (`Car.coastWreck`), zatrzymuje go banda; ślizgający się wrak jest ruchomą przeszkodą w kontaktach.
+- `src/math/Random.ts`: `seedRandom(n)` daje powtarzalną symulację (domyślnie `Math.random`).

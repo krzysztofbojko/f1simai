@@ -1,3 +1,4 @@
+import { random } from '../math/Random';
 import { normalizePressure, pressureProfile } from './DriverPressure';
 import { LineSearch } from './LineSearch';
 import { updateRaceSafety, planRaceLine } from './RaceTraffic';
@@ -156,7 +157,7 @@ export class Population {
   private initPopulation(track: Track): void {
     this.cars = [];
     this.teamRecords = [];
-    const baseBrain = NeuralNetwork.createTrainedDriverNetwork(this.rayCount, this.topology);
+    const baseBrain = NeuralNetwork.createTrainedDriverNetwork(this.rayCount, this.topology, track);
 
     for (let i = 0; i < this.populationSize; i++) {
       const def = Population.F1_TEAMS[i % Population.F1_TEAMS.length];
@@ -371,6 +372,7 @@ export class Population {
       const record = this.teamRecords[i];
 
       car.advanceDriverPressure(dt);
+      if (!car.isAlive) car.coastWreck(dt, track);
       if (car.isAlive) {
         planRaceLine(car, traffic, track, dt);
         const prevCp = this.lastCarCheckpointIdx[i] ?? car.currentCheckpointIdx;
@@ -502,7 +504,7 @@ export class Population {
             const baseBrain = record?.bestBrain || championBrain || car.brain;
             const newBrain: NeuralNetwork = baseBrain
               ? baseBrain.clone()
-              : NeuralNetwork.createTrainedDriverNetwork(this.rayCount, this.topology);
+              : NeuralNetwork.createTrainedDriverNetwork(this.rayCount, this.topology, track);
 
             // Tylko jeśli respawnMutationEnabled jest true (i nie jest to slot elity bazowej), zastosuj mikro-mutację
             if (this.respawnMutationEnabled && !isEliteSlot) {
@@ -671,7 +673,7 @@ export class Population {
       } else if (baseBrain) {
         // Pełny elitaryzm zespołowy: każdy zespół ewoluuje na bazie swojego record.bestBrain
         // z łagodną mutacją (mutationRate 0.02, mutationStrength 0.05) lub łagodnym crossoverem z mistrzem, bez niszczenia wag.
-        if (championBrain && Math.random() < 0.40) {
+        if (championBrain && random() < 0.40) {
           teamBrain = NeuralNetwork.crossover(baseBrain, championBrain);
           teamBrain.mutate(this.mutationRate, this.mutationStrength);
         } else {
@@ -766,7 +768,7 @@ export class Population {
   }
 
   resetAll(track: Track): void {
-    const baseBrain = NeuralNetwork.createTrainedDriverNetwork(this.rayCount, this.topology);
+    const baseBrain = NeuralNetwork.createTrainedDriverNetwork(this.rayCount, this.topology, track);
     for (let i = 0; i < this.cars.length; i++) {
       const slot = track.getGridSlot(i);
       const brain = baseBrain.clone();
@@ -809,20 +811,20 @@ export class Population {
     const carIdx = this.cars.indexOf(car);
     if (carIdx < 0) return;
 
-    const baseBrain = NeuralNetwork.createTrainedDriverNetwork(this.rayCount, this.topology);
+    const baseBrain = NeuralNetwork.createTrainedDriverNetwork(this.rayCount, this.topology, track);
     if (carIdx > 0) {
       baseBrain.mutate(0.04, 0.10);
     }
     car.brain = baseBrain;
     car.replayBuffer = [];
     car.replayStepTimer = 0;
-    car.baseBrakingAggression = 1.05 + Math.random() * 0.30;
+    car.baseBrakingAggression = 1.05 + random() * 0.30;
     car.brakingAggression = car.baseBrakingAggression;
     car.bestLapTime = null;
     car.bestLapSplits = [null, null, null, null];
     car.currentLapSplits = [null, null, null, null];
     car.lastLapTime = null;
-    car.lapsUntilStyleShift = Math.floor(Math.random() * 3) + 2;
+    car.lapsUntilStyleShift = Math.floor(random() * 3) + 2;
 
     if (this.teamRecords[carIdx]) {
       const record = this.teamRecords[carIdx];
