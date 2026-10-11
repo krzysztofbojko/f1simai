@@ -22,6 +22,7 @@ try {
   const t0 = Date.now();
   const population = new Population(Number(process.env.POP ?? 10), gp, 25);
   console.log('init ms', Date.now() - t0);
+  if (process.env.PRESSURE) population.setDriverPressure(Number(process.env.PRESSURE), true);
   if (expert) for (const c of population.cars) { const orig = c.getAIControl.bind(c); c.getAIControl = (t, l) => { const p = c.planDrive(t, l); c.currentControl = p.expert; return p.expert; }; }
   const flips = {}; const lapStats = { clean: 0, compromised: 0 };
   const prevComp = population.cars.map(c => c.lapCompromised), prevDmg = population.cars.map(() => 0);

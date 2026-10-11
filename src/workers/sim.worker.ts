@@ -1087,6 +1087,10 @@ self.onmessage = (e: MessageEvent) => {
           bestLapPressure: record?.bestLapPressure ?? car.bestLapPressure,
           bestLapSplits: record?.bestLapSplits ? [...record.bestLapSplits] : (car.bestLapSplits ? [...car.bestLapSplits] : null),
           bestFitness: record?.bestFitness || car.fitness,
+          lastLapTime: record?.lastLapTime ?? car.lastLapTime,
+          lapsCount: record?.lapsCount ?? 0,
+          avgSpeed: record?.avgSpeed ?? 0,
+          topSpeed: record?.topSpeed ?? 0,
           baseBrakingAggression: car.baseBrakingAggression,
           brakingAggression: car.brakingAggression,
         };
@@ -1157,6 +1161,14 @@ self.onmessage = (e: MessageEvent) => {
               if (typeof driverData.bestFitness === 'number' && record) {
                 record.bestFitness = driverData.bestFitness;
               }
+              // Classification columns: keep the last lap, lap count and speeds with the best time.
+              if (typeof driverData.lastLapTime === 'number' && driverData.lastLapTime > 0) {
+                car.lastLapTime = driverData.lastLapTime;
+                if (record) record.lastLapTime = driverData.lastLapTime;
+              }
+              if (record && typeof driverData.lapsCount === 'number') record.lapsCount = driverData.lapsCount;
+              if (record && typeof driverData.avgSpeed === 'number') record.avgSpeed = driverData.avgSpeed;
+              if (record && typeof driverData.topSpeed === 'number') record.topSpeed = driverData.topSpeed;
             }
           }
           if (payload.generation) population.generation = payload.generation;
