@@ -99,6 +99,9 @@ export interface SerializedCar {
   damage: number;
   ersSoc: number;
   gear: number;
+  rideHeightFront: number;
+  rideHeightRear: number;
+  aeroStall: boolean;
   engineRpm: number;
   tyreTempFront: number;
   tyreTempRear: number;
@@ -265,6 +268,9 @@ function serializeCar(car: Car, ctrl?: CarControl, isHeadless: boolean = false):
     damage: car.damage,
     ersSoc: Math.round(car.ersEnergy / Car.ERS_CAPACITY * 100) / 100,
     gear: car.gear,
+    rideHeightFront: Math.round(car.rideHeightFront * 10000) / 10,
+    rideHeightRear: Math.round(car.rideHeightRear * 10000) / 10,
+    aeroStall: car.aeroStall,
     engineRpm: Math.round(car.engineRpm),
     tyreTempFront: Math.round(car.tyreTempFront),
     tyreTempRear: Math.round(car.tyreTempRear),

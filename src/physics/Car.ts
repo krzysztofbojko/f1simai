@@ -91,6 +91,11 @@ export class Car {
   public static readonly STABILITY_RESERVE: number = 1.1;
   public static readonly YAW_FEEDBACK: number = 0.1;
   public static readonly CORNERING_STIFFNESS: number = 22;
+  /** Magic Formula (Pacejka) axle curve with a post-peak drop instead of the saturating tanh. */
+  public static PACEJKA = false;
+  public static readonly MF_C = 1.35;
+  public static readonly MF_E = -0.85;
+  public static readonly MF_ALPHA_PEAK = 0.13; // rad
   /** Yaw inertia in kg·m² per kg of total mass (≈1170 kg·m² for a 900 kg car). */
   public static readonly YAW_INERTIA_FACTOR: number = 1.3;
   /** Conservative planning deceleration: ~55% of low-speed tyre braking (0.9·μ·g) before downforce. */
@@ -131,6 +136,28 @@ export class Car {
   public static readonly ERS_CAPACITY = 4_000_000;    // battery, J
   public static readonly ERS_LAP_DEPLOY = 4_000_000;  // deployment allowed per lap, J
   public static readonly ERS_REGEN_EFFICIENCY = 0.88;
+  /**
+   * Quasi-static ride-height aero: downforce compresses the axles, the floor works best at a
+   * particular height and chokes when it gets too close to the road. Ride height follows with a lag
+   * so the stall threshold cannot chatter from step to step.
+   */
+  public static RIDE_HEIGHT_AERO = true;
+  public static readonly FRH_STATIC = 0.030;
+  public static readonly RRH_STATIC = 0.055;
+  public static readonly AXLE_STIFFNESS_FRONT = 380000; // 2 x 145 kN/m springs + 90 kN/m heave element
+  public static readonly AXLE_STIFFNESS_REAR = 305000;  // 2 x 115 kN/m + 75 kN/m
+  public rideHeightFront = Car.FRH_STATIC;
+  public rideHeightRear = Car.RRH_STATIC;
+  public aeroStall = false;
+
+  /** Lift-coefficient multiplier from front/rear ride height, normalised to 1 at a typical cornering height. */
+  static rideHeightLift(frh: number, rrh: number): number {
+    const front = 1 + 0.35 * Math.exp(-(((frh - 0.016) / 0.018) ** 2));
+    const rear = 1 + 0.45 * (rrh / 0.035) * Math.exp(1 - rrh / 0.035);
+    const stall = frh < 0.008 || rrh < 0.015 ? 0.75 + 0.25 * Math.max(0, Math.min(1, Math.min(frh / 0.008, rrh / 0.015))) : 1;
+    return front * rear * stall / 1.83;
+  }
+
   // 8-speed sequential gearbox. Ratios are overall (gear x final drive), geometric from 1st to 8th,
   // sized so 15 000 rpm in 8th is ~103 m/s with a 0.36 m wheel.
   public static readonly WHEEL_RADIUS = 0.36;
@@ -911,7 +938,14 @@ export class Car {
 
     // 3. Gravity and Aerodynamics Normal Load (Fz)
     const gravityForce = currentMass * Car.GRAVITY; // Gravity F = m * g
-    const downforceMag = 0.5 * this.airDensity * this.downforceCoeff * (1 - 0.35 * this.damage) * (speedMag * speedMag);
+    let downforceMag = 0.5 * this.airDensity * this.downforceCoeff * (1 - 0.35 * this.damage) * (speedMag * speedMag);
+    if (Car.RIDE_HEIGHT_AERO) {
+      const follow = 1 - Math.exp(-dt / 0.15);
+      this.rideHeightFront += (Math.max(0, Car.FRH_STATIC - 0.45 * downforceMag / Car.AXLE_STIFFNESS_FRONT) - this.rideHeightFront) * follow;
+      this.rideHeightRear += (Math.max(0, Car.RRH_STATIC - 0.55 * downforceMag / Car.AXLE_STIFFNESS_REAR) - this.rideHeightRear) * follow;
+      this.aeroStall = this.rideHeightFront < 0.008 || this.rideHeightRear < 0.015;
+      downforceMag *= Car.rideHeightLift(this.rideHeightFront, this.rideHeightRear);
+    }
     const totalNormalLoadZ = gravityForce + downforceMag; // Gravity + Aero Downforce
 
     // Aerodynamic drag opposes the entire velocity relative to still air.
@@ -1014,8 +1048,12 @@ export class Car {
       const wheelAngle = this.wheelAngle;
       const alphaFront = wheelAngle - Math.atan2(lateralSpeed + toFront * yawPrevious, u);
       const alphaRear = -Math.atan2(lateralSpeed - toRear * yawPrevious, u);
-      const axleForce = (alpha: number, load: number, limit: number) =>
-        limit > 1 ? limit * Math.tanh(Car.CORNERING_STIFFNESS * load * alpha / limit) : 0;
+      const axleForce = (alpha: number, load: number, limit: number) => {
+        if (limit <= 1) return 0;
+        if (!Car.PACEJKA) return limit * Math.tanh(Car.CORNERING_STIFFNESS * load * alpha / limit);
+        const B = 1 / (Car.MF_C * Car.MF_ALPHA_PEAK), Bx = B * alpha;
+        return limit * Math.sin(Car.MF_C * Math.atan(Bx - Car.MF_E * (Bx - Math.atan(Bx))));
+      };
       const frontForce = axleForce(alphaFront, frontLoad, frontLateral * Car.FRONT_GRIP_BIAS);
       const rearForce = axleForce(alphaRear, rearLoad, rearLateral);
       const yawInertia = currentMass * Car.YAW_INERTIA_FACTOR;

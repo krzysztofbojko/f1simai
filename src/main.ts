@@ -155,6 +155,7 @@ class App {
         car.damage = sc.damage ?? 0;
         car.ersEnergy = (sc.ersSoc ?? 0.85) * Car.ERS_CAPACITY;
         car.gear = sc.gear ?? 1; car.engineRpm = sc.engineRpm ?? Car.IDLE_RPM;
+        car.rideHeightFront = (sc.rideHeightFront ?? 30) / 1000; car.rideHeightRear = (sc.rideHeightRear ?? 55) / 1000; car.aeroStall = !!sc.aeroStall;
         car.tyreTempFront = sc.tyreTempFront ?? 100; car.tyreTempRear = sc.tyreTempRear ?? 100;
         car.tyreWearFront = sc.tyreWearFront ?? 0; car.tyreWearRear = sc.tyreWearRear ?? 0;
         car.incidentActive = sc.incidentActive;
@@ -316,6 +317,7 @@ class App {
         this.playerCar.damage = sp.damage ?? 0;
         this.playerCar.ersEnergy = (sp.ersSoc ?? 0.85) * Car.ERS_CAPACITY;
         this.playerCar.gear = sp.gear ?? 1; this.playerCar.engineRpm = sp.engineRpm ?? Car.IDLE_RPM;
+        this.playerCar.rideHeightFront = (sp.rideHeightFront ?? 30) / 1000; this.playerCar.rideHeightRear = (sp.rideHeightRear ?? 55) / 1000; this.playerCar.aeroStall = !!sp.aeroStall;
         this.playerCar.tyreTempFront = sp.tyreTempFront ?? 100; this.playerCar.tyreTempRear = sp.tyreTempRear ?? 100;
         this.playerCar.tyreWearFront = sp.tyreWearFront ?? 0; this.playerCar.tyreWearRear = sp.tyreWearRear ?? 0;
         this.playerCar.incidentActive = sp.incidentActive;
@@ -1731,7 +1733,7 @@ class App {
     const targetPressure = activeCar?.driverPressure ?? this.driverPressure;
     const pressureText = (p: number) => `${p > 0 ? '+' : ''}${Math.round(p)}`;
     const rpmEl = document.getElementById('tele-rpm');
-    if (rpmEl) rpmEl.textContent = activeCar ? `${Math.round(activeCar.engineRpm / 10) * 10} rpm` : 'rpm';
+    if (rpmEl) rpmEl.textContent = activeCar ? `${Math.round(activeCar.engineRpm / 10) * 10} rpm · prześwit ${Math.round(activeCar.rideHeightFront * 1000)}/${Math.round(activeCar.rideHeightRear * 1000)} mm${activeCar.aeroStall ? ' ⚠ ZERWANIE PRZEPŁYWU' : ''}` : 'rpm'
     const tyreEl = document.getElementById('tele-tyres');
     if (tyreEl) tyreEl.textContent = activeCar ? `OPONY P ${Math.round(activeCar.tyreTempFront)}° T ${Math.round(activeCar.tyreTempRear)}° · zużycie ${Math.round(Math.max(activeCar.tyreWearFront, activeCar.tyreWearRear) * 100)}%` : 'OPONY';
     const ersEl = document.getElementById('tele-ers');

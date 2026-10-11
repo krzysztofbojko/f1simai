@@ -148,3 +148,13 @@ Skutki: podsterowność przy nasyceniu przedniej osi, nadsterowność przy nasyc
 - Hamowanie silnikiem po zdjęciu gazu: `(45 + 25·obroty/15000) Nm` przez aktualne przełożenie (nie jest „gazem”, więc nie łamie wyłączności pedałów).
 - HUD pokazuje prawdziwy bieg i obroty, nie bieg wyliczany z prędkości.
 - Wpływ na tempo: ok. 1,5% wolniejsze okrążenia (cięcia zapłonu, pasmo mocy, hamowanie silnikiem).
+
+## Pacejka (opcjonalnie, domyślnie wyłączona)
+
+`Car.PACEJKA = true` podmienia `tanh` siły osi na Magic Formula (`C=1,35`, `E=−0,85`, szczyt przy α≈7,5°, spadek ok. 15% za szczytem). Pomiar `npm run diag:nn` (`PACEJKA=1`, 3 ziarna po 600 s): 2–7 rozbić o bandę na ziarno (przy `tanh` 0) i niejednoznaczne czasy, więc zostaje wyłączona. Wymagałaby osobnego strojenia strażnika stabilności i planowanej przyczepności.
+
+## Prześwit i docisk (wersja quasi-statyczna)
+
+- Prześwit przód/tył spada z prędkością (docisk ściska oś: sztywności 380/305 kN/m, start 30/55 mm) i podąża z opóźnieniem 0,15 s, żeby próg zerwania nie „migotał”.
+- Docisk mnoży `rideHeightLift(FRH, RRH)`: optimum przodu ok. 16 mm, tyłu ok. 35 mm, normalizacja do 1 przy typowych prześwitach w zakręcie, spadek do 75% przy prześwicie poniżej 8 / 15 mm (zerwanie przepływu). HUD pokazuje prześwity i ostrzeżenie.
+- Pominięto świadomie: zawieszenie 3-DOF, dobijanie deski, morświnowanie — duży koszt, a chaotyczna utrata docisku utrudnia uczenie.

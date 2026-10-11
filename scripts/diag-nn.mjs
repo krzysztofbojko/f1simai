@@ -19,6 +19,8 @@ try {
   if (process.env.LONG) Car.TYRE_LONG_HEAT = Number(process.env.LONG);
   if (process.env.FRONT) Car.TYRE_FRONT_HEAT = Number(process.env.FRONT);
   if (process.env.FLATGRIP) Car.tyreGrip = () => Number(process.env.FLATGRIP);
+  if (process.env.PACEJKA) Car.PACEJKA = true;
+  if (process.env.RIDE) Car.RIDE_HEIGHT_AERO = true;
   if (process.env.HEAT) Car.TYRE_HEAT_SCALE = Number(process.env.HEAT);
   const { Population } = await import(pathToFileURL(join(output, 'population.mjs')));
   const { Presets } = await import(pathToFileURL(join(output, 'presets.mjs')));

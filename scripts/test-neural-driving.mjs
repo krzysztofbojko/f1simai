@@ -201,5 +201,9 @@ try {
   assert.ok(gearCar.speed > 90 && gearCar.speed < 108, 'top speed set by drag and the rev limit: ' + gearCar.speed);
   assert.ok(Car.GEAR_RATIOS[1] > Car.GEAR_RATIOS[2] && Car.GEAR_RATIOS[7] > Car.GEAR_RATIOS[8], 'ratios fall with gear');
   assert.ok(Car.icePowerFraction(4000) < Car.icePowerFraction(9000) && Math.abs(Car.icePowerFraction(12000) - 1) < 1e-9, 'power band');
+  // Ride-height aero: normalised to ~1 at cornering heights, penalised when the floor chokes, heights fall with speed.
+  assert.ok(Math.abs(Car.rideHeightLift(0.0244, 0.0464) - 1) < 0.03, 'unit lift at a typical cornering height');
+  assert.ok(Car.rideHeightLift(0.004, 0.010) < Car.rideHeightLift(0.016, 0.032), 'a choked floor loses downforce');
+  assert.ok(gearCar.rideHeightFront < Car.FRH_STATIC && gearCar.rideHeightRear < Car.RRH_STATIC, 'downforce compresses the axles at speed');
   console.log('Neural driving, dynamics, damage and wreck regressions passed.');
 } finally { await rm(dir, { recursive: true, force: true }); }
