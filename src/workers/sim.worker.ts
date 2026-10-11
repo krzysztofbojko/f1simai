@@ -98,6 +98,10 @@ export interface SerializedCar {
   barrierImpactSpeed: number;
   damage: number;
   ersSoc: number;
+  tyreTempFront: number;
+  tyreTempRear: number;
+  tyreWearFront: number;
+  tyreWearRear: number;
   incidentActive: boolean;
   battleOpponent: string;
   overtakingTargetName: string;
@@ -258,6 +262,10 @@ function serializeCar(car: Car, ctrl?: CarControl, isHeadless: boolean = false):
     barrierImpactSpeed: car.barrierImpactSpeed,
     damage: car.damage,
     ersSoc: Math.round(car.ersEnergy / Car.ERS_CAPACITY * 100) / 100,
+    tyreTempFront: Math.round(car.tyreTempFront),
+    tyreTempRear: Math.round(car.tyreTempRear),
+    tyreWearFront: Math.round(car.tyreWearFront * 1000) / 1000,
+    tyreWearRear: Math.round(car.tyreWearRear * 1000) / 1000,
     incidentActive: car.incidentActive,
     battleOpponent: car.battleOpponent,
     overtakingTargetName: car.overtakingTargetName,

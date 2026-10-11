@@ -14,6 +14,12 @@ try {
   Math.random = () => { randomState = (Math.imul(1664525, randomState) + 1013904223) >>> 0; return randomState / 4294967296; };
   const { Car } = await import(pathToFileURL(join(output, 'car.mjs')));
   if (process.env.KIN) Car.DYNAMIC_YAW = false;
+  if (process.env.TYRES) Car.TYRE_MODEL_IN_TRAINING = true;
+  if (process.env.LAT) Car.TYRE_LAT_HEAT = Number(process.env.LAT);
+  if (process.env.LONG) Car.TYRE_LONG_HEAT = Number(process.env.LONG);
+  if (process.env.FRONT) Car.TYRE_FRONT_HEAT = Number(process.env.FRONT);
+  if (process.env.FLATGRIP) Car.tyreGrip = () => Number(process.env.FLATGRIP);
+  if (process.env.HEAT) Car.TYRE_HEAT_SCALE = Number(process.env.HEAT);
   const { Population } = await import(pathToFileURL(join(output, 'population.mjs')));
   const { Presets } = await import(pathToFileURL(join(output, 'presets.mjs')));
   const seconds = Number(process.argv[2] ?? 300);
@@ -30,7 +36,7 @@ try {
   population.recordLap = (e, c, ...r) => { (e.compromised ? lapStats.compromised++ : lapStats.clean++); return origRec(e, c, ...r); };
   const sites = {};
   for (const c of population.cars) { let v = c.lapCompromised; Object.defineProperty(c, 'lapCompromised', { get: () => v, set: (nv) => { if (nv && !v) { const l = new Error().stack.split('\n')[2].trim(); sites[l] = (sites[l] ?? 0) + 1; } v = nv; } }); }
-  const offStats = {}; const latUse = []; const both = { n: 0 };
+  const offStats = {}; const latUse = []; const tyreT = [], tyreF = [], tyreR = []; const both = { n: 0 };
   const deaths = {};
   const lastAlive = population.cars.map(() => true);
   const t1 = Date.now();
@@ -40,6 +46,7 @@ try {
     population.cars.forEach((c, k) => { if (c.isAlive && c.surface !== 'asphalt') { const key = `car${k}@cp${c.currentCheckpointIdx}:${c.surface}`; offStats[key] = (offStats[key] ?? 0) + 1; } });
     if (process.argv.includes('--gravel') && i % 120 === 0) { const c = population.cars[1]; if (c.isAlive && c.surface === 'gravel') console.log('gravelTrace', (i/60).toFixed(0), 'v', c.speed.toFixed(1), 'wait', c.trafficWaiting, 'frames', c.framesSinceLastCheckpoint, 'rec', c.recoveryTimer.toFixed(1), 'ctrl', JSON.stringify(c.currentControl), 'hd', c.heading.toFixed(2), 'lat', gp.sampleSurface(c.pos).lateral.toFixed(1), 'tan', gp.sampleSurface(c.pos).tangent.heading().toFixed(2), 'pos', c.pos.x.toFixed(0), c.pos.y.toFixed(0), 'half', (gp.width/2).toFixed(1), 'fx', c.engineForce?.toFixed?.(0)); }
     if (process.env.FIRSTOFF && !globalThis.firstOff && population.cars[Number(process.env.FIRSTOFF)].surface !== 'asphalt') { globalThis.firstOff = i; console.log('firstOff', (i/60).toFixed(1)); }
+    if (i % 30 === 0) population.cars.forEach(c => { if (c.isAlive) { tyreT.push((c.tyreTempFront + c.tyreTempRear) / 2); tyreF.push(c.tyreTempFront); tyreR.push(c.tyreTempRear); } });
     population.cars.forEach(c => { if (c.isAlive && c.speed > 15) { latUse.push(Math.abs(gp.sampleSurface(c.pos).lateral)); if (c.currentControl.throttle > 0.02 && c.currentControl.brake > 0.02) both.n++; } });
     if (process.argv.includes('--car') && i >= 60 * Number(process.env.TSTART ?? 0) && i < 60 * (Number(process.env.TSTART ?? 0) + 8) && i % 6 === 0) { const c = population.cars[Number(process.env.CAR ?? 2)]; const sm = gp.sampleSurface(c.pos); console.log((i / 60).toFixed(1), 'cp', c.currentCheckpointIdx, 'v', c.speed.toFixed(1), 'lat', sm.lateral.toFixed(1), 'headErr', (Math.atan2(Math.sin(c.heading - sm.tangent.heading()), Math.cos(c.heading - sm.tangent.heading()))).toFixed(2), 'yaw', c.angularVelocity.toFixed(2), 'ctrl', c.currentControl.steer.toFixed(2), c.currentControl.throttle.toFixed(2), c.currentControl.brake.toFixed(2), 'g', c.lateralG.toFixed(1), c.surface); }
     if (process.argv.includes('--trace') && i % 30 === 0 && i < 60 * 14) console.log((i / 60).toFixed(1), population.cars.map(c => `${c.isAlive ? '' : 'X'}${c.currentCheckpointIdx}:${c.speed.toFixed(0)}/${c.currentControl.steer.toFixed(1)}/${c.lateralG.toFixed(1)}`).join('  '));
@@ -47,5 +54,7 @@ try {
     population.cars.forEach((c, k) => { if (lastAlive[k] && !c.isAlive) { const key = c.eliminationReason; deaths[key] = (deaths[key] ?? 0) + 1; if (process.argv.includes('--debug')) console.log('death', k, key, 'cp', c.currentCheckpointIdx, 'speed', c.speed.toFixed(1), 'ctrl', JSON.stringify(c.currentControl), c.surface, 'lat', gp.sampleSurface(c.pos).lateral.toFixed(1), 'dmg', c.damage.toFixed(2), 'at', (i / 60).toFixed(0)); if (key === 'car' && process.argv.includes('--near')) for (const o of population.cars) if (o !== c && o.pos.dist(c.pos) < 20) console.log('   near', o.isAlive ? 'alive' : 'dead', 'cp', o.currentCheckpointIdx, 'v', o.speed.toFixed(1), 'lat', gp.sampleSurface(o.pos).lateral.toFixed(1), 'offs', o.raceLineOffset.toFixed(1), 'ctrl', JSON.stringify(o.currentControl), 'dist', o.pos.dist(c.pos).toFixed(1), 'wait', o.trafficWaiting); } lastAlive[k] = c.isAlive; });
   }
   console.log('sim ms', Date.now() - t1);
-  console.log({ flips, lapStats, sites }); console.log('ers', population.cars.map(c => Math.round(c.ersEnergy/4e4)).join(' ')); latUse.sort((a,b)=>a-b); console.log('latUse p50/p90/p99 of half-width', [.5,.9,.99].map(q => +(latUse[Math.floor(q*(latUse.length-1))]/(gp.width/2)).toFixed(2)), 'pedals both', both.n); console.log('paceMargins', population.cars.map(c => +c.pace.margin.toFixed(2) + '/' + +c.pace.bestMargin.toFixed(2) + '/c' + +c.pace.ceiling.toFixed(2)).join(' ')); console.log('offStats', Object.entries(offStats).sort((a,b)=>b[1]-a[1]).slice(0,12)); console.log({ expert, bestLap: population.globalBestLap, deaths, laps: population.teamRecords.map(r => r.lapsCount), best: population.teamRecords.map(r => r.bestLapTime && +r.bestLapTime.toFixed(2)) });
+  console.log({ flips, lapStats, sites }); tyreT.sort((a,b)=>a-b); const pc = (a, q) => { a.sort((x, y) => x - y); return Math.round(a[Math.floor(q * (a.length - 1))]); }; console.log('front p10/50/90', [.1,.5,.9].map(q => pc(tyreF, q)), 'rear', [.1,.5,.9].map(q => pc(tyreR, q)));
+  console.log('tyreTemp p10/p50/p90', [.1,.5,.9].map(q => Math.round(tyreT[Math.floor(q*(tyreT.length-1))])), 'wear F/R', population.cars.map(c => c.tyreWearFront.toFixed(2)+'/'+c.tyreWearRear.toFixed(2)).join(' ')); console.log('ers', population.cars.map(c => Math.round(c.ersEnergy/4e4)).join(' ')); latUse.sort((a,b)=>a-b); console.log('latUse p50/p90/p99 of half-width', [.5,.9,.99].map(q => +(latUse[Math.floor(q*(latUse.length-1))]/(gp.width/2)).toFixed(2)), 'pedals both', both.n); console.log('paceMargins', population.cars.map(c => +c.pace.margin.toFixed(2) + '/' + +c.pace.bestMargin.toFixed(2) + '/c' + +c.pace.ceiling.toFixed(2)).join(' ')); console.log('offStats', Object.entries(offStats).sort((a,b)=>b[1]-a[1]).slice(0,12)); { const b = population.teamRecords.map(r => r.bestLapTime).filter(Boolean); console.log('meanBest', +(b.reduce((x, y) => x + y, 0) / b.length).toFixed(2), 'n', b.length); }
+  console.log({ expert, bestLap: population.globalBestLap, deaths, laps: population.teamRecords.map(r => r.lapsCount), best: population.teamRecords.map(r => r.bestLapTime && +r.bestLapTime.toFixed(2)) });
 } finally { await rm(output, { recursive: true, force: true }); }

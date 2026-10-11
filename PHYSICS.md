@@ -132,3 +132,10 @@ Skutki: podsterowność przy nasyceniu przedniej osi, nadsterowność przy nasyc
 - Moc napędu = ICE 630 kW · gaz + MGU-K do 120 kW (razem 750 kW jak dotąd). MGU-K włącza się przy gazie > 0,65, dopóki bateria ma > 4% z 4 MJ i nie wyczerpano 4 MJ rozładowania na okrążenie.
 - Odzysk: hamowanie (do 120 kW · hamulec) i lift-and-coast powyżej 30 m/s (36 kW), sprawność 88%.
 - Przy ograniczeniu trakcją (niskie prędkości) dodatkowa moc nie przyspiesza; różnicę widać powyżej ok. 60 m/s. W telemetrii: „ERS xx%”.
+
+## Opony: temperatura i zużycie (na oś)
+
+- Stan: temperatura i zużycie osi przedniej i tylnej. Bilans: ciepło z mocy poślizgu bocznego (`siła · prędkość · tan α`, ×2), z pełzania wzdłużnego (1,2% `|Fx|·v`), z histerezy (`0,0075·Fz·v`), oś przednia ×1,6; chłodzenie konwekcją `∝ v^0,8` i torem; pojemność 12 kJ/K (stała czasowa ok. 40 s).
+- Mnożnik przyczepności osi: dzwon temperaturowy (optimum 100 °C, zimno do 0,80, przegrzanie do 0,75) razy zużycie (do −25% przy W=1). Wchodzi do limitów osi i do planowanej przyczepności (kierowca zwalnia na zimnych/zużytych oponach).
+- Trening jedzie na „kocach” (100 °C, zużycie 0) — tak jak dotąd, żeby uczenie i porównania czasów nie zależały od stintu. Model działa w wyścigu (`isRaceMode`) albo po `Car.TYRE_MODEL_IN_TRAINING = true`. Auto startuje z 85 °C; pit stop daje nowy komplet. Zużycie > 70% wywołuje zjazd do boksu.
+- Kalibracja (`npm run diag:nn`, `TYRES=1`): temperatury ok. 80–115 °C, tempo wyścigowe ok. 3–5% wolniejsze od treningowego.

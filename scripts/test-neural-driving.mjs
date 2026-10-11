@@ -174,5 +174,16 @@ try {
   ersCar.reset(gp.startPosition, gp.startAngle, true, 1); ersCar.ersEnergy = 1e6; ersCar.vel = Vector2.fromAngle(ersCar.heading).mul(60); ersCar.speed = 60;
   for (let i = 0; i < 30; i++) ersCar.updatePhysics({ throttle: 0, brake: 0.8, steer: 0 }, 1 / 60, gp);
   assert.ok(ersCar.ersEnergy > 1e6, 'braking harvests energy');
+  // Tyres: bell-shaped thermal window, blankets in training, heating and wear in a race.
+  assert.ok(Math.abs(Car.tyreGrip(Car.TYRE_OPTIMUM, 0) - 1) < 1e-9, 'full grip at the optimum');
+  assert.ok(Car.tyreGrip(60, 0) < 0.9 && Car.tyreGrip(150, 0) < 0.9, 'cold and overheated tyres lose grip');
+  assert.ok(Car.tyreGrip(100, 1) < Car.tyreGrip(100, 0.3), 'wear lowers grip');
+  const tyreCar = new Car(gp.startPosition, gp.startAngle, new NeuralNetwork([30, 4, 3]), '#fff', 'tyres', 60, 25);
+  const driveCorner = (race, steps) => { tyreCar.isRaceMode = race; tyreCar.reset(gp.startPosition, gp.startAngle, true, 1); tyreCar.vel = Vector2.fromAngle(tyreCar.heading).mul(45); tyreCar.speed = 45; for (let i = 0; i < steps; i++) tyreCar.updatePhysics({ throttle: 0.5, brake: 0, steer: 0.12 }, 1 / 60, stub); };
+  driveCorner(false, 120);
+  assert.equal(tyreCar.tyreTempFront, Car.TYRE_OPTIMUM, 'training runs on blankets');
+  assert.equal(tyreCar.tyreGripFront, 1);
+  driveCorner(true, 120);
+  assert.ok(tyreCar.tyreTempFront !== 85 && tyreCar.tyreWearFront > 0, 'race tyres heat up and wear: ' + tyreCar.tyreTempFront);
   console.log('Neural driving, dynamics, damage and wreck regressions passed.');
 } finally { await rm(dir, { recursive: true, force: true }); }

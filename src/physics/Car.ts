@@ -131,6 +131,21 @@ export class Car {
   public static readonly ERS_CAPACITY = 4_000_000;    // battery, J
   public static readonly ERS_LAP_DEPLOY = 4_000_000;  // deployment allowed per lap, J
   public static readonly ERS_REGEN_EFFICIENCY = 0.88;
+  // Tyre thermal / wear model, per axle. Training runs on tyre blankets (optimal, no wear) unless forced.
+  public static TYRE_MODEL_IN_TRAINING = false;
+  public static readonly TYRE_OPTIMUM = 100;     // deg C
+  public static readonly TYRE_AMBIENT = 25;
+  public static readonly TYRE_TRACK = 38;
+  public static readonly TYRE_HEAT_CAPACITY = 12000; // J/K per axle (tread + carcass: ~40 s time constant)
+  public static TYRE_HEAT_SCALE = 1;             // calibration of slip / hysteresis heating
+  public static TYRE_FRONT_HEAT = 1.6;           // fronts work harder per newton (steering, braking)
+  public static TYRE_LAT_HEAT = 2;               // cornering slip power weight
+  public static TYRE_LONG_HEAT = 0.012;          // creep power as a fraction of |Fx|*v
+  public static readonly TYRE_WEAR_RATE = 7e-9;   // wear per joule of friction work
+  public tyreTempFront = 85;
+  public tyreTempRear = 85;
+  public tyreWearFront = 0;
+  public tyreWearRear = 0;
   public ersEnergy = Car.ERS_CAPACITY * 0.85;
   private ersDeployedLap = 0;
   public ersDeploying = false;
@@ -398,6 +413,8 @@ export class Car {
       this.raceLapsCompleted = 0;
       this.trackLimitExits = 0;
       this.ersEnergy = Car.ERS_CAPACITY * 0.85;
+      this.tyreTempFront = this.tyreTempRear = 85;
+      this.tyreWearFront = this.tyreWearRear = 0;
     }
     this.ersDeployedLap = 0;
     this.fullyOffTrack = false;
@@ -416,6 +433,28 @@ export class Car {
     }
   }
 
+  /** Grip multiplier of an axle from tyre temperature (asymmetric bell, 0.75..1) and wear (up to -25%). */
+  static tyreGrip(temp: number, wear: number): number {
+    const d = temp - Car.TYRE_OPTIMUM;
+    const thermal = d < 0 ? 0.80 + 0.20 * Math.exp(-(d * d) / (2 * 22 * 22)) : 0.75 + 0.25 * Math.exp(-(d * d) / (2 * 26 * 26));
+    return thermal * (1 - 0.25 * Math.pow(Math.max(0, Math.min(1, wear)), 1.4));
+  }
+
+  private get tyresActive(): boolean { return this.isRaceMode || Car.TYRE_MODEL_IN_TRAINING; }
+
+  /** Grip the planner can expect from the current tyres (1 on blankets). */
+  get tyreGripFront(): number { return this.tyresActive ? Car.tyreGrip(this.tyreTempFront, this.tyreWearFront) : 1; }
+  get tyreGripRear(): number { return this.tyresActive ? Car.tyreGrip(this.tyreTempRear, this.tyreWearRear) : 1; }
+
+  /** Heat balance of one axle: slip + hysteresis heating against airflow and track cooling. */
+  private stepTyre(temp: number, wear: number, slipPower: number, load: number, speed: number, dt: number): [number, number] {
+    const heat = (slipPower + 0.0075 * load * speed) * Car.TYRE_HEAT_SCALE;
+    const cooling = 2 * (15 + 3.2 * Math.pow(Math.max(0, speed), 0.8)) * (temp - Car.TYRE_AMBIENT) + 60 * (temp - Car.TYRE_TRACK);
+    const next = Math.max(Car.TYRE_AMBIENT, Math.min(180, temp + (heat - cooling) / Car.TYRE_HEAT_CAPACITY * dt));
+    const nextWear = Math.min(1, wear + Car.TYRE_WEAR_RATE * Math.pow(temp / 100, 2) * slipPower * dt);
+    return [next, nextWear];
+  }
+
   /**
    * Sensor-to-feature pipeline plus a rule-based "expert" controller. The expert is
    * the teacher used to pre-train networks and the guardian that takes over in
@@ -423,7 +462,7 @@ export class Car {
    */
   planDrive(track: Track, leaderSpeeds?: number[]): DrivePlan {
     // AI pit strategy: request pit stop if fuel reserve is low
-    if (this.fuelKg < 12.0 && !this.isPitting) {
+    if ((this.fuelKg < 12.0 || (this.isRaceMode && Math.max(this.tyreWearFront, this.tyreWearRear) > 0.7)) && !this.isPitting) {
       this.wantsToPit = true;
     }
 
@@ -478,7 +517,7 @@ export class Car {
     const pressure = pressureProfile(this.yellowFlag || this.isPitting || this.recoveryTimer > 0 || this.surface !== 'asphalt'
       ? Math.min(0, this.effectiveDriverPressure) : this.effectiveDriverPressure);
     const paceMargin = this.pace.value(this.isRaceMode);
-    const safeLatGrip = this.baseTireGrip * Car.GRAVITY * pressure.cornerGrip * paceMargin;
+    const safeLatGrip = this.baseTireGrip * Car.GRAVITY * pressure.cornerGrip * paceMargin * Math.min(this.tyreGripFront, this.tyreGripRear);
     // Estimated braking for planning; physical brake forces are unchanged.
     const pushing = this.battlePush.remaining > 0;
     const aBrake = Car.PLANNED_BRAKE_DECEL * this.brakingAggression * pressure.braking * (1 + (paceMargin - 1) * 0.5) * (pushing ? 1.08 : 1);
@@ -777,6 +816,8 @@ export class Car {
         this.isPitting = false;
         this.wantsToPit = false;
         this.damage = 0; // nose/wing change during the stop
+        this.tyreWearFront = this.tyreWearRear = 0; // fresh, pre-heated set
+        this.tyreTempFront = this.tyreTempRear = 85;
         this.isOutOfFuel = false;
         this.fuelKg = Math.min(Car.MAX_FUEL_CAPACITY, this.fuelKg);
       }
@@ -847,8 +888,8 @@ export class Car {
     const fractions = this.surfaceFractions;
     const surfaceMu = fractions.asphalt * this.baseTireGrip + fractions.grass * 0.45 + fractions.gravel * 0.60;
     const mu = surfaceMu * this.lapGripFactor * (1 - rollGripLoss);
-    const frontLimit = mu * frontLoad;
-    const rearLimit = mu * rearLoad;
+    const frontLimit = mu * this.tyreGripFront * frontLoad;
+    const rearLimit = mu * this.tyreGripRear * rearLoad;
 
     // Rolling resistance and braking share each axle's longitudinal tire budget.
     const rollingFront = Math.min(frontLimit, 0.012 * frontLoad);
@@ -919,6 +960,7 @@ export class Car {
     let slipRatio = Math.abs(requestedLateral) > 0 ? Math.max(0, 1 - lateralLimit / Math.abs(requestedLateral)) : 0;
     let frontSlip = slipRatio, rearSlip = slipRatio;
     let dynamicFrontForce = 0, dynamicRearForce = 0;
+    let frontSlipPower = 0, rearSlipPower = 0;
     this.angularVelocity = kinematicYaw;
     if (dynamicWeight > 0) {
       const toRear = this.wheelbase * 0.46, toFront = this.wheelbase - toRear; // CoG to axles
@@ -933,6 +975,8 @@ export class Car {
       const yawInertia = currentMass * Car.YAW_INERTIA_FACTOR;
       const yawAcceleration = (toFront * frontForce - toRear * rearForce) / yawInertia;
       dynamicFrontForce = frontForce; dynamicRearForce = rearForce;
+      frontSlipPower = Car.TYRE_LAT_HEAT * Math.abs(frontForce * u * Math.tan(alphaFront));
+      rearSlipPower = Car.TYRE_LAT_HEAT * Math.abs(rearForce * u * Math.tan(alphaRear));
       const dynamicYaw = Math.max(-3.5, Math.min(3.5, yawPrevious + yawAcceleration * dt));
       const dynamicLateral = frontForce + rearForce;
       lateralForce = kinematicLateral * (1 - dynamicWeight) + dynamicLateral * dynamicWeight;
@@ -945,6 +989,16 @@ export class Car {
     }
     if (dynamicWeight > 0) { this.frontLateralInUse = Math.abs(dynamicFrontForce); this.rearLateralInUse = Math.abs(dynamicRearForce); }
     else { const share = frontLoad / Math.max(1, frontLoad + rearLoad); this.frontLateralInUse = Math.abs(lateralForce) * share; this.rearLateralInUse = Math.abs(lateralForce) * (1 - share); }
+    // Longitudinal creep heats the driven / braked axles too.
+    frontSlipPower += Car.TYRE_LONG_HEAT * Math.abs(frontFx) * speedMag;
+    rearSlipPower += Car.TYRE_LONG_HEAT * Math.abs(rearFx) * speedMag;
+    if (this.tyresActive) {
+      [this.tyreTempFront, this.tyreWearFront] = this.stepTyre(this.tyreTempFront, this.tyreWearFront, frontSlipPower * Car.TYRE_FRONT_HEAT, frontLoad, speedMag, dt);
+      [this.tyreTempRear, this.tyreWearRear] = this.stepTyre(this.tyreTempRear, this.tyreWearRear, rearSlipPower, rearLoad, speedMag, dt);
+    } else {
+      this.tyreTempFront = this.tyreTempRear = Car.TYRE_OPTIMUM;
+      this.tyreWearFront = this.tyreWearRear = 0;
+    }
     this.tireUtilization = Math.min(1, Math.hypot(frontFx + rearFx, lateralForce) / Math.max(1, frontLimit + rearLimit));
     this.isSkidding = slipRatio > 0.01 || (Math.abs(lateralSpeed) > 4.5 && speedMag > 18);
     this.understeerSlip = frontSlip >= rearSlip ? slipRatio : 0;
