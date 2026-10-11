@@ -164,5 +164,15 @@ try {
   assert.equal(limitCar.trackLimitExits, 1, 'all four wheels off counts once');
   place(0); place(gp.width / 2 + 6);
   assert.equal(limitCar.trackLimitExits, 2, 'a second excursion counts again');
+  // ERS: wide-open throttle drains the battery, braking harvests, and depletion costs power.
+  const ersCar = new Car(gp.startPosition, gp.startAngle, new NeuralNetwork([30, 4, 3]), '#fff', 'ers', 60, 25);
+  const speedUp = (energy, steps) => { ersCar.reset(gp.startPosition, gp.startAngle, true, 1); ersCar.ersEnergy = energy; ersCar.vel = Vector2.fromAngle(ersCar.heading).mul(75); ersCar.speed = 75; for (let i = 0; i < steps; i++) ersCar.updatePhysics({ throttle: 1, brake: 0, steer: 0 }, 1 / 60, gp); return ersCar.speed; };
+  const charged = speedUp(Car.ERS_CAPACITY, 15), chargedEnergy = ersCar.ersEnergy;
+  const empty = speedUp(0, 15);
+  assert.ok(chargedEnergy < Car.ERS_CAPACITY, 'deployment drains the battery');
+  assert.ok(charged > empty + 0.1, `hybrid boost accelerates harder: ${charged} vs ${empty}`);
+  ersCar.reset(gp.startPosition, gp.startAngle, true, 1); ersCar.ersEnergy = 1e6; ersCar.vel = Vector2.fromAngle(ersCar.heading).mul(60); ersCar.speed = 60;
+  for (let i = 0; i < 30; i++) ersCar.updatePhysics({ throttle: 0, brake: 0.8, steer: 0 }, 1 / 60, gp);
+  assert.ok(ersCar.ersEnergy > 1e6, 'braking harvests energy');
   console.log('Neural driving, dynamics, damage and wreck regressions passed.');
 } finally { await rm(dir, { recursive: true, force: true }); }

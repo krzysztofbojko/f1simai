@@ -126,3 +126,9 @@ Skutki: podsterowność przy nasyceniu przedniej osi, nadsterowność przy nasyc
 - Linia przejazdu pochodzi z osobnej sieci (`src/ai/LineNet.ts`). Wejścia: promienie LiDAR, prędkość, zakrzywienie toru w 4 punktach przed autem, położenie boczne i błąd kursu. Wyjście: pożądane położenie boczne jako ułamek użytecznej szerokości (do połowy szerokości − 2,3 m). Start: sieć wydestylowana z linii zewnątrz–wewnątrz–zewnątrz, która wykorzystuje całą szerokość.
 - Uczenie: zmutowana kopia jedzie jedno okrążenie i zostaje mistrzem tylko, gdy jest szybsza; co 4. okrążenie mistrz jest mierzony ponownie (szum gripu/mocy). Linia sama nie kosztuje prędkości — kara za offset dotyczy tylko odchylenia od linii (wyprzedzanie).
 - Najlepsza trasa jest rysowana cieńszą kreską.
+
+## ERS / MGU-K
+
+- Moc napędu = ICE 630 kW · gaz + MGU-K do 120 kW (razem 750 kW jak dotąd). MGU-K włącza się przy gazie > 0,65, dopóki bateria ma > 4% z 4 MJ i nie wyczerpano 4 MJ rozładowania na okrążenie.
+- Odzysk: hamowanie (do 120 kW · hamulec) i lift-and-coast powyżej 30 m/s (36 kW), sprawność 88%.
+- Przy ograniczeniu trakcją (niskie prędkości) dodatkowa moc nie przyspiesza; różnicę widać powyżej ok. 60 m/s. W telemetrii: „ERS xx%”.

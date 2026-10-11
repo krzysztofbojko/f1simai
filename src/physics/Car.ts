@@ -124,7 +124,16 @@ export class Car {
   public readonly wheelbase: number = 3.6; // Meters
   public readonly trackWidthMeters: number = 1.8; // Meters
   public readonly cogHeight: number = 0.32; // Center of gravity height (meters)
-  public readonly maxEnginePower: number = 750000; // 750 kW (~1000 HP)
+  public readonly maxEnginePower: number = 750000; // 750 kW (~1000 HP): ICE + full MGU-K deployment
+  /** Internal combustion share; the MGU-K adds up to ERS_POWER on top of it. */
+  public static readonly ICE_POWER = 630000;
+  public static readonly ERS_POWER = 120000;          // MGU-K, W
+  public static readonly ERS_CAPACITY = 4_000_000;    // battery, J
+  public static readonly ERS_LAP_DEPLOY = 4_000_000;  // deployment allowed per lap, J
+  public static readonly ERS_REGEN_EFFICIENCY = 0.88;
+  public ersEnergy = Car.ERS_CAPACITY * 0.85;
+  private ersDeployedLap = 0;
+  public ersDeploying = false;
   public readonly maxSteerAngle: number = 0.40; // ~23 degrees
   public readonly dragCoeff: number = 1.00; // Cd * A [m^2]
   public readonly airDensity: number = 1.225; // kg/m^3
@@ -388,7 +397,9 @@ export class Car {
       this.totalRaceTime = 0;
       this.raceLapsCompleted = 0;
       this.trackLimitExits = 0;
+      this.ersEnergy = Car.ERS_CAPACITY * 0.85;
     }
+    this.ersDeployedLap = 0;
     this.fullyOffTrack = false;
     this.rollLapPerformanceVariation();
   }
@@ -842,8 +853,24 @@ export class Car {
     // Rolling resistance and braking share each axle's longitudinal tire budget.
     const rollingFront = Math.min(frontLimit, 0.012 * frontLoad);
     const rollingRear = Math.min(rearLimit, 0.012 * rearLoad);
-    const engineForce = actualThrottle > 0.005
-      ? this.maxEnginePower * actualThrottle * this.lapPowerFactor / Math.max(12, Math.abs(forwardSpeed)) : 0;
+    // Hybrid power: MGU-K torque fill on a wide-open throttle, harvesting under braking and lift-and-coast.
+    let ersPower = 0;
+    this.ersDeploying = false;
+    {
+      if (actualThrottle > 0.65 && this.ersEnergy > Car.ERS_CAPACITY * 0.04 && this.ersDeployedLap < Car.ERS_LAP_DEPLOY) {
+        ersPower = Car.ERS_POWER * actualThrottle;
+        const joules = Math.min(ersPower * dt, this.ersEnergy, Car.ERS_LAP_DEPLOY - this.ersDeployedLap);
+        ersPower = joules / dt;
+        this.ersEnergy -= joules;
+        this.ersDeployedLap += joules;
+        this.ersDeploying = ersPower > 0;
+      } else if (forwardSpeed > 8 && (control.brake > 0.05 || (actualThrottle < 0.02 && forwardSpeed > 30))) {
+        const harvestPower = control.brake > 0.05 ? Car.ERS_POWER * control.brake : Car.ERS_POWER * 0.3;
+        this.ersEnergy = Math.min(Car.ERS_CAPACITY, this.ersEnergy + harvestPower * Car.ERS_REGEN_EFFICIENCY * dt);
+      }
+    }
+    const engineForce = (actualThrottle > 0.005 || ersPower > 0)
+      ? (Car.ICE_POWER * actualThrottle + ersPower) * this.lapPowerFactor / Math.max(12, Math.abs(forwardSpeed)) : 0;
     // Stability priority (traction control / brake-by-wire): each axle keeps the lateral
     // force it was using last step, so power or braking never silently removes the grip
     // that is holding the car on its line. Drive and brake use the rest of the friction circle.
@@ -1305,6 +1332,7 @@ export class Car {
           const compromised = this.lapCompromised || this.pressureLearningBlocked;
           if (!this.isManual) this.pace.finishLap(finishedLapTime, !compromised, this.lapExcursion);
           this.lapExcursion = false;
+          this.ersDeployedLap = 0;
           if (!compromised && (!this.bestLapTime || finishedLapTime < this.bestLapTime)) {
             this.bestLapTime = finishedLapTime;
             this.bestLapPressure = this.driverPressure;

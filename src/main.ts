@@ -153,6 +153,7 @@ class App {
         car.eliminationReason = sc.eliminationReason;
         car.barrierImpactSpeed = sc.barrierImpactSpeed;
         car.damage = sc.damage ?? 0;
+        car.ersEnergy = (sc.ersSoc ?? 0.85) * Car.ERS_CAPACITY;
         car.incidentActive = sc.incidentActive;
         car.battleOpponent = sc.battleOpponent;
         car.overtakingTargetName = sc.overtakingTargetName;
@@ -310,6 +311,7 @@ class App {
         this.playerCar.eliminationReason = sp.eliminationReason;
         this.playerCar.barrierImpactSpeed = sp.barrierImpactSpeed;
         this.playerCar.damage = sp.damage ?? 0;
+        this.playerCar.ersEnergy = (sp.ersSoc ?? 0.85) * Car.ERS_CAPACITY;
         this.playerCar.incidentActive = sp.incidentActive;
         this.playerCar.battleOpponent = sp.battleOpponent;
         this.playerCar.overtakingTargetName = sp.overtakingTargetName;
@@ -1722,6 +1724,8 @@ class App {
     const effectivePressure = activeCar?.effectiveDriverPressure ?? this.driverPressure;
     const targetPressure = activeCar?.driverPressure ?? this.driverPressure;
     const pressureText = (p: number) => `${p > 0 ? '+' : ''}${Math.round(p)}`;
+    const ersEl = document.getElementById('tele-ers');
+    if (ersEl) ersEl.textContent = activeCar ? `ERS ${Math.round(activeCar.ersEnergy / Car.ERS_CAPACITY * 100)}%` : 'ERS';
     document.getElementById('tele-pressure')!.textContent = activeCar?.isManual ? 'RĘCZNIE'
       : `PRESJA ${pressureText(effectivePressure)}${Math.abs(targetPressure-effectivePressure) > .1 ? ` → ${pressureText(targetPressure)}` : ''}`;
     document.getElementById('tele-incident')!.textContent = activeCar?.eliminationReason

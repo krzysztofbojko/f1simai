@@ -97,6 +97,7 @@ export interface SerializedCar {
   eliminationReason: Car['eliminationReason'];
   barrierImpactSpeed: number;
   damage: number;
+  ersSoc: number;
   incidentActive: boolean;
   battleOpponent: string;
   overtakingTargetName: string;
@@ -256,6 +257,7 @@ function serializeCar(car: Car, ctrl?: CarControl, isHeadless: boolean = false):
     eliminationReason: car.eliminationReason,
     barrierImpactSpeed: car.barrierImpactSpeed,
     damage: car.damage,
+    ersSoc: Math.round(car.ersEnergy / Car.ERS_CAPACITY * 100) / 100,
     incidentActive: car.incidentActive,
     battleOpponent: car.battleOpponent,
     overtakingTargetName: car.overtakingTargetName,
