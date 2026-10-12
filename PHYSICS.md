@@ -43,7 +43,7 @@ Przekroczenie białej linii nie powoduje DNF. Po lekkim kontakcie z bandą usuwa
 
 Ryzyko wynosi `clamp((wykorzystaniePrzyczepności − 0,55) / 0,45, 0, 1)`. Zdarzenia mają prawdopodobieństwo `1 − exp(−ryzyko * dt / 600)` w kroku czasu symulacji. Przy pełnym ryzyku daje to średnio jedną pomyłkę na 10 minut ekspozycji, z 30 s przerwy po zdarzeniu. Pomyłka trwa 0,2–0,6 s i zmniejsza hamowanie do 25% żądania albo zmienia skręt o 0,08–0,20. Nie wymusza wypadnięcia, nie zmienia wag sieci i nie dodaje sił. Pomyłki działają w treningu i wyścigu; nie działają podczas postoju, ręcznego sterowania, odzyskiwania kontroli lub po finiszu.
 
-Podczas pomyłki i odzyskiwania kontroli replay jest wyłączony i czyszczony. Dotknięte zdarzeniem lub wyjazdem na pobocze okrążenie liczy się w dystansie i czasie wyścigu, ale nie zastępuje PB, sieci mistrza ani profilu prędkości lidera i nie uruchamia cofnięcia za pogorszenie czasu. Po wyjeździe AI korzysta z geometrycznego celu na asfalcie, ogranicza gaz i hamuje zależnie od prędkości. Checkpointy pozostają uporządkowane i wymagają przejazdu po asfalcie.
+Podczas pomyłki i odzyskiwania kontroli replay jest wyłączony i czyszczony. Dotknięte zdarzeniem lub wyjazdem na pobocze okrążenie liczy się w dystansie i czasie wyścigu, ale nie zastępuje PB, sieci mistrza ani profilu prędkości lidera i nie uruchamia cofnięcia za pogorszenie czasu. Po wyjeździe AI korzysta z geometrycznego celu na asfalcie, ogranicza gaz i hamuje zależnie od prędkości. Na powrót na asfalt ma 12 s (`Car.OFF_TRACK_RECOVERY_TIME`) — dopiero dłuższy ciągły pobyt poza asfaltem kończy się eliminacją „BRAK POSTĘPU”. Checkpointy pozostają uporządkowane i wymagają przejazdu po asfalcie.
 
 ## Ograniczenia
 
@@ -95,7 +95,7 @@ Automatyczna zmiana generacji nie tworzy ponownie stawki. Zachowuje wszystkie ob
 Wyjścia sieci `[skręt, gaz, hamulec]` są faktycznym sterowaniem (`Car.getAIControl`, `decodeDriverOutputs`). Regułowy kontroler (`Car.planDrive`: pościg geometryczny + profil prędkości z krzywizny) jest teraz **nauczycielem** i **strażnikiem**:
 
 - **Destylacja** (`src/ai/Distill.ts`): nowa sieć uczy się naśladować nauczyciela na prawdziwym torze (240 s jazdy z zakłóceniami skrętu i losowymi przesunięciami linii, etykiety nauczyciela w odwiedzonych stanach — DAgger). Wynik jest cache'owany na tor/topologię. `NeuralNetwork.createTrainedDriverNetwork(rays, topology, track?)` bez toru korzysta z presetu GP.
-- **Autorytet sieci:** skręt w korytarzu ±0,3 wokół skrętu geometrycznego, gaz i hamulec w pełnym zakresie; pedały wykluczają się (hamulec > 5% zeruje gaz).
+- **Autorytet sieci:** skręt w korytarzu ±0,3 wokół skrętu geometrycznego, gaz i hamulec w pełnym zakresie; pedały wykluczają się: przy dekodowaniu wygrywa silniejsze wyjście (szczątkowe 3–4% hamulca nie zeruje pełnego gazu — wcześniej przy zimnych oponach sieć „toczyła się” całe okrążenia na 1. biegu).
 - **Strażnik** przejmuje sterowanie tylko przy: zjeździe z asfaltu, bliskości bandy, żółtej fladze, postoju w boksie, odzyskiwaniu kontroli, nadmiernej prędkości względem planu hamowania (hamowanie awaryjne), postoju z gazem wymaganym przez nauczyciela (launch assist).
 - **Uczenie:** (1) ewolucja — mutacje rekordowych sieci i selekcja po czasie okrążenia (PB), (2) online backprop wyłącznie w stanach, w których strażnik musiał interweniować (korekta typu DAgger).
 - Planowane opóźnienie hamowania: `Car.PLANNED_BRAKE_DECEL = 8,5 m/s²` × agresja (wcześniej 6,0).
@@ -130,15 +130,15 @@ Skutki: podsterowność przy nasyceniu przedniej osi, nadsterowność przy nasyc
 ## ERS / MGU-K
 
 - Moc napędu = ICE 630 kW · gaz + MGU-K do 120 kW (razem 750 kW jak dotąd). MGU-K włącza się przy gazie > 0,65, dopóki bateria ma > 4% z 4 MJ i nie wyczerpano 4 MJ rozładowania na okrążenie.
-- Odzysk: hamowanie (do 120 kW · hamulec) i lift-and-coast powyżej 30 m/s (36 kW), sprawność 88%.
+- Odzysk: hamowanie do 350 kW · hamulec (`ERS_HARVEST_POWER`, niezależnie od 120 kW oddawania), ale nie więcej niż moc rozpraszana przez hamulce; lift-and-coast powyżej 30 m/s (36 kW); sprawność 88%. Hamowanie 0,8 z 60 m/s odzyskuje ponad 0,1 MJ w 0,5 s (wcześniej ok. 0,04 MJ).
 - Przy ograniczeniu trakcją (niskie prędkości) dodatkowa moc nie przyspiesza; różnicę widać powyżej ok. 60 m/s. W telemetrii: „ERS xx%”.
 
 ## Opony: temperatura i zużycie (na oś)
 
 - Stan: temperatura i zużycie osi przedniej i tylnej. Bilans: ciepło z mocy poślizgu bocznego (`siła · prędkość · tan α`, ×2), z pełzania wzdłużnego (1,2% `|Fx|·v`), z histerezy (`0,0075·Fz·v`), oś przednia ×1,6; chłodzenie konwekcją `∝ v^0,8` i torem; pojemność 12 kJ/K (stała czasowa ok. 40 s).
 - Mnożnik przyczepności osi: dzwon temperaturowy (optimum 100 °C, zimno do 0,80, przegrzanie do 0,75) razy zużycie (do −25% przy W=1). Wchodzi do limitów osi i do planowanej przyczepności (kierowca zwalnia na zimnych/zużytych oponach).
-- Trening jedzie na „kocach” (100 °C, zużycie 0) — tak jak dotąd, żeby uczenie i porównania czasów nie zależały od stintu. Model działa w wyścigu (`isRaceMode`) albo po `Car.TYRE_MODEL_IN_TRAINING = true`. Auto startuje z 85 °C; pit stop daje nowy komplet. Zużycie > 70% wywołuje zjazd do boksu.
-- Kalibracja (`npm run diag:nn`, `TYRES=1`): temperatury ok. 80–115 °C, tempo wyścigowe ok. 3–5% wolniejsze od treningowego.
+- Model opon działa w treningu i w wyścigu (`Car.TYRE_MODEL_IN_TRAINING = true` domyślnie); `false` przywraca „koce” (100 °C, zużycie 0) w treningu. Auto startuje z 85 °C; pit stop daje nowy komplet. Zużycie > 70% wywołuje zjazd do boksu.
+- Kalibracja (`npm run diag:nn`; `NOTYRES=1` wyłącza opony): temperatury ok. 80–115 °C, tempo wyścigowe ok. 3–5% wolniejsze od treningowego.
 
 ## Skrzynia 8-biegowa
 

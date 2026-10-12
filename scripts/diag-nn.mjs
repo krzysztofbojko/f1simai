@@ -14,7 +14,7 @@ try {
   Math.random = () => { randomState = (Math.imul(1664525, randomState) + 1013904223) >>> 0; return randomState / 4294967296; };
   const { Car } = await import(pathToFileURL(join(output, 'car.mjs')));
   if (process.env.KIN) Car.DYNAMIC_YAW = false;
-  if (process.env.TYRES) Car.TYRE_MODEL_IN_TRAINING = true;
+  if (process.env.NOTYRES) Car.TYRE_MODEL_IN_TRAINING = false;
   if (process.env.LAT) Car.TYRE_LAT_HEAT = Number(process.env.LAT);
   if (process.env.LONG) Car.TYRE_LONG_HEAT = Number(process.env.LONG);
   if (process.env.FRONT) Car.TYRE_FRONT_HEAT = Number(process.env.FRONT);

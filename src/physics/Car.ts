@@ -61,10 +61,12 @@ const PEDAL_ENCODING = 0.9;
 /** Map tanh network outputs to controls; encoded targets keep tanh away from saturation. */
 export function decodeDriverOutputs(outputs: number[]): CarControl {
   const pedal = (v: number) => { const x = Math.max(0, Math.min(1, (v ?? 0) / PEDAL_ENCODING)); return x < 0.03 ? 0 : x; };
+  const throttle = pedal(outputs[1]), brake = pedal(outputs[2]);
+  // The dominant pedal wins: a small residual on the idle output must not cancel a clear command.
   return {
     steer: Math.max(-1, Math.min(1, (outputs[0] ?? 0) / STEER_ENCODING)),
-    throttle: pedal(outputs[1]),
-    brake: pedal(outputs[2]),
+    throttle: brake > throttle ? 0 : throttle,
+    brake: brake > throttle ? brake : 0,
   };
 }
 export function encodeDriverTargets(t: ArrayLike<number>): [number, number, number] {
@@ -140,6 +142,10 @@ export class Car {
   public static readonly ERS_CAPACITY = 4_000_000;    // battery, J
   public static readonly ERS_LAP_DEPLOY = 4_000_000;  // deployment allowed per lap, J
   public static readonly ERS_REGEN_EFFICIENCY = 0.88;
+  /** MGU-K harvesting limit under braking (2026-style), independent of the 120 kW deployment. */
+  public static readonly ERS_HARVEST_POWER = 350000;
+  /** Seconds an AI car may spend off the asphalt trying to rejoin before it is retired as stuck. */
+  public static readonly OFF_TRACK_RECOVERY_TIME = 12;
   /**
    * Quasi-static ride-height aero: downforce compresses the axles, the floor works best at a
    * particular height and chokes when it gets too close to the road. Ride height follows with a lag
@@ -203,8 +209,8 @@ export class Car {
     return Car.icePowerFraction(this.engineRpm);
   }
 
-  // Tyre thermal / wear model, per axle. Training runs on tyre blankets (optimal, no wear) unless forced.
-  public static TYRE_MODEL_IN_TRAINING = false;
+  // Tyre thermal / wear model, per axle. Active in training and race; set TYRE_MODEL_IN_TRAINING = false for tyre blankets (optimal, no wear).
+  public static TYRE_MODEL_IN_TRAINING = true;
   public static readonly TYRE_OPTIMUM = 100;     // deg C
   public static readonly TYRE_AMBIENT = 25;
   public static readonly TYRE_TRACK = 38;
@@ -319,6 +325,8 @@ export class Car {
   public wreckRemoved = false;
   public wreckClearLap: number | null = null;
   public offRoadStillTime = 0;
+  /** Continuous time with the car's surface off the asphalt. */
+  public offTrackTime = 0;
   public mistakes = new DriverMistakes();
   public mistakesEnabled = true;
   public tireUtilization = 0;
@@ -445,6 +453,7 @@ export class Car {
     this.wreckRemoved = false;
     this.wreckClearLap = null;
     this.offRoadStillTime = 0;
+    this.offTrackTime = 0;
     this.lapExcursion = false;
     this.tireUtilization = 0;
     this.damage = 0;
@@ -535,7 +544,7 @@ export class Car {
    */
   planDrive(track: Track, leaderSpeeds?: number[]): DrivePlan {
     // AI pit strategy: request pit stop if fuel reserve is low
-    if ((this.fuelKg < 12.0 || (this.isRaceMode && Math.max(this.tyreWearFront, this.tyreWearRear) > 0.7)) && !this.isPitting) {
+    if ((this.fuelKg < 12.0 || (this.tyresActive && Math.max(this.tyreWearFront, this.tyreWearRear) > 0.7)) && !this.isPitting) {
       this.wantsToPit = true;
     }
 
@@ -996,11 +1005,9 @@ export class Car {
         this.ersEnergy -= joules;
         this.ersDeployedLap += joules;
         this.ersDeploying = ersPower > 0;
-      } else if (forwardSpeed > 8 && (control.brake > 0.05 || (actualThrottle < 0.02 && forwardSpeed > 30))) {
-        const harvestPower = control.brake > 0.05 ? Car.ERS_POWER * control.brake : Car.ERS_POWER * 0.3;
-        this.ersEnergy = Math.min(Car.ERS_CAPACITY, this.ersEnergy + harvestPower * Car.ERS_REGEN_EFFICIENCY * dt);
       }
     }
+    const harvesting = !this.ersDeploying && forwardSpeed > 8 && (control.brake > 0.05 || (actualThrottle < 0.02 && forwardSpeed > 30));
     const engineForce = (actualThrottle > 0.005 || ersPower > 0)
       ? (Car.ICE_POWER * actualThrottle * icePower + ersPower) * this.lapPowerFactor / Math.max(12, Math.abs(forwardSpeed)) : 0;
     // Stability priority (traction control / brake-by-wire): each axle keeps the lateral
@@ -1020,6 +1027,13 @@ export class Car {
     const resistance = brakeFront + brakeRear + rollingFront + rollingRear;
     const resistanceScale = resistance > 0 ? Math.min(1, currentMass * Math.abs(vStar) / (dt * resistance)) : 0;
     const resistanceSign = Math.sign(vStar);
+    if (harvesting) {
+      // Under braking the MGU-K recovers up to ERS_HARVEST_POWER, never more than the brakes dissipate.
+      const harvestPower = control.brake > 0.05
+        ? Math.min(Car.ERS_HARVEST_POWER * control.brake, (brakeFront + brakeRear) * resistanceScale * forwardSpeed)
+        : Car.ERS_POWER * 0.3;
+      this.ersEnergy = Math.min(Car.ERS_CAPACITY, this.ersEnergy + harvestPower * Car.ERS_REGEN_EFFICIENCY * dt);
+    }
     const frontFx = -resistanceSign * (brakeFront + rollingFront) * resistanceScale;
     const rearFx = Math.max(-rearLimit, Math.min(rearLimit, driveForce - resistanceSign * (brakeRear + rollingRear) * resistanceScale));
     const longitudinalForce = frontFx + rearFx + dragForward;
@@ -1168,6 +1182,7 @@ export class Car {
     const fullyOff = this.surfaceFractions.asphalt === 0;
     if (fullyOff && !this.fullyOffTrack) this.trackLimitExits++;
     this.fullyOffTrack = fullyOff;
+    this.offTrackTime = this.surface !== 'asphalt' ? this.offTrackTime + dt : 0;
     if (this.surfaceFractions.asphalt < 1) { this.lapCompromised = true; this.lapExcursion = true; this.recoveryTimer = 2; }
     this.speed = this.vel.mag();
     this.speedKmh = this.speed * 3.6;
@@ -1346,8 +1361,8 @@ export class Car {
       return null;
     }
 
-    // A car that cannot drive out of the runoff within a few seconds is retired instead of idling for half a minute.
-    if (this.framesSinceLastCheckpoint > (this.recoveryTimer > 0 ? 1800 : 600) || (!this.isManual && this.surface !== 'asphalt' && this.offRoadStillTime > 4)) {
+    // A car that cannot rejoin the asphalt within OFF_TRACK_RECOVERY_TIME is retired instead of idling for half a minute.
+    if (this.framesSinceLastCheckpoint > (this.recoveryTimer > 0 ? 1800 : 600) || (!this.isManual && this.offTrackTime > Car.OFF_TRACK_RECOVERY_TIME)) {
       this.eliminationReason = 'stuck';
       this.isAlive = false;
       this.effectiveThrottle = 0;

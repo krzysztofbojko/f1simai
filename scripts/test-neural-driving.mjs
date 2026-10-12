@@ -30,6 +30,9 @@ try {
   // 1. Output encoding is invertible and bounded.
   const encoded = encodeDriverTargets([0.5, 1, 0]);
   const decoded = decodeDriverOutputs(encoded);
+  // A residual brake output must not cancel a clear throttle command (and vice versa).
+  assert.deepEqual(decodeDriverOutputs([0, 0.85, 0.04]), { steer: 0, throttle: 0.85 / 0.9, brake: 0 });
+  assert.equal(decodeDriverOutputs([0, 0.05, 0.6]).throttle, 0);
   assert.ok(Math.abs(decoded.steer - 0.5) < 1e-9 && Math.abs(decoded.throttle - 1) < 1e-9 && decoded.brake === 0);
 
   // 2. The network's outputs ARE the pedals: a constant-output brain controls the car.
@@ -174,15 +177,34 @@ try {
   ersCar.reset(gp.startPosition, gp.startAngle, true, 1); ersCar.ersEnergy = 1e6; ersCar.vel = Vector2.fromAngle(ersCar.heading).mul(60); ersCar.speed = 60;
   for (let i = 0; i < 30; i++) ersCar.updatePhysics({ throttle: 0, brake: 0.8, steer: 0 }, 1 / 60, gp);
   assert.ok(ersCar.ersEnergy > 1e6, 'braking harvests energy');
-  // Tyres: bell-shaped thermal window, blankets in training, heating and wear in a race.
+  // Half a second at brake 0.8 from 60 m/s recovers well above the old 120 kW-limited ~44 kJ.
+  assert.ok(ersCar.ersEnergy - 1e6 > 100000, 'strong braking harvests up to ERS_HARVEST_POWER: ' + (ersCar.ersEnergy - 1e6));
+  assert.ok(ersCar.ersEnergy - 1e6 <= Car.ERS_HARVEST_POWER * Car.ERS_REGEN_EFFICIENCY * 0.5 + 1, 'harvest stays within the MGU-K limit');
+  // Off-track: an AI car parked on the runoff keeps trying to rejoin for OFF_TRACK_RECOVERY_TIME, then retires.
+  const offCar = new Car(gp.startPosition, gp.startAngle, new NeuralNetwork([36, 4, 3]), '#fff', 'off', 60, 25);
+  offCar.reset(gp.startPosition, gp.startAngle, true, 1);
+  const offSample = gp.sampleSurface(gp.startPosition);
+  offCar.pos = offSample.center.add(offSample.tangent.normal().mul(gp.width / 2 + 2.5));
+  offCar.vel = new Vector2(0, 0); offCar.speed = 0;
+  const parked = { throttle: 0, brake: 1, steer: 0 };
+  for (let i = 0; i < 60 * 10; i++) { offCar.updatePhysics(parked, 1 / 60, gp); offCar.framesSinceLastCheckpoint = 0; }
+  assert.ok(offCar.surface !== 'asphalt', 'test car is on the runoff: ' + offCar.surface);
+  assert.ok(offCar.isAlive, 'ten seconds off track is still within the recovery window');
+  for (let i = 0; i < 60 * 3 && offCar.isAlive; i++) { offCar.updatePhysics(parked, 1 / 60, gp); offCar.framesSinceLastCheckpoint = 0; }
+  assert.equal(offCar.eliminationReason, 'stuck', 'more than twelve seconds off track retires the car');
+  // Tyres: bell-shaped thermal window, heating and wear in training and race (blankets when TYRE_MODEL_IN_TRAINING is off).
   assert.ok(Math.abs(Car.tyreGrip(Car.TYRE_OPTIMUM, 0) - 1) < 1e-9, 'full grip at the optimum');
   assert.ok(Car.tyreGrip(60, 0) < 0.9 && Car.tyreGrip(150, 0) < 0.9, 'cold and overheated tyres lose grip');
   assert.ok(Car.tyreGrip(100, 1) < Car.tyreGrip(100, 0.3), 'wear lowers grip');
   const tyreCar = new Car(gp.startPosition, gp.startAngle, new NeuralNetwork([36, 4, 3]), '#fff', 'tyres', 60, 25);
   const driveCorner = (race, steps) => { tyreCar.isRaceMode = race; tyreCar.reset(gp.startPosition, gp.startAngle, true, 1); tyreCar.vel = Vector2.fromAngle(tyreCar.heading).mul(45); tyreCar.speed = 45; for (let i = 0; i < steps; i++) tyreCar.updatePhysics({ throttle: 0.5, brake: 0, steer: 0.12 }, 1 / 60, stub); };
   driveCorner(false, 120);
-  assert.equal(tyreCar.tyreTempFront, Car.TYRE_OPTIMUM, 'training runs on blankets');
+  assert.ok(tyreCar.tyreTempFront !== Car.TYRE_OPTIMUM && tyreCar.tyreWearFront > 0, 'training tyres heat up and wear by default: ' + tyreCar.tyreTempFront);
+  Car.TYRE_MODEL_IN_TRAINING = false;
+  driveCorner(false, 120);
+  assert.equal(tyreCar.tyreTempFront, Car.TYRE_OPTIMUM, 'blankets when the model is off in training');
   assert.equal(tyreCar.tyreGripFront, 1);
+  Car.TYRE_MODEL_IN_TRAINING = true;
   driveCorner(true, 120);
   assert.ok(tyreCar.tyreTempFront !== 85 && tyreCar.tyreWearFront > 0, 'race tyres heat up and wear: ' + tyreCar.tyreTempFront);
   // Gearbox: 8 ratios, limiter-bound top speed, shift-cut and real gear/rpm bookkeeping.
