@@ -8,6 +8,7 @@ import { Spline } from '../math/Spline';
 import { Vector2 } from '../math/Vector2';
 import { TopologySpecifier } from '../ai/NeuralNetwork';
 import { Qualifying, QualifyingPhase, QualifyingStanding } from '../race/Qualifying';
+import { applyDriverModel, exportDriver, mergeBetterDrivers, serializeTrack } from '../ai/Islands';
 
 export type { TopologySpecifier };
 
@@ -187,6 +188,17 @@ export interface SimSnapshot {
   computeProfile?: ComputeProfile;
   isHeadless?: boolean;
   topology?: TopologySpecifier;
+  islands?: IslandStatus;
+}
+
+export interface IslandStatus {
+  count: number;
+  max: number;
+  running: boolean;
+  /** Island physics steps per wall-clock second, summed over islands. */
+  stepsPerSecond: number;
+  /** Driver models taken over from islands since they were started. */
+  adopted: number;
 }
 
 // Compute Profile State (Defaults to 'balanced' - fully preserving legacy behavior)
@@ -262,6 +274,76 @@ let activeSelectedColor: string | null = null;
 let manualCarColor: string | null = null;
 let sessionBestSplits: (number | null)[] = [null, null, null, null];
 const detectedCores = typeof navigator !== 'undefined' ? (navigator.hardwareConcurrency || 8) : 8;
+
+// Training islands: extra workers train their own headless fields on this track
+// and hand over driver models with faster clean laps (spare cores, e.g. Apple M1 P-cores).
+const maxIslands = Math.max(0, Math.min(15, detectedCores - 2));
+let islands: Worker[] = [];
+let islandVersion = 0;
+let islandsRunning = false;
+let islandsAdopted = 0;
+const islandRates = new Map<Worker, number>();
+
+function exportAllDrivers(): any[] {
+  return population.cars.map((_, i) => exportDriver(population, i));
+}
+
+function islandSetupMessage(): object {
+  return { type: 'SETUP', version: islandVersion, track: serializeTrack(track), rayCount, topology: currentTopology,
+    driverPressure, mutationRate, startingFuelKg, drivers: exportAllDrivers() };
+}
+
+function onIslandMessage(worker: Worker, message: any): void {
+  if (message?.type !== 'MODELS' || message.version !== islandVersion) return;
+  if (message.busyMs > 0) islandRates.set(worker, message.steps / (message.busyMs / 1000));
+  if (raceState !== 'IDLE') return;
+  islandsAdopted += mergeBetterDrivers(population, message.drivers);
+  worker.postMessage({ type: 'MODELS', version: islandVersion, drivers: exportAllDrivers() });
+}
+
+function setIslandCount(count: number): void {
+  const target = Math.max(0, Math.min(maxIslands, Math.round(Number(count) || 0)));
+  while (islands.length > target) { const worker = islands.pop()!; worker.terminate(); islandRates.delete(worker); }
+  if (islands.length < target) {
+    const setup = islandSetupMessage();
+    while (islands.length < target) {
+      const worker = new Worker(new URL('./island.worker.ts', import.meta.url), { type: 'module' });
+      worker.onmessage = (event: MessageEvent) => onIslandMessage(worker, event.data);
+      worker.postMessage(setup);
+      islands.push(worker);
+    }
+  }
+  if (!islands.length) islandsAdopted = 0;
+  islandsRunning = false;
+  updateIslandRun();
+}
+
+/** New track, inputs, topology or reset learning: islands restart from the main field. */
+function resetIslands(): void {
+  if (!islands.length) return;
+  islandVersion++;
+  islandRates.clear();
+  const setup = islandSetupMessage();
+  for (const worker of islands) worker.postMessage(setup);
+}
+
+function configureIslands(): void {
+  for (const worker of islands) worker.postMessage({ type: 'CONFIG', driverPressure, mutationRate, startingFuelKg });
+}
+
+/** Islands train only while the main field trains: not when paused, in qualifying or in a race. */
+function updateIslandRun(): void {
+  const run = islands.length > 0 && !isPaused && raceState === 'IDLE';
+  if (run === islandsRunning) return;
+  islandsRunning = run;
+  for (const worker of islands) worker.postMessage({ type: 'RUN', running: run });
+}
+
+function islandStatus(): IslandStatus {
+  let stepsPerSecond = 0;
+  for (const rate of islandRates.values()) stepsPerSecond += rate;
+  return { count: islands.length, max: maxIslands, running: islandsRunning, stepsPerSecond: Math.round(stepsPerSecond), adopted: islandsAdopted };
+}
 
 function serializeCar(car: Car, ctrl?: CarControl, isHeadless: boolean = false): SerializedCar {
   let delta: CheckpointDelta | null = car.lastCheckpointDelta ? { ...car.lastCheckpointDelta } : null;
@@ -572,7 +654,8 @@ function createSnapshot(): SimSnapshot {
     hasQualifyingGrid: qualifyingGrid !== null,
     computeProfile: currentProfile,
     isHeadless: currentProfileConfig.headless,
-    topology: currentTopology
+    topology: currentTopology,
+    islands: islandStatus()
   };
 }
 
@@ -819,6 +902,7 @@ function runSimulationSteps(): void {
 // Background simulation ticker: targets configured snapshot dispatch rate
 function simLoop() {
   runSimulationSteps();
+  updateIslandRun();
   const now = performance.now();
   const interval = currentProfileConfig.snapshotIntervalMs;
   // Allow a 3ms margin of tolerance to prevent timer jitter skipping 60Hz/30Hz ticks
@@ -833,12 +917,23 @@ function simLoop() {
 
 setInterval(simLoop, 16);
 
+/** Messages after which islands restart from the main field, or only take new settings. */
+const ISLAND_RESET_MESSAGES = new Set(['SET_TOPOLOGY', 'SET_TRACK_WIDTH', 'SET_PRESET', 'SET_CUSTOM_TRACK', 'SET_LIDAR_COUNT',
+  'RESET_POPULATION', 'RESET_SINGLE_BRAIN', 'RESET_BEST_TIMES', 'LOAD_BRAIN', 'LOAD_ALL_MODELS']);
+const ISLAND_CONFIG_MESSAGES = new Set(['SET_DRIVER_PRESSURE', 'SET_MUTATION', 'SET_FUEL']);
+
 // Message handling from Main Thread
 self.onmessage = (e: MessageEvent) => {
   const data = e.data;
   if (!data) return;
 
   switch (data.type) {
+    case 'SET_ISLANDS': {
+      setIslandCount(data.count);
+      lastSnapshotTime = 0;
+      break;
+    }
+
     case 'INIT': {
       driverPressure = normalizePressure(data.driverPressure ?? 0);
       population.setDriverPressure(driverPressure, true);
@@ -1249,31 +1344,7 @@ self.onmessage = (e: MessageEvent) => {
     }
 
     case 'GET_ALL_MODELS': {
-      const driversData = population.cars.map((car, idx) => {
-        const record = population.teamRecords[idx];
-        return {
-          driverName: car.driverName,
-          teamName: record?.teamName || '',
-          color: car.color,
-          carName: record?.carName || '',
-          brain: car.brain ? JSON.parse(car.brain.toJSON()) : null,
-          bestBrain: record?.bestBrain ? JSON.parse(record.bestBrain.toJSON()) : null,
-          bestLapTime: record?.bestLapTime || car.bestLapTime,
-          bestLapPressure: record?.bestLapPressure ?? car.bestLapPressure,
-          bestLapSplits: record?.bestLapSplits ? [...record.bestLapSplits] : (car.bestLapSplits ? [...car.bestLapSplits] : null),
-          bestFitness: record?.bestFitness || car.fitness,
-          lastLapTime: record?.lastLapTime ?? car.lastLapTime,
-          pace: car.pace.toJSON(),
-          ers: Math.round(car.ersEnergy),
-          tyres: { tempFront: car.tyreTempFront, tempRear: car.tyreTempRear, wearFront: car.tyreWearFront, wearRear: car.tyreWearRear },
-          lineNet: car.lineNet ? car.lineNet.toJSON() : null,
-          lapsCount: record?.lapsCount ?? 0,
-          avgSpeed: record?.avgSpeed ?? 0,
-          topSpeed: record?.topSpeed ?? 0,
-          baseBrakingAggression: car.baseBrakingAggression,
-          brakingAggression: car.brakingAggression,
-        };
-      });
+      const driversData = population.cars.map((_, idx) => exportDriver(population, idx));
 
       self.postMessage({
         type: 'ALL_MODELS_RESULT',
@@ -1341,53 +1412,7 @@ self.onmessage = (e: MessageEvent) => {
                 car.brakingAggression = driverData.baseBrakingAggression;
               }
             } else if (driverData) {
-              if (driverData.brain && car.brain) {
-                car.brain.fromJSON(JSON.stringify(driverData.brain));
-                car.safeBrainBackup = car.brain.clone();
-              }
-              if (driverData.bestBrain && record) {
-                if (!record.bestBrain && car.brain) {
-                  record.bestBrain = car.brain.clone();
-                }
-                record.bestBrain?.fromJSON(JSON.stringify(driverData.bestBrain));
-              }
-              if (typeof driverData.baseBrakingAggression === 'number') {
-                car.baseBrakingAggression = driverData.baseBrakingAggression;
-                car.brakingAggression = driverData.brakingAggression || driverData.baseBrakingAggression;
-              }
-              if (typeof driverData.bestLapTime === 'number') {
-                car.bestLapTime = driverData.bestLapTime;
-                car.bestLapPressure = normalizePressure(driverData.bestLapPressure ?? 0);
-                car.safeBrainPressure = car.bestLapPressure;
-                if (record) record.bestLapPressure = car.bestLapPressure;
-                if (record) record.bestLapTime = driverData.bestLapTime;
-              }
-              if (Array.isArray(driverData.bestLapSplits) && driverData.bestLapSplits.length === 4) {
-                car.bestLapSplits = [...driverData.bestLapSplits];
-                if (record) record.bestLapSplits = [...driverData.bestLapSplits];
-              } else {
-                car.bestLapSplits = [null, null, null, null];
-                if (record) record.bestLapSplits = [null, null, null, null];
-              }
-              if (typeof driverData.bestFitness === 'number' && record) {
-                record.bestFitness = driverData.bestFitness;
-              }
-              if (driverData.pace) car.pace.fromJSON(driverData.pace);
-              if (typeof driverData.ers === 'number') car.ersEnergy = Math.max(0, Math.min(Car.ERS_CAPACITY, driverData.ers));
-              if (driverData.tyres) {
-                const t = driverData.tyres, num = (v: unknown, d: number) => typeof v === 'number' && Number.isFinite(v) ? v : d;
-                car.tyreTempFront = num(t.tempFront, 85); car.tyreTempRear = num(t.tempRear, 85);
-                car.tyreWearFront = Math.max(0, Math.min(1, num(t.wearFront, 0))); car.tyreWearRear = Math.max(0, Math.min(1, num(t.wearRear, 0)));
-              }
-              if (driverData.lineNet && car.lineNet) car.lineNet.fromJSON(driverData.lineNet);
-              // Classification columns: keep the last lap, lap count and speeds with the best time.
-              if (typeof driverData.lastLapTime === 'number' && driverData.lastLapTime > 0) {
-                car.lastLapTime = driverData.lastLapTime;
-                if (record) record.lastLapTime = driverData.lastLapTime;
-              }
-              if (record && typeof driverData.lapsCount === 'number') record.lapsCount = driverData.lapsCount;
-              if (record && typeof driverData.avgSpeed === 'number') record.avgSpeed = driverData.avgSpeed;
-              if (record && typeof driverData.topSpeed === 'number') record.topSpeed = driverData.topSpeed;
+              applyDriverModel(car, record, driverData);
             }
           }
           if (payload.generation) population.generation = payload.generation;
@@ -1424,4 +1449,6 @@ self.onmessage = (e: MessageEvent) => {
       break;
     }
   }
+  if (ISLAND_RESET_MESSAGES.has(data.type)) resetIslands();
+  else if (ISLAND_CONFIG_MESSAGES.has(data.type)) configureIslands();
 };

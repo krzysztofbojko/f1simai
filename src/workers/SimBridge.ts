@@ -171,6 +171,11 @@ export class SimBridge {
     return this.currentTopology;
   }
 
+  /** Extra workers training independent fields; faster driver models flow back to the main field. */
+  public setIslands(count: number): void {
+    this.worker?.postMessage({ type: 'SET_ISLANDS', count });
+  }
+
   public setPaused(isPaused: boolean): void {
     this.worker?.postMessage({ type: 'SET_PAUSED', isPaused });
   }

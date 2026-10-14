@@ -13,6 +13,7 @@ Przeglądarkowy symulator wyścigów 2D w TypeScript i Vite. Dwadzieścia bolid�
 - Rzadkie błędy hamowania lub skrętu AI w treningu i wyścigu; ochrona rekordowych sieci przed oceną takich okrążeń.
 - Sterowanie gracza: WASD lub strzałki; P zgłasza postój.
 - Profile obliczeniowe, pauza i przyspieszenie symulacji.
+- Wyspy treningowe (suwak w ustawieniach): dodatkowe Web Workery trenują w tle własne stawki na tym samym torze, na wolnych rdzeniach (np. rdzenie wydajnościowe Apple M1). Co 30 s czasu symulacji kierowca przejmuje model z wyspy tylko przy szybszym czystym okrążeniu, tej samej presji i tych samych wejściach sieci; przerwane tym okrążenie nie ocenia modeli. Wyspy stoją przy pauzie, w kwalifikacjach i w wyścigu. GPU nie jest używane: sieci są zbyt małe (ok. 2% czasu kroku), by zyskać na przesyłaniu danych do karty.
 
 ## Fizyka
 
@@ -37,6 +38,7 @@ Vite wyświetli lokalny adres aplikacji, domyślnie `http://localhost:5173`.
 npm test               # regresje fizyki, wyścigu, treningu, poboczy i pomyłek
 npm run test:learning  # ochrona wiedzy AI i zmiany generacji
 npm run test:qualifying # zasady Q1–Q3, siatka startowa
+npm run test:islands   # wyspy treningowe: przenoszenie toru i reguły wymiany modeli
 node scripts/bench-laptime.mjs 1800 145,456,789 # pomiar postępu nauki (ok. 15 min)
 npm run bench:step     # przepustowość fizyki: µs na krok i skrót stanu (do porównań po optymalizacjach)
 npm run test:runoff    # pobocza, bandy, powrót na asfalt i pomyłki AI

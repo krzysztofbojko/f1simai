@@ -390,6 +390,23 @@ class App {
         }
       }
 
+      if (snapshot.islands) {
+        const islands = snapshot.islands;
+        const slider = document.getElementById('slider-islands') as HTMLInputElement | null;
+        if (slider && slider.max !== String(islands.max)) slider.max = String(islands.max);
+        if (slider && document.activeElement !== slider && slider.value !== String(islands.count)) {
+          slider.value = String(islands.count);
+          const label = document.getElementById('val-islands');
+          if (label) label.textContent = String(islands.count);
+        }
+        const status = document.getElementById('islands-status');
+        if (status) {
+          status.textContent = islands.count === 0 ? 'Wyłączone: trening na jednym rdzeniu.'
+            : !islands.running ? `${islands.count} wysp wstrzymanych (pauza, kwalifikacje lub wyścig).`
+            : `${islands.count} wysp · ${islands.stepsPerSecond > 0 ? `${Math.round(islands.stepsPerSecond / 60)}× czasu rzeczywistego łącznie` : 'rozgrzewka…'} · przejęte modele: ${islands.adopted}`;
+        }
+      }
+
       if (snapshot.computeProfile) {
         const selectProfile = document.getElementById('select-compute-profile') as HTMLSelectElement | null;
         if (selectProfile && document.activeElement !== selectProfile && selectProfile.value !== snapshot.computeProfile) {
@@ -1008,6 +1025,15 @@ class App {
         const profile = selectComputeProfile.value as ComputeProfile;
         this.bridge.setComputeProfile(profile);
       });
+    }
+
+    // Training islands on spare cores
+    const islandsSlider = document.getElementById('slider-islands') as HTMLInputElement | null;
+    const valIslands = document.getElementById('val-islands');
+    if (islandsSlider) {
+      islandsSlider.max = String(Math.max(0, Math.min(15, this.bridge.cpuCores - 2)));
+      islandsSlider.addEventListener('input', () => { if (valIslands) valIslands.textContent = islandsSlider.value; });
+      islandsSlider.addEventListener('change', () => this.bridge.setIslands(parseInt(islandsSlider.value, 10)));
     }
 
     // Model export & import
