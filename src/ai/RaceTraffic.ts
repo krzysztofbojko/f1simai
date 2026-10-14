@@ -1,4 +1,3 @@
-import { random } from '../math/Random';
 import { Car } from '../physics/Car';
 import { Track } from '../track/Track';
 import { Vector2 } from '../math/Vector2';
@@ -20,23 +19,16 @@ export function gap(track: Track, from: Vector2, to: Vector2): number {
   return ((d + total / 2) % total + total) % total - total / 2;
 }
 
-const blockedWreckTime = new WeakMap<Car, number>();
-/** Normally clear after leader laps; marshals also clear a completely blocked field. */
+/** Marshals clear a wreck this many seconds of simulation time after the accident. */
+export const WRECK_CLEAR_SECONDS = 15;
+
+/** A crashed car stays on track as a local hazard under yellow flags, then marshals remove it. */
 export function updateRaceSafety(cars: Car[], track: Track, dt = 0): void {
-  const active = cars.filter(c => c.isAlive && !c.isFinishedRace && !c.isPitting);
-  const stoppedField = active.length > 0 && active.every(c => c.speed < 1);
   const elapsed = Number.isFinite(dt) ? Math.max(0, dt) : 0;
-  const leaderLap = Math.max(0, ...cars.map(c => c.raceLapsCompleted));
   for (const car of cars) {
-    if (car.isAlive || car.wreckRemoved) { blockedWreckTime.delete(car); continue; }
-    const blocksQueue = stoppedField && active.some(c => {
-      const distance = gap(track, c.pos, car.pos);
-      return distance >= -5.5 && distance <= 60;
-    });
-    const blockedTime = blocksQueue ? (blockedWreckTime.get(car) ?? 0) + elapsed : 0;
-    blockedWreckTime.set(car, blockedTime);
-    if (car.wreckClearLap === null) car.wreckClearLap = leaderLap + (random() < .5 ? 1 : 2);
-    if (leaderLap >= car.wreckClearLap || blockedTime >= 30) car.wreckRemoved = true;
+    if (car.isAlive || car.wreckRemoved) continue;
+    car.wreckAge += elapsed;
+    if (car.wreckAge >= WRECK_CLEAR_SECONDS) car.wreckRemoved = true;
   }
   const wrecks = cars.filter(c => !c.isAlive && !c.wreckRemoved && !c.isPitting && !c.isFinishedRace);
   for (const car of cars) {

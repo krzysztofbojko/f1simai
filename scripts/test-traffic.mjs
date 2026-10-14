@@ -71,15 +71,15 @@ try {
  trainingRear.respawnTimer=0;
  training.update(1/60,circuit);
  assert.equal(trainingRear.isAlive,false,'respawn placed a car in an occupied slot');
- // Wrecks produce a local yellow and disappear only after one or two leader laps.
+ // Wrecks produce a local yellow and are cleared after a fixed time (WRECK_CLEAR_SECONDS).
  a=car(150,0,35);b=car(190,0,0);b.isAlive=false;b.eliminationReason='car';
- updateRaceSafety([a,b],circuit);assert.equal(a.yellowFlag,true);assert.ok([1,2].includes(b.wreckClearLap));
+ updateRaceSafety([a,b],circuit);assert.equal(a.yellowFlag,true);assert.equal(b.wreckAge,0);
  planRaceLine(a,[a,b],circuit,1/60);assert.notEqual(a.raceLineOffset,0,'yellow flag must allow bypassing a wreck');assert.equal(a.overtakingTargetName,'');
  ctrl=avoidTraffic(a,[a,b],{throttle:1,brake:0,steer:0});assert.equal(ctrl.throttle,0);assert.ok(ctrl.brake>0);
  const rival=car(172,3,20);planRaceLine(a,[a,rival,b],circuit,1/60);assert.equal(a.overtakingTargetName,'','live overtaking under yellow');
  const far=car(400,0,20);updateRaceSafety([a,b,far],circuit);assert.equal(far.yellowFlag,false,'yellow must stay local');
- a.raceLapsCompleted=b.wreckClearLap-1;updateRaceSafety([a,b],circuit);assert.equal(b.wreckRemoved,false);
- a.raceLapsCompleted=b.wreckClearLap;updateRaceSafety([a,b],circuit);assert.equal(b.wreckRemoved,true);assert.equal(a.yellowFlag,false);
+ for(let t=0;t<14.9*60;t++)updateRaceSafety([a,b],circuit,1/60);assert.equal(b.wreckRemoved,false,'wreck stays until the marshals arrive');
+ for(let t=0;t<0.2*60;t++)updateRaceSafety([a,b],circuit,1/60);assert.equal(b.wreckRemoved,true,'wreck cleared after about 15 s');assert.equal(a.yellowFlag,false);
  const after=avoidTraffic(a,[a,b],{throttle:1,brake:0,steer:0});assert.equal(after.brake,0,'removed wreck remains an obstacle');
  // Both overtaking corridors occupied: wait instead of cutting into another car.
  const waiting=car(150,0,25), slow=car(172,0,18), left=car(160,3.2,18), right=car(160,-3.2,18);
@@ -122,17 +122,16 @@ try {
    assert.ok(yellowQueue.every(c=>c.isAlive),'yellow queue crashed while bypassing');
  }
  assert.ok(yellowQueue.every(c=>c.pos.x>280),'yellow queue failed to continue past the wreck: '+JSON.stringify(yellowQueue.map(c=>[c.pos.x,c.pos.y,c.speed,c.raceLineOffset])));
- // A fully blocked field cannot complete the laps needed for normal wreck clearance.
- // The fallback uses simulation seconds, resets when traffic moves and never clears live cars.
+ // Marshals clear a wreck after WRECK_CLEAR_SECONDS of simulation time, independent of the step size,
+ // and never remove a live car.
  for(const dt of [1/30,1/60,1/120]) {
    const waiting=car(210,0), obstruction=car(220,0);obstruction.isAlive=false;
-   for(let i=0;i<20/dt;i++) updateRaceSafety([waiting,obstruction],circuit,dt);
-   assert.equal(obstruction.wreckRemoved,false);
-   waiting.speed=2;updateRaceSafety([waiting,obstruction],circuit,dt);waiting.speed=0;
-   for(let i=0;i<29/dt;i++) updateRaceSafety([waiting,obstruction],circuit,dt);
-   assert.equal(obstruction.wreckRemoved,false,'movement must reset blocked-field timer');
-   for(let i=0;i<2/dt;i++) updateRaceSafety([waiting,obstruction],circuit,dt);
-   assert.equal(obstruction.wreckRemoved,true,'blocked field cannot wait for an impossible lap');
+   for(let i=0;i<Math.round(14.5/dt);i++) updateRaceSafety([waiting,obstruction],circuit,dt);
+   assert.equal(obstruction.wreckRemoved,false,'wreck cleared too early at dt '+dt);
+   assert.equal(waiting.yellowFlag,true);
+   for(let i=0;i<Math.round(1/dt);i++) updateRaceSafety([waiting,obstruction],circuit,dt);
+   assert.equal(obstruction.wreckRemoved,true,'wreck not cleared after ~15 s at dt '+dt);
+   assert.equal(waiting.wreckRemoved,false,'a live car is never cleared');
    assert.ok(waiting.isAlive);assert.equal(waiting.yellowFlag,false);
    waiting.currentCheckpointIdx=3;
    for(let i=0;i<120;i++) waiting.updatePhysics(avoidTraffic(waiting,[waiting,obstruction],{throttle:1,brake:0,steer:0},circuit),1/60,circuit);
@@ -167,6 +166,6 @@ try {
    checked.push({seed:initialSeed,laps:pop.teamRecords.reduce((sum,r)=>sum+r.lapsCount,0)});
  }
  console.log('120-second training runs without overlapping rendered bodies:',JSON.stringify(checked));
- console.log('Race traffic: actual pass completed, lateral separation',maxOffset.toFixed(2),'m; yellow flags and lap-based clearance passed.');
+ console.log('Race traffic: actual pass completed, lateral separation',maxOffset.toFixed(2),'m; yellow flags and timed wreck clearance passed.');
  console.log('Traffic regressions passed: swept rear-end/crossing collisions, light contact, separation, energy, passing and AI braking.');
 } finally {await rm(dir,{recursive:true,force:true});}

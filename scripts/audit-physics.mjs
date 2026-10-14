@@ -224,8 +224,11 @@ try {
       let safetySnapshot=messages.filter(m=>m.type==='SNAPSHOT').at(-1).snapshot;
       assert.equal(safetySnapshot.cars[2].yellowFlag,true);
       assert.equal(safetySnapshot.cars[0].wreckRemoved,false);
-      survivor.raceLapsCompleted=2;
-      time+=20; tick();
+      // Marshals clear the wrecks about 15 s of simulation time after the crash. The idle survivor
+      // is kept in the race (no 10 s no-progress retirement), so the session keeps running.
+      for(let i=0;i<500;i++) { time+=20; tick(); survivor.framesSinceLastCheckpoint=0; }
+      assert.equal(messages.filter(m=>m.type==='SNAPSHOT').at(-1).snapshot.cars[0].wreckRemoved,false,'wreck stays for 10 s');
+      for(let i=0;i<300;i++) { time+=20; tick(); survivor.framesSinceLastCheckpoint=0; }
       safetySnapshot=messages.filter(m=>m.type==='SNAPSHOT').at(-1).snapshot;
       assert.equal(safetySnapshot.cars[0].wreckRemoved,true);
       assert.equal(safetySnapshot.cars[1].wreckRemoved,true);

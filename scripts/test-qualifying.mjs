@@ -68,6 +68,32 @@ try {
   assert.equal(new Set(q.grid()).size, 20, 'grid holds every car once');
   assert.equal(q.grid()[0], a);
 
+  // 2b. No valid lap in Q1 or Q2 means no place in the next session, even beyond the usual five.
+  const strict = new Qualifying(drivers, { sessionSeconds: [100, 100, 100], breakSeconds: 5 });
+  // Q1: 12 cars set a time; 8 never complete a timed lap (crash, deleted laps).
+  drivers.slice(0, 12).forEach((d, i) => run(strict, d.color, [[50], [80 + i * 0.1]]));
+  drivers.slice(12).forEach(d => run(strict, d.color, [[50], [79, false]]));
+  assert.equal(strict.projectedEliminations(), 8, 'live cut line counts every car without a time');
+  const pitIn = q => q.participants().forEach(color => q.lapCompleted(color, 99, false));
+  toFlag(strict); pitIn(strict); closeSession(strict);
+  assert.equal(strict.participants().length, 12, 'only cars with a Q1 time reach Q2');
+  assert.ok(drivers.slice(12).every(d => !strict.participants().includes(d.color)));
+  assert.deepEqual(strict.standings().slice(12).map(s => s.eliminatedIn), Array(8).fill(1));
+  toNextSession(strict);
+  // Q2: 6 of 12 set a time; six do not (among them the fastest in Q1), one more than the usual five out.
+  const q2 = strict.participants();
+  q2.slice(6).forEach((color, i) => run(strict, color, [[50], [70 + i * 0.1]]));
+  q2.slice(0, 6).forEach(color => strict.retire(color));
+  toFlag(strict); pitIn(strict); closeSession(strict);
+  assert.equal(strict.participants().length, 6, 'a car without a Q2 time does not reach Q3, whatever its Q1 pace');
+  assert.ok(q2.slice(0, 6).every(color => !strict.participants().includes(color)));
+  assert.deepEqual(strict.standings().map(s => s.position), Array.from({ length: 20 }, (_, i) => i + 1));
+  // Nobody with a time: qualifying ends instead of running an empty session.
+  const empty = new Qualifying(drivers.slice(0, 4), { sessionSeconds: [5, 5, 5], breakSeconds: 1 });
+  toFlag(empty); pitIn(empty); closeSession(empty);
+  assert.ok(empty.isFinished, 'no car with a Q1 time finishes qualifying');
+  assert.equal(new Set(empty.grid()).size, 4, 'the grid still holds every car');
+
   // 3. A lap started before the flag counts; the overtime limit closes a session with stragglers.
   const late = new Qualifying(drivers.slice(0, 4), { sessionSeconds: [10, 10, 10], breakSeconds: 1 });
   late.lapCompleted('#c0', 1, true);

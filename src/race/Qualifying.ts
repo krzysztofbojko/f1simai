@@ -7,7 +7,8 @@
  * - a lap with a track-limits violation is deleted;
  * - a lap started before the chequered flag may be completed; the car then returns to the pits;
  * - equal times are separated by who set the time first;
- * - cars without a time are classified behind every car with one;
+ * - cars without a time are classified behind every car with one; after Q1 and Q2 a car without
+ *   a valid lap in that session is always knocked out, even beyond the usual five;
  * - the 107% rule is reported from Q1 (stewards admit the car, it starts from the back).
  *
  * The class is pure bookkeeping: the simulation tells it about time, laps and retirements and
@@ -96,6 +97,14 @@ export class Qualifying {
   /** Number of cars knocked out at the end of the given session (0-based; Q3 eliminates nobody). */
   eliminatedAfter(session: number): number {
     return this.eliminatedPerSession[session] ?? 0;
+  }
+
+  /** Cars that would be knocked out if the current session ended now: the slowest quota, or more without a time. */
+  projectedEliminations(): number {
+    if (this.session >= 2 || this.phase === 'finished') return 0;
+    const active = this.entries.filter(e => e.eliminatedIn === 0);
+    const withoutTime = active.filter(e => e.times[this.session] === null).length;
+    return Math.min(active.length, Math.max(this.eliminatedAfter(this.session), withoutTime));
   }
 
   /** Colours of the cars that take part in the current session. */
@@ -240,14 +249,15 @@ export class Qualifying {
     this.running.clear();
     if (this.session === 0) this.q1Best = this.sessionFastest(0);
     const ranked = this.rankActive();
-    const out = this.eliminatedAfter(this.session);
+    // Cars without a time rank last, so the eliminated block is always the tail of the order.
+    const out = this.projectedEliminations();
     if (this.session < 2 && out > 0) {
       ranked.slice(ranked.length - out).forEach((e, i) => {
         e.eliminatedIn = this.session + 1;
         e.frozenPosition = ranked.length - out + i + 1;
       });
     }
-    if (this.session >= 2) {
+    if (this.session >= 2 || this.participants().length === 0) {
       ranked.forEach((e, i) => { e.frozenPosition = i + 1; });
       this.phase = 'finished';
       this.clock = 0;

@@ -340,7 +340,8 @@ export class Car {
   public yellowFlag = false;
   public trafficWaiting = false;
   public wreckRemoved = false;
-  public wreckClearLap: number | null = null;
+  /** Seconds since the car became a wreck in a race or qualifying session. */
+  public wreckAge = 0;
   public offRoadStillTime = 0;
   /** Continuous time with the car's surface off the asphalt. */
   public offTrackTime = 0;
@@ -468,7 +469,7 @@ export class Car {
     this.yellowFlag = false;
     this.trafficWaiting = false;
     this.wreckRemoved = false;
-    this.wreckClearLap = null;
+    this.wreckAge = 0;
     this.offRoadStillTime = 0;
     this.offTrackTime = 0;
     this.lapExcursion = false;

@@ -104,6 +104,8 @@ class App {
   private static readonly AUTOSAVE_KEY = 'f1_autosave_models';
   private static readonly LEADERBOARD_ROWS = 10;
   private autosaveMarker = '';
+  /** Bumped by the clean slate, so an autosave read before it is never written back. */
+  private learningEpoch = 0;
 
   /** Training results (best laps, brains, generation) survive page reloads for the same circuit. */
   private setupAutosave(): void {
@@ -125,8 +127,9 @@ class App {
       if (!this.bridge.isReady) return;
       if (!restored) { await tryRestore(); return; }
       try {
+        const epoch = this.learningEpoch;
         const models = await this.bridge.getAllModels();
-        if (!models || !Array.isArray(models.drivers)) return;
+        if (!models || !Array.isArray(models.drivers) || epoch !== this.learningEpoch) return;
         const marker = `${models.generation}|${models.globalBestLap}|${models.drivers.map((d: any) => `${d.bestLapTime}/${d.pace?.margin}/${d.lineNet?.bestTime}`).join(',')}`;
         if (marker === this.autosaveMarker) return;
         const write = (m: any) => localStorage.setItem(App.AUTOSAVE_KEY, JSON.stringify({ circuit: circuit(), savedAt: Date.now(), models: m }));
@@ -763,6 +766,8 @@ class App {
       }
     });
 
+    document.getElementById('btn-clear-learning')?.addEventListener('click', () => { void this.clearLearning(); });
+
     const btnRefuel = document.getElementById('btn-refuel')!;
     btnRefuel.addEventListener('click', () => {
       for (const car of this.population.cars) {
@@ -889,9 +894,13 @@ class App {
     // Sliders
     const widthSlider = document.getElementById('slider-track-width') as HTMLInputElement;
     const widthLabel = document.getElementById('val-track-width')!;
-    widthSlider.addEventListener('input', () => {
+    // Rebuilding the track retrains the seed networks (~2 s): dragging only moves the label,
+    // releasing the slider applies the width once.
+    widthSlider.addEventListener('input', () => { widthLabel.textContent = widthSlider.value; });
+    widthSlider.addEventListener('change', () => {
       const previousWidth = this.trackWidth;
       this.trackWidth = parseInt(widthSlider.value, 10);
+      if (this.trackWidth === previousWidth) return;
       widthLabel.textContent = this.trackWidth.toString();
       const dims = Car.getDimensionsForTrackWidth(this.trackWidth);
       if (this.track.points.length > 0) {
@@ -958,8 +967,11 @@ class App {
     // LiDAR ray count slider
     const lidarSlider = document.getElementById('slider-lidar-count') as HTMLInputElement;
     const valLidar = document.getElementById('val-lidar-count')!;
-    lidarSlider.addEventListener('input', () => {
+    // A new ray count retrains the seed networks: applied once on release, not on every drag step.
+    lidarSlider.addEventListener('input', () => { valLidar.textContent = lidarSlider.value; });
+    lidarSlider.addEventListener('change', () => {
       const count = parseInt(lidarSlider.value, 10);
+      if (count === this.population.rayCount) return;
       valLidar.textContent = count.toString();
       this.population.setRayCount(count, this.track);
       this.bridge.setLidarCount(count);
@@ -1476,9 +1488,43 @@ class App {
     }
   }
 
+  /** Clean slate: forget everything the drivers learned, here, in the worker and in the autosave. */
+  public async clearLearning(): Promise<void> {
+    if (!confirm('Czysta tablica: wszyscy kierowcy zapomną wszystko, czego się nauczyli (sieci, linie przejazdu, tempo, rekordy, generacje), a autozapis zostanie usunięty. Trwająca sesja zostanie przerwana. Tor i ustawienia zostają.\n\nTej operacji nie można cofnąć. Kontynuować?')) return;
+    this.learningEpoch++;
+    const forgetAutosave = () => { try { localStorage.removeItem(App.AUTOSAVE_KEY); } catch {} this.autosaveMarker = ''; };
+    forgetAutosave();
+    const previous = this.population, selectedColor = this.selectedCar?.color;
+    this.population = new Population(Population.MAX_CARS, this.track, previous.rayCount, previous.topology);
+    this.population.setDriverPressure(this.driverPressure, true);
+    this.population.mutationRate = previous.mutationRate;
+    this.population.startingFuelKg = previous.startingFuelKg;
+    this.selectedCar = selectedColor ? this.population.cars.find(c => c.color === selectedColor) || null : null;
+    try { await this.bridge.clearLearning(); }
+    catch (e) { console.warn('Czyszczenie nauki w Workerze nie powiodło się:', e); }
+    // An autosave started before the reset may have finished meanwhile.
+    forgetAutosave();
+    this.clearTimingDisplay();
+    const btn = document.getElementById('btn-clear-learning');
+    if (btn) {
+      btn.classList.add('highlight');
+      setTimeout(() => btn.classList.remove('highlight'), 500);
+    }
+  }
+
   public resetBestTimes(): void {
     this.bridge.resetBestTimes();
     this.population.resetBestTimes();
+    this.clearTimingDisplay();
+    const btn = document.getElementById('btn-reset-best-times');
+    if (btn) {
+      btn.classList.add('highlight');
+      setTimeout(() => btn.classList.remove('highlight'), 500);
+    }
+  }
+
+  /** Blank lap times, splits and standings in the UI until the next snapshot fills them. */
+  private clearTimingDisplay(): void {
     if (this.playerCar) {
       this.playerCar.bestLapTime = null;
       this.playerCar.lastLapTime = null;
@@ -1510,12 +1556,6 @@ class App {
         deltaEl.className = 'sec-delta';
       }
       if (boxEl) boxEl.style.borderColor = '#232932';
-    }
-
-    const btn = document.getElementById('btn-reset-best-times');
-    if (btn) {
-      btn.classList.add('highlight');
-      setTimeout(() => btn.classList.remove('highlight'), 500);
     }
 
     this.updateHUD();

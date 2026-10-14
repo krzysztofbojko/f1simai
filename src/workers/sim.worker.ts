@@ -19,7 +19,7 @@ export interface QualifyingSnapshot {
   session: number;
   phase: QualifyingPhase;
   timeLeft: number;
-  /** Cars knocked out at the end of this session. */
+  /** Cars knocked out if the session ended now: the slowest five, or more when cars have no time. */
   eliminatedAfter: number;
   standings: QualifyingStanding[];
 }
@@ -648,7 +648,7 @@ function createSnapshot(): SimSnapshot {
       session: qualifying.session,
       phase: qualifying.phase,
       timeLeft: Math.round(qualifying.timeLeft * 10) / 10,
-      eliminatedAfter: qualifying.eliminatedAfter(qualifying.session),
+      eliminatedAfter: qualifying.projectedEliminations(),
       standings: qualifying.standings(),
     } : null,
     hasQualifyingGrid: qualifyingGrid !== null,
@@ -919,7 +919,7 @@ setInterval(simLoop, 16);
 
 /** Messages after which islands restart from the main field, or only take new settings. */
 const ISLAND_RESET_MESSAGES = new Set(['SET_TOPOLOGY', 'SET_TRACK_WIDTH', 'SET_PRESET', 'SET_CUSTOM_TRACK', 'SET_LIDAR_COUNT',
-  'RESET_POPULATION', 'RESET_SINGLE_BRAIN', 'RESET_BEST_TIMES', 'LOAD_BRAIN', 'LOAD_ALL_MODELS']);
+  'RESET_POPULATION', 'CLEAR_LEARNING', 'RESET_SINGLE_BRAIN', 'RESET_BEST_TIMES', 'LOAD_BRAIN', 'LOAD_ALL_MODELS']);
 const ISLAND_CONFIG_MESSAGES = new Set(['SET_DRIVER_PRESSURE', 'SET_MUTATION', 'SET_FUEL']);
 
 // Message handling from Main Thread
@@ -1142,6 +1142,37 @@ self.onmessage = (e: MessageEvent) => {
         car.isPitting = false;
         car.wantsToPit = false;
       });
+      break;
+    }
+
+    case 'CLEAR_LEARNING': {
+      // Clean slate: a population exactly as at start-up (seed networks only, no records,
+      // lines, pace or generations). Track and user settings are kept; any session ends.
+      raceState = 'IDLE';
+      qualifying = null;
+      qualifyingGrid = null;
+      qualiRelease.clear();
+      raceWinner = null;
+      frozenRaceStandings = null;
+      sessionBestSplits = [null, null, null, null];
+      islandsAdopted = 0;
+      population = new Population(Population.MAX_CARS, track, rayCount, currentTopology);
+      attachPopulationHooks();
+      population.setDriverPressure(driverPressure, true);
+      population.mutationRate = mutationRate;
+      population.startingFuelKg = startingFuelKg;
+      if (playerCar) {
+        playerCar.isRaceMode = false;
+        playerCar.reset(track.startPosition, track.startAngle, true);
+        playerCar.updateDimensionsForTrackWidth(trackWidth);
+        playerCar.bestLapTime = null;
+        playerCar.lastLapTime = null;
+        playerCar.bestLapSplits = [null, null, null, null];
+        playerCar.currentLapSplits = [null, null, null, null];
+        playerCar.lastCheckpointDelta = null;
+      }
+      lastSnapshotTime = 0;
+      self.postMessage({ type: 'CLEAR_LEARNING_DONE', requestId: data.requestId });
       break;
     }
 

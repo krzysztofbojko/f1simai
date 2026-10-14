@@ -21,6 +21,7 @@ export class SimBridge {
   private pendingLoadBrain: PendingRequest<boolean>[] = [];
   private pendingAllModels: PendingRequest<any>[] = [];
   private pendingLoadAllModels: PendingRequest<boolean>[] = [];
+  private pendingClearLearning: PendingRequest<boolean>[] = [];
   private nextRequestId = 1;
   public onTrackError?: (message: string) => void;
   public onSnapshotCallback?: (snapshot: SimSnapshot) => void;
@@ -68,7 +69,7 @@ export class SimBridge {
 
   private rejectPending(reason: unknown): void {
     const error = reason instanceof Error ? reason : new Error('SimWorker error');
-    const queues = [this.pendingBestBrain, this.pendingLoadBrain, this.pendingAllModels, this.pendingLoadAllModels];
+    const queues = [this.pendingBestBrain, this.pendingLoadBrain, this.pendingAllModels, this.pendingLoadAllModels, this.pendingClearLearning];
     for (const queue of queues) {
       while (queue.length) {
         const pending = queue.shift()!;
@@ -133,6 +134,10 @@ export class SimBridge {
 
           case 'LOAD_ALL_MODELS_ERROR':
             this.resolveNext(this.pendingLoadAllModels, false, data.requestId);
+            break;
+
+          case 'CLEAR_LEARNING_DONE':
+            this.resolveNext(this.pendingClearLearning, true, data.requestId);
             break;
         }
       };
@@ -258,6 +263,11 @@ export class SimBridge {
 
   public loadAllModels(models: any): Promise<boolean> {
     return this.request(this.pendingLoadAllModels, { type: 'LOAD_ALL_MODELS', models });
+  }
+
+  /** Clean slate: every driver forgets what it learned (networks, lines, pace, records, generations). */
+  public clearLearning(): Promise<boolean> {
+    return this.request(this.pendingClearLearning, { type: 'CLEAR_LEARNING' }, 30000);
   }
 
   /** `withQualifying` runs Q1–Q3 first; `useQualifyingGrid` lines the race up in qualifying order. */
