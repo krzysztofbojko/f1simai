@@ -137,14 +137,62 @@ try {
   assert.equal(pedalCar.currentControl.throttle, 0, 'throttle and brake never together');
   pedalCar.updatePhysics({ throttle: 0.6, brake: 0.01, steer: 0 }, 1 / 60, gp);
   assert.equal(pedalCar.currentControl.brake, 0, 'a token brake is dropped');
-  // Learned racing line: a faster candidate replaces the champion, a slower one does not.
+  // Learned racing line: per-section trims judged on section clocks, network candidates on two laps.
+  const S = LineNet.SECTIONS, points = S * 2;
+  /** Drive a lap through `points` track points; `section(i)` is the time spent in section i. */
+  const lapWith = (net, section) => {
+    let t = 0;
+    for (let p = 0; p < points; p++) { net.passPoint(p, points, t); t += section(Math.floor(p / 2)) / 2; }
+    net.passPoint(0, points, t);
+    return net.finish(t, true);
+  };
   const lineNet = new LineNet(new NeuralNetwork([25 + 7, 6, 1]));
-  lineNet.finish(60, true); // measures the seed line
+  lapWith(lineNet, () => 4); // measures the seed line (section 0 has no start time on the first lap)
+  assert.equal(lineNet.mode, 'trim', 'after measuring the champion the next lap moves a section');
+  const moved = [...lineNet.mutated];
+  assert.ok(moved.length >= 1 && moved.every(k => lineNet.currentTrim[k] !== 0), 'trim candidate moves the line');
+  const span = new Set(moved.flatMap(k => [(k - 1 + S) % S, k, (k + 1) % S]));
+  assert.equal(lapWith(lineNet, i => span.has(i) ? 3.9 : 4), false, 'one lap is not enough for a section move');
+  assert.equal(lapWith(lineNet, i => span.has(i) ? 3.9 : 4), true, 'faster section neighbourhood keeps the move');
+  assert.ok(moved.every(k => lineNet.bestTrim[k] !== 0), 'accepted trims become the champion line');
+  assert.equal(lineNet.mode, 'network');
   const champion = lineNet.best;
-  lineNet.finish(61, true); // candidate slower
+  assert.equal(lapWith(lineNet, () => 3.9), false, 'one fast lap is not enough for a network candidate');
+  assert.equal(lineNet.best, champion);
+  assert.equal(lapWith(lineNet, () => 4.2), false, 'two-lap mean slower than the champion: rejected');
   assert.equal(lineNet.best, champion, 'slower candidate rejected');
-  lineNet.finish(58, true);
-  assert.ok(lineNet.bestTime <= 60, 'faster candidate becomes champion: ' + lineNet.bestTime);
+  lapWith(lineNet, () => 4); // champion re-measure
+  const trimBefore = lineNet.bestTrim.slice();
+  lapWith(lineNet, () => 4.5); lapWith(lineNet, () => 4.5); // slower trim candidate
+  assert.deepEqual(Array.from(lineNet.bestTrim), Array.from(trimBefore), 'slower section moves are discarded');
+  assert.equal(lapWith(lineNet, () => 3.8), false);
+  assert.equal(lapWith(lineNet, () => 3.8), true, 'faster network candidate becomes champion');
+  assert.notEqual(lineNet.best, champion);
+  assert.ok(lineNet.bestTime < 62, 'champion time follows the candidate mean: ' + lineNet.bestTime);
+  // A team-mate's faster line is evaluated next and adopted only if it is faster for this car too.
+  const mate = new LineNet(new NeuralNetwork([25 + 7, 6, 1]));
+  mate.bestTrim.fill(1.5);
+  lineNet.propose(mate);
+  assert.ok(lineNet.hasProposal);
+  lapWith(lineNet, () => 3.8);
+  assert.equal(lineNet.mode, 'network', 'proposal evaluated as a candidate');
+  assert.ok(Array.from(lineNet.currentTrim).every(v => v === 1.5));
+  lapWith(lineNet, () => 3.7); lapWith(lineNet, () => 3.7);
+  assert.ok(Array.from(lineNet.bestTrim).every(v => v === 1.5), 'faster proposal adopted');
+  assert.equal(lineNet.hasProposal, false);
+  // A reset mid-lap leaves no section clock: the trim lap falls back to the whole-lap time.
+  const reset = new LineNet(new NeuralNetwork([25 + 7, 6, 1]));
+  lapWith(reset, () => 4);
+  const resetMoved = [...reset.mutated];
+  for (let p = 0; p < points / 2; p++) reset.passPoint(p, points, p);
+  reset.resetTiming();
+  assert.equal(reset.finish(80, true), false);
+  reset.resetTiming();
+  assert.equal(reset.finish(80, true), false, 'slower whole laps reject the move');
+  assert.ok(resetMoved.every(k => reset.bestTrim[k] === 0));
+  // Sections are bounded and interpolated; racing uses the champion.
+  const racingTarget = lineNet.target(gp, { pos: gp.startPosition, heading: gp.startAngle, speed: 50, rayDistances: new Array(25).fill(1) }, true);
+  assert.ok(Number.isFinite(racingTarget) && Math.abs(racingTarget) <= gp.width / 2 - 2.3 + LineNet.MAX_TRIM);
   assert.ok(Math.abs(seedLineTarget(gp, 40)) <= 0.95 && lineInputs(gp, { pos: gp.startPosition, heading: gp.startAngle, speed: 20, rayDistances: new Array(25).fill(1) }).length === 32);
   // Pace margin and learned line survive a save/restore round trip (browser autosave).
   const savedPace = new PaceSearch(); [60, 59].forEach(t => savedPace.finishLap(t, true, false)); savedPace.fail();
@@ -156,6 +204,10 @@ try {
   const probeIn = new Array(32).fill(0.3);
   assert.equal(restoredLine.best.forward(probeIn)[0], savedLine.best.forward(probeIn)[0]);
   assert.equal(restoredLine.bestTime, savedLine.bestTime);
+  savedLine.bestTrim[3] = -2; const trimmed = new LineNet(new NeuralNetwork([32, 6, 1]));
+  assert.ok(trimmed.fromJSON(JSON.parse(JSON.stringify(savedLine.toJSON()))));
+  assert.equal(trimmed.bestTrim[3], -2, 'section trims survive save/restore');
+  assert.ok(new LineNet(new NeuralNetwork([32, 6, 1])).fromJSON({ ...savedLine.toJSON(), bestTrim: undefined }), 'older saves without trims still load');
   assert.equal(new LineNet(new NeuralNetwork([20, 6, 1])).fromJSON(savedLine.toJSON()), false, 'different sensor layout is ignored');
   // Track limits: only an excursion with all four wheels off the asphalt counts, once per exit.
   const limitCar = new Car(gp.startPosition, gp.startAngle, new NeuralNetwork([36, 4, 3]), '#fff', 'limits', 60, 25);
@@ -180,6 +232,20 @@ try {
   // Half a second at brake 0.8 from 60 m/s recovers well above the old 120 kW-limited ~44 kJ.
   assert.ok(ersCar.ersEnergy - 1e6 > 100000, 'strong braking harvests up to ERS_HARVEST_POWER: ' + (ersCar.ersEnergy - 1e6));
   assert.ok(ersCar.ersEnergy - 1e6 <= Car.ERS_HARVEST_POWER * Car.ERS_REGEN_EFFICIENCY * 0.5 + 1, 'harvest stays within the MGU-K limit');
+  // 2026 rules: no more than ERS_LAP_HARVEST recovered between two crossings of the line.
+  ersCar.reset(gp.startPosition, gp.startAngle, true, 1);
+  let recovered = 0;
+  for (let cycle = 0; cycle < 120; cycle++) {
+    ersCar.ersEnergy = 0; ersCar.vel = Vector2.fromAngle(ersCar.heading).mul(80); ersCar.speed = 80; ersCar.isAlive = true;
+    for (let i = 0; i < 30; i++) { ersCar.updatePhysics({ throttle: 0, brake: 1, steer: 0 }, 1 / 60, stub); ersCar.framesSinceLastCheckpoint = 0; }
+    recovered += ersCar.ersEnergy;
+  }
+  assert.ok(recovered <= Car.ERS_LAP_HARVEST + 1 && recovered > Car.ERS_LAP_HARVEST * 0.95, 'per-lap harvest limit: ' + recovered);
+  // A flat battery stops deployment and super-clips on full throttle.
+  ersCar.reset(gp.startPosition, gp.startAngle, true, 1); ersCar.ersEnergy = Car.ERS_CAPACITY * 0.05;
+  ersCar.vel = Vector2.fromAngle(ersCar.heading).mul(70); ersCar.speed = 70;
+  ersCar.updatePhysics({ throttle: 1, brake: 0, steer: 0 }, 1 / 60, stub);
+  assert.ok(!ersCar.ersDeploying && ersCar.ersEnergy > Car.ERS_CAPACITY * 0.05, 'flat battery clips instead of deploying');
   // Off-track: an AI car parked on the runoff keeps trying to rejoin for OFF_TRACK_RECOVERY_TIME, then retires.
   const offCar = new Car(gp.startPosition, gp.startAngle, new NeuralNetwork([36, 4, 3]), '#fff', 'off', 60, 25);
   offCar.reset(gp.startPosition, gp.startAngle, true, 1);
@@ -212,6 +278,7 @@ try {
   const gearsSeen = new Set(); let maxRpm = 0, cutSteps = 0, prevGear = 1, prevForce = 0;
   for (let i = 0; i < 60 * 45; i++) {
     gearCar.framesSinceLastCheckpoint = 0; // no checkpoints on the stub track
+    gearCar.ersEnergy = Car.ERS_CAPACITY; // charged battery: top speed set by drag, MGU-K taper and gearing
     gearCar.updatePhysics({ throttle: 1, brake: 0, steer: 0 }, 1 / 60, stub);
     gearsSeen.add(gearCar.gear); maxRpm = Math.max(maxRpm, gearCar.engineRpm);
     if (gearCar.gear > prevGear) cutSteps++; prevGear = gearCar.gear;
@@ -220,7 +287,7 @@ try {
   assert.ok([...gearsSeen].length === 8, 'uses all eight gears: ' + [...gearsSeen]);
   assert.ok(maxRpm <= Car.REV_LIMIT + 1, 'never beyond the limiter: ' + maxRpm);
   assert.ok(cutSteps >= 7, 'upshifts happened');
-  assert.ok(gearCar.speed > 90 && gearCar.speed < 108, 'top speed set by drag and the rev limit: ' + gearCar.speed);
+  assert.ok(gearCar.speed > 90 && gearCar.speed < 108, 'top speed set by drag, MGU-K taper and the rev limit: ' + gearCar.speed);
   assert.ok(Car.GEAR_RATIOS[1] > Car.GEAR_RATIOS[2] && Car.GEAR_RATIOS[7] > Car.GEAR_RATIOS[8], 'ratios fall with gear');
   assert.ok(Car.icePowerFraction(4000) < Car.icePowerFraction(9000) && Math.abs(Car.icePowerFraction(12000) - 1) < 1e-9, 'power band');
   // Ride-height aero: normalised to ~1 at cornering heights, penalised when the floor chokes, heights fall with speed.
@@ -236,5 +303,23 @@ try {
   const vehicleState = planned.slice(-6);
   assert.deepEqual([vehicleState[0], vehicleState[1]], [1, 0], 'tyre temperatures are normalised and clamped');
   assert.ok(Math.abs(vehicleState[2] - 0.4) < 1e-9 && Math.abs(vehicleState[3] - 0.5) < 1e-9 && vehicleState[4] === 0.5, 'wear, ERS and gear: ' + vehicleState);
+  // Checkpoint rewards do not depend on the lateral position: the racing line may use the whole road.
+  {
+    const n = gp.checkpoints.length;
+    const straight = gp.checkpoints.findIndex((cp, i) => i > 5 && [-2, -1, 0, 1].every(d => Math.abs(gp.checkpoints[(i + d + n) % n].curvature) < 0.001));
+    assert.ok(straight > 0, 'GP preset has a straight');
+    const gain = lateral => {
+      const cp = gp.checkpoints[straight], before = gp.checkpoints[(straight - 1 + n) % n];
+      const car = makeCar(constant(0, 0, 0));
+      const start = before.center.add(cp.center.sub(before.center).mul(0.7)).add(cp.tangent.normal().mul(lateral));
+      car.reset(start, cp.tangent.heading(), true, straight);
+      car.mistakesEnabled = false; car.vel = cp.tangent.mul(30); car.speed = 30; car.fitness = 0;
+      for (let i = 0; i < 60 && car.currentCheckpointIdx === straight; i++) car.updatePhysics(idle, 1 / 60, gp);
+      assert.notEqual(car.currentCheckpointIdx, straight, 'checkpoint cleared');
+      return car.fitness;
+    };
+    const centre = gain(0), edge = gain(gp.width / 2 - 2);
+    assert.ok(Math.abs(centre - edge) < 40, `edge of the road scores like the centre: ${centre} vs ${edge}`);
+  }
   console.log('Neural driving, dynamics, damage and wreck regressions passed.');
 } finally { await rm(dir, { recursive: true, force: true }); }

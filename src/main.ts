@@ -8,7 +8,11 @@ import { Population, LapLeaderboardEntry } from './ai/Population';
 import { Car, CarControl, driverInputCount } from './physics/Car';
 import { Renderer } from './rendering/Renderer';
 import { SimBridge, type ComputeProfile, type TopologySpecifier } from './workers/SimBridge';
-import type { SimSnapshot } from './workers/sim.worker';
+import type { SimSnapshot, RaceState, QualifyingSnapshot } from './workers/sim.worker';
+
+function loadFlag(key: string): boolean {
+  try { return localStorage.getItem(key) === '1'; } catch { return false; }
+}
 
 class App {
   private canvas: HTMLCanvasElement;
@@ -53,7 +57,11 @@ class App {
 
   // Race Mode State
   private selectedRaceLaps: number = 50;
-  private latestRaceState: 'IDLE' | 'GRID_START' | 'RACING' | 'FINISHED' = 'IDLE';
+  private latestRaceState: RaceState = 'IDLE';
+  private latestQualifying: QualifyingSnapshot | null = null;
+  private hasShownQualiModal = false;
+  private qualiCountdownTimer: number | null = null;
+  private withQualifying = loadFlag('f1_with_qualifying');
   private latestRaceStartLights: number = 0;
   private latestRaceCurrentLap: number = 1;
   private latestRaceTotalLaps: number = 50;
@@ -77,7 +85,7 @@ class App {
     const initDims = Car.getDimensionsForTrackWidth(this.trackWidth);
     this.track = Presets.createGrandPrixTrack(initDims.effectiveTrackWidth);
     this.rawDrawnPoints = Presets.GRAND_PRIX_POINTS.map(p => p.clone());
-    this.population = new Population(10, this.track, 25);
+    this.population = new Population(Population.MAX_CARS, this.track, 25);
     this.population.setDriverPressure(this.driverPressure, true);
 
     this.bridge = new SimBridge();
@@ -94,6 +102,7 @@ class App {
   }
 
   private static readonly AUTOSAVE_KEY = 'f1_autosave_models';
+  private static readonly LEADERBOARD_ROWS = 10;
   private autosaveMarker = '';
 
   /** Training results (best laps, brains, generation) survive page reloads for the same circuit. */
@@ -249,6 +258,12 @@ class App {
       this.latestRaceStartLights = snapshot.raceStartLights;
       this.latestRaceWinner = snapshot.raceWinner;
       this.latestRaceStandings = snapshot.raceStandings || [];
+      this.latestQualifying = snapshot.qualifying ?? null;
+
+      if (snapshot.raceState === 'QUALI_FINISHED' && snapshot.qualifying && !this.hasShownQualiModal) {
+        this.hasShownQualiModal = true;
+        this.showQualifyingModal(snapshot.qualifying);
+      }
 
       if (snapshot.raceState === 'FINISHED' && !this.hasShownPodiumModal) {
         this.hasShownPodiumModal = true;
@@ -824,7 +839,7 @@ class App {
       const dims = Car.getDimensionsForTrackWidth(this.trackWidth);
       this.track = Presets.createGrandPrixTrack(dims.effectiveTrackWidth);
       this.rawDrawnPoints = Presets.GRAND_PRIX_POINTS.map(p => p.clone());
-      this.population = new Population(10, this.track, this.population.rayCount, this.population.topology);
+      this.population = new Population(Population.MAX_CARS, this.track, this.population.rayCount, this.population.topology);
       this.population.setDriverPressure(this.driverPressure, true);
       this.bridge.setPreset('gp');
       if (this.selectedCar) {
@@ -841,7 +856,7 @@ class App {
       const dims = Car.getDimensionsForTrackWidth(this.trackWidth);
       this.track = Presets.createOvalTrack(dims.effectiveTrackWidth);
       this.rawDrawnPoints = Presets.OVAL_POINTS.map(p => p.clone());
-      this.population = new Population(10, this.track, this.population.rayCount, this.population.topology);
+      this.population = new Population(Population.MAX_CARS, this.track, this.population.rayCount, this.population.topology);
       this.population.setDriverPressure(this.driverPressure, true);
       this.bridge.setPreset('oval');
       if (this.selectedCar) {
@@ -936,7 +951,7 @@ class App {
           this.track.startPosition,
           this.track.startAngle,
           null,
-          '#00D2BE',
+          '#FFD700',
           'Kierowca (Gracz)',
           this.population.startingFuelKg,
           count
@@ -964,7 +979,7 @@ class App {
     const selectTopology = document.getElementById('select-topology') as HTMLSelectElement | null;
     if (selectTopology) {
       selectTopology.addEventListener('change', () => {
-        if (this.latestRaceState === 'GRID_START' || this.latestRaceState === 'RACING') {
+        if (this.latestRaceState !== 'IDLE' && this.latestRaceState !== 'FINISHED') {
           return;
         }
         const topology = selectTopology.value as TopologySpecifier;
@@ -1175,8 +1190,27 @@ class App {
       });
     });
 
+    const checkQualifying = document.getElementById('check-qualifying') as HTMLInputElement | null;
+    if (checkQualifying) {
+      checkQualifying.checked = this.withQualifying;
+      checkQualifying.addEventListener('change', () => {
+        this.withQualifying = checkQualifying.checked;
+        try { localStorage.setItem('f1_with_qualifying', this.withQualifying ? '1' : '0'); } catch {}
+      });
+    }
+
     document.getElementById('btn-start-race')?.addEventListener('click', () => {
-      this.startRace(this.selectedRaceLaps);
+      this.startRace(this.selectedRaceLaps, { withQualifying: this.withQualifying });
+    });
+
+    document.getElementById('btn-quali-start-race')?.addEventListener('click', () => {
+      this.startRaceFromQualifying();
+    });
+
+    document.getElementById('btn-quali-hold')?.addEventListener('click', () => {
+      this.clearQualiCountdown();
+      const label = document.getElementById('quali-start-label');
+      if (label) label.textContent = 'Start wyścigu';
     });
 
     document.getElementById('btn-stop-race')?.addEventListener('click', () => {
@@ -1193,14 +1227,19 @@ class App {
 
     document.getElementById('btn-restart-race-podium')?.addEventListener('click', () => {
       document.getElementById('podium-modal')?.classList.add('hidden');
-      this.startRace(this.selectedRaceLaps);
+      this.startRace(this.selectedRaceLaps, { withQualifying: this.withQualifying });
     });
   }
 
-  public startRace(totalLaps: number = 50): void {
+  public startRace(totalLaps: number = 50, options: { withQualifying?: boolean; useQualifyingGrid?: boolean } = {}): void {
     this.hasShownPodiumModal = false;
+    this.hasShownQualiModal = false;
+    this.clearQualiCountdown();
+    document.getElementById('quali-modal')?.classList.add('hidden');
     this.selectedRaceLaps = totalLaps;
-    this.bridge.startRace(totalLaps);
+    this.bridge.startRace(totalLaps, options);
+    // Show the right banner at once instead of waiting for the next snapshot.
+    this.latestRaceState = options.withQualifying ? 'QUALIFYING' : 'GRID_START';
     this.isPaused = false;
     const selectTopology = document.getElementById('select-topology') as HTMLSelectElement | null;
     if (selectTopology) {
@@ -1218,7 +1257,137 @@ class App {
     }
   }
 
+  /** Race start after qualifying: the grid follows the qualifying classification. */
+  private startRaceFromQualifying(): void {
+    this.clearQualiCountdown();
+    document.getElementById('quali-modal')?.classList.add('hidden');
+    this.startRace(this.selectedRaceLaps, { useQualifyingGrid: true });
+  }
+
+  private clearQualiCountdown(): void {
+    if (this.qualiCountdownTimer !== null) window.clearInterval(this.qualiCountdownTimer);
+    this.qualiCountdownTimer = null;
+  }
+
+  /** Session clock, leader and the drivers currently in the elimination zone. */
+  private updateQualifyingBanner(): void {
+    const q = this.latestQualifying;
+    if (!q) return;
+    const session = Math.min(q.session, 2);
+    const clock = (t: number) => `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, '0')}`;
+    const set = (id: string, text: string) => { const el = document.getElementById(id); if (el && el.textContent !== text) el.textContent = text; };
+    set('quali-session', `Q${session + 1}`);
+    set('quali-time-left', q.phase === 'session' ? clock(q.timeLeft) : q.phase === 'overtime' ? '🏁 FLAGA' : q.phase === 'break' ? `PRZERWA ${Math.ceil(q.timeLeft)} s` : 'KONIEC');
+    const leader = q.standings[0];
+    const leaderTime = leader?.times[session] ?? null;
+    set('quali-leader', leader && leaderTime !== null ? `${leader.driverName.split(' ').slice(-1)[0]} ${this.formatLapTime(leaderTime)}` : '-');
+    const active = q.standings.filter(r => r.eliminatedIn === 0);
+    const cut = active.length - q.eliminatedAfter;
+    let zone = '';
+    if (q.phase !== 'finished' && session < 2 && q.eliminatedAfter > 0 && cut > 0) {
+      const cutoffTime = active[cut - 1]?.times[session] ?? null;
+      const names = active.slice(cut).map(r => {
+        const t = r.times[session];
+        const gap = t !== null && cutoffTime !== null ? ` +${(t - cutoffTime).toFixed(3)}` : ' bez czasu';
+        return `${r.driverName.split(' ').slice(-1)[0]}${gap}`;
+      });
+      zone = `Strefa eliminacji P${cut + 1}–P${active.length}: ${names.join(' · ')}`;
+    }
+    set('quali-dropzone', zone);
+  }
+
+  /** Qualifying leaderboard: top 10 of the session (plus the followed driver), with knockout status. */
+  private renderQualifyingRows(q: QualifyingSnapshot): string {
+    const session = Math.min(q.session, 2);
+    const active = q.standings.filter(r => r.eliminatedIn === 0);
+    const cut = q.phase === 'finished' || session >= 2 ? Infinity : active.length - q.eliminatedAfter;
+    const top = q.standings.slice(0, App.LEADERBOARD_ROWS);
+    const extra = q.standings.slice(App.LEADERBOARD_ROWS).filter(r =>
+      this.selectedCar?.color === r.color || (this.isPlayerDriving && this.playerCar?.color === r.color));
+    return [...top, ...extra].map((r, rowIndex) => {
+      const divider = rowIndex === top.length
+        ? `<div class="leaderboard-divider" data-car-color="divider">poza TOP ${App.LEADERBOARD_ROWS} (${q.standings.length} aut)</div>` : '';
+      const car = this.population.cars.find(c => c.color === r.color) || (this.playerCar?.color === r.color ? this.playerCar : null);
+      const isPlayer = !!this.playerCar && this.playerCar.color === r.color && !this.population.cars.includes(this.playerCar);
+      const best = r.eliminatedIn > 0 ? r.times[r.eliminatedIn - 1] : r.times[session];
+      const status = r.eliminatedIn > 0 ? `OUT Q${r.eliminatedIn}` : r.onTrack ? 'NA TORZE' : (q.phase === 'finished' ? `Q3` : 'W GARAŻU');
+      const current = r.onTrack && car && car.isAlive ? this.formatLapTime(car.lapTime) : '--:--.---';
+      const classes = [
+        'leaderboard-item',
+        r.position <= 3 ? `rank-${r.position}` : '',
+        r.eliminatedIn > 0 ? 'quali-out' : '',
+        r.eliminatedIn === 0 && r.position > cut ? 'quali-danger' : '',
+        this.selectedCar?.color === r.color ? 'selected-item' : '',
+      ].filter(Boolean).join(' ');
+      return `${divider}
+        <div class="${classes}" data-car-color="${r.color}" data-is-player="${isPlayer ? 'true' : 'false'}">
+          <div class="leaderboard-left">
+            <div class="rank-badge">${r.position}</div>
+            <div class="driver-details">
+              <div class="driver-title">
+                <span class="team-dot" style="background-color: ${r.color}"></span>
+                <span>${r.driverName}</span>
+                ${r.outside107 ? '<span class="quali-flag-107">107%</span>' : ''}
+              </div>
+              <div class="driver-stats-row">
+                <span class="quali-status ${r.onTrack ? 'on-track' : ''}">${status}</span>
+                <span>Q1 ${r.times[0] !== null ? this.formatLapTime(r.times[0]) : '—'}</span>
+                ${r.times[1] !== null ? `<span>Q2 ${this.formatLapTime(r.times[1])}</span>` : ''}
+                ${r.times[2] !== null ? `<span>Q3 ${this.formatLapTime(r.times[2])}</span>` : ''}
+              </div>
+            </div>
+          </div>
+          <div class="time-details">
+            <div class="time-row">
+              <span class="time-lbl">BEST</span>
+              <span class="time-main">${best !== null ? this.formatLapTime(best) : '--:--.---'}</span>
+              ${r.gap !== null && r.gap > 0 ? `<span class="time-delta">+${r.gap.toFixed(3)}s</span>` : ''}
+            </div>
+            <div class="time-row">
+              <span class="time-lbl">TERAZ</span>
+              <span class="time-curr-val">${current}</span>
+            </div>
+          </div>
+        </div>`;
+    }).join('');
+  }
+
+  private showQualifyingModal(q: QualifyingSnapshot): void {
+    const modal = document.getElementById('quali-modal');
+    if (!modal) return;
+    modal.classList.remove('hidden');
+    const pole = q.standings[0];
+    const poleTag = document.getElementById('quali-pole-tag');
+    if (poleTag) poleTag.textContent = pole ? `POLE: ${pole.driverName.toUpperCase()}` : 'POLE POSITION';
+    const time = (t: number | null) => t !== null ? this.formatLapTime(t) : '—';
+    const body = document.getElementById('quali-table-body');
+    if (body) {
+      body.innerHTML = q.standings.map(s => `
+        <tr>
+          <td><strong>#${s.position}</strong></td>
+          <td><span class="team-dot" style="background-color:${s.color}"></span> ${s.driverName}${s.outside107 ? '<span class="quali-flag-107" title="Wolniej niż 107% najlepszego czasu Q1 — start z końca stawki za zgodą sędziów">107%</span>' : ''}</td>
+          <td>${time(s.times[0])}</td>
+          <td>${s.eliminatedIn === 1 ? '<span class="quali-status">OUT</span>' : time(s.times[1])}</td>
+          <td>${s.eliminatedIn > 0 ? '<span class="quali-status">OUT</span>' : time(s.times[2])}</td>
+          <td>${s.position === 1 ? '—' : s.gap !== null ? `+${s.gap.toFixed(3)}s` : '—'}</td>
+        </tr>
+      `).join('');
+    }
+    // Automatic race start after a short countdown, unless the user holds it.
+    let remaining = 10;
+    const label = document.getElementById('quali-start-label');
+    const tick = () => {
+      if (label) label.textContent = `Start wyścigu (${remaining} s)`;
+      if (remaining-- <= 0) this.startRaceFromQualifying();
+    };
+    this.clearQualiCountdown();
+    tick();
+    this.qualiCountdownTimer = window.setInterval(tick, 1000);
+  }
+
   public stopRace(): void {
+    this.clearQualiCountdown();
+    document.getElementById('quali-modal')?.classList.add('hidden');
     this.bridge.stopRace();
     const selectTopology = document.getElementById('select-topology') as HTMLSelectElement | null;
     if (selectTopology) {
@@ -1227,6 +1396,7 @@ class App {
     document.getElementById('btn-start-race')?.classList.remove('hidden');
     document.getElementById('btn-stop-race')?.classList.add('hidden');
     document.getElementById('race-info-banner')?.classList.add('hidden');
+    document.getElementById('quali-info-banner')?.classList.add('hidden');
     document.getElementById('podium-modal')?.classList.add('hidden');
 
     this.population.isRaceMode = false;
@@ -1260,7 +1430,7 @@ class App {
     }
     if (this.playerCar) {
       this.playerCar.isRaceMode = false;
-      const slot = this.track.getGridSlot(9);
+      const slot = this.track.getGridSlot(this.population.cars.length);
       const nextCpIdx = (slot.checkpointIdx + 1) % this.track.checkpoints.length;
       this.playerCar.reset(slot.pos, slot.heading, true, nextCpIdx);
       this.playerCar.updateDimensionsForTrackWidth(this.track.width);
@@ -1538,7 +1708,7 @@ class App {
       (document.getElementById('slider-track-width') as HTMLInputElement).value = String(nextWidth);
       document.getElementById('val-track-width')!.textContent = String(nextWidth);
       this.rawDrawnPoints = parsedPoints;
-      this.population = new Population(10, this.track, this.population.rayCount, this.population.topology);
+      this.population = new Population(Population.MAX_CARS, this.track, this.population.rayCount, this.population.topology);
       this.population.setDriverPressure(this.driverPressure, true);
       this.selectedCar = null;
       this.bridge.setCustomTrack(parsedPoints.map(p => ({ x: p.x, y: p.y })), this.trackWidth);
@@ -1590,7 +1760,7 @@ class App {
         alert(error instanceof Error ? error.message : 'Niepoprawna geometria toru.');
         return;
       }
-      this.population = new Population(10, this.track, this.population.rayCount, this.population.topology);
+      this.population = new Population(Population.MAX_CARS, this.track, this.population.rayCount, this.population.topology);
       this.population.setDriverPressure(this.driverPressure, true);
       this.selectedCar = null;
       this.bridge.setActiveCarColor(null);
@@ -1740,7 +1910,9 @@ class App {
     if (ersEl) ersEl.textContent = activeCar ? `ERS ${Math.round(activeCar.ersEnergy / Car.ERS_CAPACITY * 100)}%` : 'ERS';
     document.getElementById('tele-pressure')!.textContent = activeCar?.isManual ? 'RĘCZNIE'
       : `PRESJA ${pressureText(effectivePressure)}${Math.abs(targetPressure-effectivePressure) > .1 ? ` → ${pressureText(targetPressure)}` : ''}`;
-    document.getElementById('tele-incident')!.textContent = activeCar?.eliminationReason
+    document.getElementById('tele-incident')!.textContent = activeCar?.wreckRemoved && (this.latestRaceState === 'QUALIFYING' || this.latestRaceState === 'QUALI_FINISHED')
+      ? 'W GARAŻU (KWALIFIKACJE)'
+      : activeCar?.eliminationReason
       ? activeCar.wreckRemoved ? 'DNF — BOLID USUNIĘTY' : reasons[activeCar.eliminationReason] : activeCar?.yellowFlag ? 'ŻÓŁTA FLAGA — ZAKAZ WYPRZEDZANIA' : activeCar?.incidentActive ? 'POMYŁKA KIEROWCY' : activeCar && activeCar.recoveryTimer > 0 ? 'ODZYSKIWANIE KONTROLI' : activeCar?.overtakingTargetName ? `WYPRZEDZANIE: ${activeCar.overtakingTargetName}` : activeCar?.battleOpponent ? `ATAK: ${activeCar.battleOpponent}` : activeCar?.racingLineLabel || (activeCar && activeCar.damage > 0.05 ? `USZKODZENIA ${Math.round(Math.min(1, activeCar.damage) * 100)}%` : 'JAZDA');
 
     // Update telemetry header and brain tag
@@ -1816,8 +1988,21 @@ class App {
 
     // Race Mode HUD elements
     const raceTag = document.getElementById('race-status-tag');
+    const inQualifying = this.latestRaceState === 'QUALIFYING' || this.latestRaceState === 'QUALI_FINISHED';
+    document.getElementById('quali-info-banner')?.classList.toggle('hidden', !inQualifying);
+    document.getElementById('race-info-banner')?.classList.toggle('hidden', inQualifying || this.latestRaceState === 'IDLE');
+    if (inQualifying) this.updateQualifyingBanner();
     if (raceTag) {
-      if (this.latestRaceState === 'GRID_START') {
+      if (this.latestRaceState === 'QUALIFYING') {
+        const q = this.latestQualifying;
+        raceTag.textContent = q ? `KWALIFIKACJE Q${q.session + 1}${q.phase === 'break' ? ' (PRZERWA)' : q.phase === 'overtime' ? ' (FLAGA)' : ''}` : 'KWALIFIKACJE';
+        raceTag.className = 'panel-tag';
+        raceTag.style.background = '#b138dd';
+      } else if (this.latestRaceState === 'QUALI_FINISHED') {
+        raceTag.textContent = 'KWALIFIKACJE — WYNIKI';
+        raceTag.className = 'panel-tag';
+        raceTag.style.background = '#b138dd';
+      } else if (this.latestRaceState === 'GRID_START') {
         raceTag.textContent = 'START (GRID)';
         raceTag.className = 'panel-tag';
         raceTag.style.background = '#e10600';
@@ -1861,7 +2046,7 @@ class App {
       }
     }
 
-    // 10 Teams Leaderboard
+    // Leaderboard: top 10 of the field
     const leaderboardContainer = document.getElementById('leaderboard-list')!;
     const standings = (this.latestRaceState !== 'IDLE' && this.latestRaceStandings.length > 0)
       ? this.latestRaceStandings.map(rs => {
@@ -1911,8 +2096,15 @@ class App {
       .filter((t): t is number => typeof t === 'number' && t > 0);
     const sessionFastestLap = sessionBests.length > 0 ? Math.min(...sessionBests) : null;
 
-    const leaderboardHtml = standings
-      .map((entry) => {
+    // Top 10 of the field; a followed driver or the player outside it is appended below a divider.
+    const topRows = standings.slice(0, App.LEADERBOARD_ROWS);
+    const extraRows = standings.slice(App.LEADERBOARD_ROWS).filter(e =>
+      e.isPlayer || (this.selectedCar?.color === e.carColor));
+    const qualiBoard = (this.latestRaceState === 'QUALIFYING' || this.latestRaceState === 'QUALI_FINISHED') ? this.latestQualifying : null;
+    const leaderboardHtml = qualiBoard ? this.renderQualifyingRows(qualiBoard) : [...topRows, ...extraRows]
+      .map((entry, rowIndex) => {
+        const divider = rowIndex === topRows.length
+          ? `<div class="leaderboard-divider" data-car-color="divider">poza TOP ${App.LEADERBOARD_ROWS} (${standings.length} aut)</div>` : '';
         const car = this.population.cars.find(c => c.color === entry.carColor)
           || (this.playerCar && this.playerCar.color === entry.carColor ? this.playerCar : null);
         const isSelected = this.selectedCar && (
@@ -1993,7 +2185,7 @@ class App {
         const dnfClass = (car && !car.isAlive) ? 'dnf-item' : '';
         const selectedClass = isSelected ? 'selected-item' : '';
 
-        return `
+        return `${divider}
           <div class="leaderboard-item ${rankClass} ${dnfClass} ${selectedClass}" data-car-color="${entry.carColor}" data-is-player="${entry.isPlayer ? 'true' : 'false'}">
             <div class="leaderboard-left">
               <div class="rank-badge">${entry.rank}</div>

@@ -6,8 +6,28 @@ import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 const dir = await mkdtemp(join(tmpdir(), 'f1-lines-'));
 try {
- await build({configFile:false,logLevel:'silent',build:{outDir:dir,lib:{entry:resolve('src/ai/LineSearch.ts'),formats:['es'],fileName:()=> 'lines.mjs'}}});
+ await build({configFile:false,logLevel:'silent',build:{outDir:dir,lib:{entry:{lines:resolve('src/ai/LineSearch.ts'),profile:resolve('src/ai/LineProfile.ts'),presets:resolve('src/track/Presets.ts'),linenet:resolve('src/ai/LineNet.ts')},formats:['es'],fileName:(_,name)=>name+'.mjs'}}});
  const {LineSearch}=await import(pathToFileURL(join(dir,'lines.mjs')));
+ const {LineProfile}=await import(pathToFileURL(join(dir,'profile.mjs')));
+ const {Presets}=await import(pathToFileURL(join(dir,'presets.mjs')));
+ const {seedLineTarget}=await import(pathToFileURL(join(dir,'linenet.mjs')));
+ // Driven-line radii: the centreline by default, a wider arc on outside-inside-outside, a tighter one when pinched.
+ {
+  const gp=Presets.createGrandPrixTrack(14), n=gp.points.length;
+  const centre=new LineProfile(n);
+  assert.ok(centre.matches(gp));
+  for(let i=0;i<n;i++) assert.ok(Math.abs(centre.curvature(gp,i)-Math.abs(gp.points[i].curvature))<1e-9,'untrained profile follows the centreline');
+  const wide=new LineProfile(n), pinched=new LineProfile(n), usable=gp.width/2-2.3;
+  for(let i=0;i<n;i++){ wide.offsets[i]=seedLineTarget(gp,i)*usable; pinched.offsets[i]=-wide.offsets[i]; }
+  wide.invalidate(); pinched.invalidate();
+  // Planned corner speed scales with sqrt(radius): compare the arcs over every real corner.
+  const speedRatio=profile=>{ const r=[]; for(let i=0;i<n;i++){ const k=Math.abs(gp.points[i].curvature); if(k>0.008) r.push(Math.sqrt(k/profile.curvature(gp,i))); } return r.reduce((a,b)=>a+b,0)/r.length; };
+  assert.ok(speedRatio(wide)>1.015,`outside-apex-outside opens the corners: ${speedRatio(wide)}`);
+  assert.ok(speedRatio(pinched)<0.99,`the mirrored line tightens them: ${speedRatio(pinched)}`);
+  for(let i=0;i<n;i++){ const c=wide.curvature(gp,i), a=Math.abs(gp.points[i].curvature); assert.ok(c>=a*LineProfile.MIN_RATIO-1e-12&&c<=a*LineProfile.MAX_RATIO+0.003+1e-12,'bounded'); }
+  const learner=new LineProfile(n); for(let lap=0;lap<30;lap++) learner.record(5,3); assert.ok(Math.abs(learner.offsets[5]-3)<0.01,'profile converges to the driven offset');
+  learner.record(-1,3); learner.record(n,3); learner.record(6,NaN); assert.equal(learner.offsets[6],0,'invalid samples ignored');
+ }
  assert.equal(new Set(Array.from({length:10},(_,i)=>new LineSearch(i).offset(false))).size,5);
  const search=new LineSearch(0);
  search.finish(80,false); assert.equal(search.current,0); assert.equal(search.times[0].length,0);
@@ -30,5 +50,5 @@ try {
  const approach=profile.target(track,{x:25},false),apex=profile.target(track,{x:45},false),exit=profile.target(track,{x:60},false);
  assert.ok(approach<0&&apex>0&&exit<0,'outside / apex / outside trajectory');
  for(let i=0;i<100;i++) assert.ok(Math.abs(profile.target(track,{x:i},false))<=5.2);
- console.log('Racing lines: distinct variants, clean timing, transition protection and best selection passed.');
+ console.log('Racing lines: driven-line radii, distinct variants, clean timing, transition protection and best selection passed.');
 } finally { await rm(dir,{recursive:true,force:true}); }

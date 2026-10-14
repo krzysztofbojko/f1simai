@@ -1138,7 +1138,7 @@ export class Renderer {
   /**
    * Render the 5 F1 Red Start Lights gantry during the starting countdown
    */
-  renderStartLights(lightsCount: number, state: 'GRID_START' | 'RACING' | 'FINISHED' | 'IDLE'): void {
+  renderStartLights(lightsCount: number, state: string): void {
     if (state !== 'GRID_START' && lightsCount === 0) return;
     const ctx = this.ctx;
     ctx.save();

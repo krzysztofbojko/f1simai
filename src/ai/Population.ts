@@ -54,13 +54,15 @@ export interface LapLeaderboardEntry {
 export class Population {
   public cars: Car[] = [];
   public teamRecords: TeamRecord[] = [];
-  public populationSize: number = 10;
+  public populationSize: number = 20;
   public generation: number = 1;
   public bestFitness: number = 0;
   public globalBestLap: number | null = null;
   public bestCarEver: Car | null = null;
   public currentLeader: Car | null = null;
   public isRaceMode: boolean = false;
+  /** Called after every completed lap of a population car (session timing, e.g. qualifying). */
+  public onLapCompleted?: (car: Car, event: LapFinishEvent) => void;
   public driverPressure = 0;
   setDriverPressure(value: number, immediate = false): void {
     this.driverPressure = normalizePressure(value);
@@ -109,6 +111,7 @@ export class Population {
   public respawnMutationRate: number = 0.01;     // Probability of weight mutation on individual car respawn
   public respawnMutationStrength: number = 0.02; // Perturbation strength for mutated weights on respawn
 
+  /** Every car is identified by its colour, so team-mates use two shades of the team colour. */
   public static readonly F1_TEAMS: F1TeamDef[] = [
     { teamName: 'Scuderia Ferrari', carName: 'SF-24', driverName: 'Charles Leclerc', color: '#E10600' },
     { teamName: 'Mercedes-AMG Petronas', carName: 'W15', driverName: 'Lewis Hamilton', color: '#00D2BE' },
@@ -120,10 +123,21 @@ export class Population {
     { teamName: 'Visa Cash App RB', carName: 'VCARB 01', driverName: 'Daniel Ricciardo', color: '#6692FF' },
     { teamName: 'MoneyGram Haas F1', carName: 'VF-24', driverName: 'Nico Hülkenberg', color: '#B6BABD' },
     { teamName: 'Williams Racing', carName: 'FW46', driverName: 'Alex Albon', color: '#005AFF' },
+    { teamName: 'Scuderia Ferrari', carName: 'SF-24', driverName: 'Carlos Sainz', color: '#FF5A4E' },
+    { teamName: 'Mercedes-AMG Petronas', carName: 'W15', driverName: 'George Russell', color: '#7FF0E4' },
+    { teamName: 'Red Bull Racing', carName: 'RB20', driverName: 'Sergio Pérez', color: '#1E3F8A' },
+    { teamName: 'McLaren F1 Team', carName: 'MCL38', driverName: 'Oscar Piastri', color: '#FFB066' },
+    { teamName: 'Aston Martin Aramco', carName: 'AMR24', driverName: 'Lance Stroll', color: '#5FD3A9' },
+    { teamName: 'BWT Alpine F1', carName: 'A524', driverName: 'Esteban Ocon', color: '#FF87BC' },
+    { teamName: 'Stake Kick Sauber', carName: 'C44', driverName: 'Zhou Guanyu', color: '#2E8B2E' },
+    { teamName: 'Visa Cash App RB', carName: 'VCARB 01', driverName: 'Yuki Tsunoda', color: '#A9C1FF' },
+    { teamName: 'MoneyGram Haas F1', carName: 'VF-24', driverName: 'Kevin Magnussen', color: '#E8E8E8' },
+    { teamName: 'Williams Racing', carName: 'FW46', driverName: 'Logan Sargeant', color: '#64C4FF' },
   ];
+  public static readonly MAX_CARS = Population.F1_TEAMS.length;
 
-  constructor(size: number = 10, track: Track, rayCount: number = 25, topology: TopologySpecifier = 'Standard') {
-    this.populationSize = Math.min(10, Math.max(1, size));
+  constructor(size: number = Population.MAX_CARS, track: Track, rayCount: number = 25, topology: TopologySpecifier = 'Standard') {
+    this.populationSize = Math.min(Population.MAX_CARS, Math.max(1, size));
     this.rayCount = rayCount;
     this.topology = topology;
     this.initPopulation(track);
@@ -213,12 +227,23 @@ export class Population {
     return this.cars.filter(c => c.isAlive).length;
   }
 
+  /** A driver found a faster line: the team-mate evaluates it next and keeps it only if it is faster for them too. */
+  private shareLine(car: Car, line: LineNet, pressure: number): void {
+    const teams = Population.F1_TEAMS, index = this.cars.indexOf(car);
+    if (index < 0) return;
+    const team = teams[index % teams.length].teamName;
+    const mate = this.cars.find((_, j) => j !== index && teams[j % teams.length].teamName === team);
+    const mateLine = mate?.lineNetByPressure.get(pressure);
+    if (mateLine && mateLine !== line && !mateLine.hasProposal && line.bestTime + 0.1 < mateLine.bestTime) mateLine.propose(line);
+  }
+
   recordLap(lapEvent: LapFinishEvent, car: Car, isPlayer: boolean = false, track?: Track): void {
     if (car.pressureLearningBlocked) lapEvent = {...lapEvent, compromised: true};
     const lapPressure = lapEvent.pressure ?? car.driverPressure;
     if (!this.isRaceMode && !isPlayer) {
       car.lineSearchByPressure.get(lapPressure)?.finish(lapEvent.lapTime, !lapEvent.compromised);
-      car.lineNetByPressure.get(lapPressure)?.finish(lapEvent.lapTime, !lapEvent.compromised);
+      const lineNet = car.lineNetByPressure.get(lapPressure);
+      if (lineNet?.finish(lapEvent.lapTime, !lapEvent.compromised)) this.shareLine(car, lineNet, lapPressure);
     }
     if (lapEvent.compromised) {
       const record = this.teamRecords.find(r => r.color === car.color);
@@ -544,7 +569,10 @@ export class Population {
     }
 
     if (motion) resolveTraffic(this.cars, motion);
-    for (const {car, event} of laps) this.recordLap({...event, compromised: event.compromised || car.lapCompromised}, car, car.isManual, track);
+    for (const {car, event} of laps) {
+      this.recordLap({...event, compromised: event.compromised || car.lapCompromised}, car, car.isManual, track);
+      this.onLapCompleted?.(car, event);
+    }
 
     this.currentLeader = leader || this.cars.find(c => c.isAlive) || this.cars[0];
 
@@ -626,7 +654,7 @@ export class Population {
       }
     }
 
-    // 2. Identify session champion brain across all 10 teams (PB lap if available, otherwise highest bestFitness)
+    // 2. Identify session champion brain across all drivers (PB lap if available, otherwise highest bestFitness)
     let championBrain: NeuralNetwork | null = null;
     let eliteRecord: TeamRecord | null = null;
     const sortedByLap = this.teamRecords
@@ -706,6 +734,7 @@ export class Population {
       if (this.cars[i]) newCar.pace = this.cars[i].pace;
       newCar.lineSearch = this.cars[i]?.lineSearch ?? new LineSearch(i);
       newCar.lineNet = this.cars[i]?.lineNet ?? new LineNet(distillLineNetwork(this.rayCount, track));
+      newCar.lineProfile = this.cars[i]?.lineProfile ?? null;
       newCar.lineNetByPressure = this.cars[i]?.lineNetByPressure ?? new Map([[this.driverPressure, newCar.lineNet]]);
       newCar.lineSearchByPressure = this.cars[i]?.lineSearchByPressure ?? new Map([[this.driverPressure, newCar.lineSearch]]);
       newCar.driverPressure = this.driverPressure;
@@ -794,6 +823,7 @@ export class Population {
       this.cars[i].lineSearchByPressure = new Map([[this.driverPressure, this.cars[i].lineSearch!]]);
       this.cars[i].lineNet = new LineNet(distillLineNetwork(this.rayCount, track));
       this.cars[i].lineNetByPressure = new Map([[this.driverPressure, this.cars[i].lineNet!]]);
+      this.cars[i].lineProfile = null;
       this.cars[i].setDriverPressure(this.driverPressure, true);
       this.cars[i].bestLapSplits = [null, null, null, null];
       this.cars[i].currentLapSplits = [null, null, null, null];

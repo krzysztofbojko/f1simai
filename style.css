@@ -809,6 +809,29 @@ input[type="range"] {
   transition: background 0.15s ease, border-color 0.15s ease;
 }
 
+.leaderboard-divider {
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #6b7686;
+  text-align: center;
+  border-top: 1px dashed #2e3a4b;
+  padding: 4px 0 2px;
+}
+
+.leaderboard-divider.elimination {
+  color: var(--f1-red);
+  border-top-color: var(--f1-red);
+}
+
+.leaderboard-item.quali-danger {
+  border-left: 3px solid var(--f1-red);
+}
+
+.leaderboard-item.quali-out {
+  opacity: 0.55;
+}
+
 .leaderboard-item:hover {
   background: #141a22;
   border-color: #2e3a4b;
@@ -1291,6 +1314,52 @@ input[type="range"] {
   padding: 8px 10px;
   gap: 12px;
   margin-top: 6px;
+}
+
+.race-quali-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 6px 0 8px;
+  font-size: 12px;
+  color: #d6dbe3;
+  cursor: pointer;
+}
+
+.race-quali-toggle small {
+  color: #8a94a3;
+  margin-left: 4px;
+}
+
+.quali-info-banner {
+  flex-wrap: wrap;
+}
+
+.quali-dropzone {
+  flex-basis: 100%;
+  font-size: 11px;
+  color: #ff8a80;
+  line-height: 1.4;
+}
+
+.quali-dropzone:empty {
+  display: none;
+}
+
+.quali-status {
+  font-size: 10px;
+  letter-spacing: 0.05em;
+  color: #8a94a3;
+}
+
+.quali-status.on-track {
+  color: var(--f1-cyan);
+}
+
+.quali-flag-107 {
+  color: var(--f1-red);
+  font-weight: 700;
+  margin-left: 4px;
 }
 
 .race-info-banner.hidden {

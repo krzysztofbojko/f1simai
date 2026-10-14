@@ -129,8 +129,18 @@ Skutki: podsterowność przy nasyceniu przedniej osi, nadsterowność przy nasyc
 
 ## ERS / MGU-K
 
-- Moc napędu = ICE 630 kW · gaz + MGU-K do 120 kW (razem 750 kW jak dotąd). MGU-K włącza się przy gazie > 0,65, dopóki bateria ma > 4% z 4 MJ i nie wyczerpano 4 MJ rozładowania na okrążenie.
-- Odzysk: hamowanie do 350 kW · hamulec (`ERS_HARVEST_POWER`, niezależnie od 120 kW oddawania), ale nie więcej niż moc rozpraszana przez hamulce; lift-and-coast powyżej 30 m/s (36 kW); sprawność 88%. Hamowanie 0,8 z 60 m/s odzyskuje ponad 0,1 MJ w 0,5 s (wcześniej ok. 0,04 MJ).
+Jednostka napędowa według regulaminu 2026 (bez MGU-H):
+
+- Moc napędu = ICE 400 kW · gaz · f(obroty) + MGU-K do 350 kW (razem nadal 750 kW). Bateria: 4 MJ użytecznego okna (`ERS_CAPACITY`).
+- Oddawanie przy gazie > 0,65. Moc MGU-K maleje liniowo od 290 km/h do zera przy 355 km/h (`ERS_TAPER_START/END`).
+- Zarządzanie energią: moc oddawania rośnie liniowo ze stanem baterii od 10% (`ERS_CLIP_SOC`) do pełnej przy 90% (`ERS_LOW_SOC`). Dzięki temu energia oddana na okrążeniu zbliża się do odzyskanej, a bateria nie stoi w miejscu.
+- Poniżej 10% przy pełnym gazie następuje „super clipping”: MGU-K ładuje baterię mocą 50 kW, odbierając ją z napędu.
+- Odzysk ograniczony do 8,5 MJ na okrążenie (`ERS_LAP_HARVEST`, licznik zerowany na linii mety):
+  - hamowanie do 350 kW, niezależnie od siły nacisku na pedał (brake-by-wire najpierw używa MGU-K), ale nie więcej niż moc rozpraszana przez hamulce;
+  - lift-and-coast powyżej 30 m/s: 105 kW;
+  - częściowy gaz: do 100 kW · gaz (ICE napędza MGU-K jako generator);
+  - sprawność 88%.
+- Na torze Grand Prix (szer. 14 m) bateria waha się w trakcie okrążenia o ok. 30 punktów procentowych: sieć neuronowa ok. 32–69%, ekspert 25–55%. W modelu sprzed zmiany (120 kW oddawania, 350 kW odzysku) bateria w aplikacji stała zwykle na 90–95%.
 - Przy ograniczeniu trakcją (niskie prędkości) dodatkowa moc nie przyspiesza; różnicę widać powyżej ok. 60 m/s. W telemetrii: „ERS xx%”.
 
 ## Opony: temperatura i zużycie (na oś)

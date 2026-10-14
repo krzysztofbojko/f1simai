@@ -417,23 +417,38 @@ export class Track {
   /**
    * Generates staggered 2x2 starting grid slots along the main straight
    */
+  /** Distance between consecutive grid slots: a staggered grid, 16 m per row. */
+  static readonly GRID_SLOT_SPACING = 8;
+
   getGridSlot(slotIndex: number): { pos: Vector2; heading: number; checkpointIdx: number } {
     if (this.points.length === 0) return { pos: new Vector2(0, 0), heading: 0, checkpointIdx: 0 };
 
     const n = this.points.length;
-    const row = Math.floor(slotIndex / 2);
     const side = (slotIndex % 2 === 0) ? -1 : 1;
 
-    // Go backwards from start line (point 0) along points
-    const ptsPerRow = 2;
-    const ptIdx = (n - 1 - (row * ptsPerRow) % n + n) % n;
-    const pt = this.points[ptIdx];
+    // Walk backwards from the start line (point 0); pole sits on the last point before it.
+    const firstGap = this.points[n - 1].center.dist(this.points[0].center);
+    let remaining = Math.min(firstGap + slotIndex * Track.GRID_SLOT_SPACING, this.totalLength * 0.9);
+    let ahead = 0;
+    let behind = n - 1;
+    for (let guard = 0; guard < n; guard++) {
+      const segment = this.points[behind].center.dist(this.points[ahead].center);
+      if (remaining <= segment || segment === 0) break;
+      remaining -= segment;
+      ahead = behind;
+      behind = (behind - 1 + n) % n;
+    }
+    const from = this.points[behind];
+    const to = this.points[ahead];
+    const segment = from.center.dist(to.center);
+    const t = segment > 0 ? Math.max(0, Math.min(1, 1 - remaining / segment)) : 0;
+    const center = from.center.add(to.center.sub(from.center).mul(t));
 
     const lateralDist = Math.min(this.width * 0.22, 14);
-    const pos = pt.center.add(pt.normal.mul(side * lateralDist));
-    const heading = pt.tangent.heading();
+    const pos = center.add(from.normal.mul(side * lateralDist));
+    const heading = from.tangent.heading();
 
-    return { pos, heading, checkpointIdx: ptIdx };
+    return { pos, heading, checkpointIdx: t >= 1 ? ahead : behind };
   }
 
   /**

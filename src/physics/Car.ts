@@ -2,6 +2,7 @@ import { random } from '../math/Random';
 import { normalizePressure, pressureProfile } from '../ai/DriverPressure';
 import { PaceSearch } from '../ai/PaceSearch';
 import { LineSearch } from '../ai/LineSearch';
+import { LineProfile } from '../ai/LineProfile';
 import type { LineNet } from '../ai/LineNet';
 import { Vector2, IntersectionResult, segmentsIntersect } from '../math/Vector2';
 import { BattlePush } from '../ai/BattlePush';
@@ -137,13 +138,27 @@ export class Car {
   public readonly cogHeight: number = 0.32; // Center of gravity height (meters)
   public readonly maxEnginePower: number = 750000; // 750 kW (~1000 HP): ICE + full MGU-K deployment
   /** Internal combustion share; the MGU-K adds up to ERS_POWER on top of it. */
-  public static readonly ICE_POWER = 630000;
-  public static readonly ERS_POWER = 120000;          // MGU-K, W
-  public static readonly ERS_CAPACITY = 4_000_000;    // battery, J
-  public static readonly ERS_LAP_DEPLOY = 4_000_000;  // deployment allowed per lap, J
+  public static readonly ICE_POWER = 400000;
+  /** 2026 power unit: MGU-K deploys up to 350 kW, no MGU-H. */
+  public static readonly ERS_POWER = 350000;          // MGU-K, W
+  public static readonly ERS_CAPACITY = 4_000_000;    // usable battery window, J
+  public static readonly ERS_LAP_HARVEST = 8_500_000; // energy the MGU-K may recover per lap, J
   public static readonly ERS_REGEN_EFFICIENCY = 0.88;
-  /** MGU-K harvesting limit under braking (2026-style), independent of the 120 kW deployment. */
+  /** MGU-K harvesting limit under braking. */
   public static readonly ERS_HARVEST_POWER = 350000;
+  /** Deployment tapers linearly from full power at 290 km/h to zero at 355 km/h. */
+  public static readonly ERS_TAPER_START = 290 / 3.6;
+  public static readonly ERS_TAPER_END = 355 / 3.6;
+  /**
+   * Energy management: below ERS_LOW_SOC deployment fades so a lap's deployment matches its harvest;
+   * at ERS_CLIP_SOC the MGU-K stops deploying and clips.
+   */
+  public static readonly ERS_LOW_SOC = 0.9;
+  public static readonly ERS_CLIP_SOC = 0.1;
+  /** Part-throttle charging: the ICE drives the MGU-K as a generator through corners. */
+  public static readonly ERS_PART_THROTTLE_CHARGE = 100000;
+  /** Super clipping: on full throttle with a flat battery the ICE drives the MGU-K as a generator. */
+  public static readonly ERS_CLIP_POWER = 50000;
   /** Seconds an AI car may spend off the asphalt trying to rejoin before it is retired as stuck. */
   public static readonly OFF_TRACK_RECOVERY_TIME = 12;
   /**
@@ -225,7 +240,7 @@ export class Car {
   public tyreWearFront = 0;
   public tyreWearRear = 0;
   public ersEnergy = Car.ERS_CAPACITY * 0.85;
-  private ersDeployedLap = 0;
+  private ersHarvestedLap = 0;
   public ersDeploying = false;
   public readonly maxSteerAngle: number = 0.40; // ~23 degrees
   public readonly dragCoeff: number = 1.00; // Cd * A [m^2]
@@ -303,6 +318,8 @@ export class Car {
   /** Distance (m) from the learned racing line while overtaking/avoiding; the line itself costs no speed. */
   public lineDeviation = 0;
   public lineSearch: LineSearch | null = null;
+  /** The line this car really drives; the braking planner reads corner radii from it. Kept across resets. */
+  public lineProfile: LineProfile | null = null;
   public pace = new PaceSearch();
   /** The car left the asphalt or touched a barrier by itself during the current lap. */
   public lapExcursion = false;
@@ -463,6 +480,7 @@ export class Car {
     this.peakFitness = 0;
     this.timeAlive = 0;
     this.lapTime = 0;
+    this.lineNet?.resetTiming();
     this.currentLap = 0;
     this.currentCheckpointIdx = startCheckpointIdx;
     this.checkpointsCleared = 0;
@@ -497,7 +515,7 @@ export class Car {
       this.tyreTempFront = this.tyreTempRear = 85;
       this.tyreWearFront = this.tyreWearRear = 0;
     }
-    this.ersDeployedLap = 0;
+    this.ersHarvestedLap = 0;
     this.gear = 1; this.engineRpm = Car.IDLE_RPM; this.shiftCutTimer = 0; this.shiftCooldown = 0;
     this.fullyOffTrack = false;
     this.rollLapPerformanceVariation();
@@ -549,6 +567,11 @@ export class Car {
     }
 
     const n = track.checkpoints.length;
+    if (!this.lineProfile || !this.lineProfile.matches(track)) this.lineProfile = new LineProfile(track.points.length);
+    const here = track.sampleSurface(this.pos);
+    if (here.surface === 'asphalt' && !this.isPitting && this.recoveryTimer <= 0 && !this.incidentActive && this.speed > 15) {
+      this.lineProfile.record(here.index, here.lateral);
+    }
     // Project onto nearby centerline segments and aim a short physical distance
     // ahead. A whole checkpoint of lookahead cuts across narrow hairpins.
     let nearestDistance = Infinity;
@@ -612,7 +635,8 @@ export class Car {
       accumulatedDist += prevPos.dist(cp.center);
       prevPos = cp.center;
 
-      const curK = Math.abs(cp.curvature);
+      // Radius of the line actually driven through this point, not of the centreline.
+      const curK = this.lineProfile.curvature(track, cp.index);
       if (curK > maxUpcomingCurvature) {
         maxUpcomingCurvature = curK;
       }
@@ -997,19 +1021,33 @@ export class Car {
     // Hybrid power: MGU-K torque fill on a wide-open throttle, harvesting under braking and lift-and-coast.
     let ersPower = 0;
     this.ersDeploying = false;
-    {
-      if (actualThrottle > 0.65 && this.ersEnergy > Car.ERS_CAPACITY * 0.04 && this.ersDeployedLap < Car.ERS_LAP_DEPLOY) {
-        ersPower = Car.ERS_POWER * actualThrottle;
-        const joules = Math.min(ersPower * dt, this.ersEnergy, Car.ERS_LAP_DEPLOY - this.ersDeployedLap);
+    const harvestRoom = () => Math.max(0, Car.ERS_LAP_HARVEST - this.ersHarvestedLap);
+    const storeEnergy = (joules: number) => {
+      const stored = Math.min(joules, harvestRoom(), Car.ERS_CAPACITY - this.ersEnergy);
+      this.ersEnergy += Math.max(0, stored);
+      this.ersHarvestedLap += Math.max(0, stored);
+    };
+    if (actualThrottle > 0.65 && forwardSpeed > 0) {
+      const soc = this.ersEnergy / Car.ERS_CAPACITY;
+      const socScale = Math.max(0, Math.min(1, (soc - Car.ERS_CLIP_SOC) / (Car.ERS_LOW_SOC - Car.ERS_CLIP_SOC)));
+      const taper = Math.max(0, Math.min(1, (Car.ERS_TAPER_END - forwardSpeed) / (Car.ERS_TAPER_END - Car.ERS_TAPER_START)));
+      if (socScale > 0) {
+        const joules = Math.min(Car.ERS_POWER * actualThrottle * taper * socScale * dt, this.ersEnergy);
         ersPower = joules / dt;
         this.ersEnergy -= joules;
-        this.ersDeployedLap += joules;
         this.ersDeploying = ersPower > 0;
+      } else if (forwardSpeed > 30 && harvestRoom() > 0) {
+        // Super clipping: part of the ICE output recharges the battery instead of driving the wheels.
+        ersPower = -Car.ERS_CLIP_POWER;
+        storeEnergy(Car.ERS_CLIP_POWER * Car.ERS_REGEN_EFFICIENCY * dt);
       }
+    } else if (actualThrottle >= 0.02 && forwardSpeed > 8 && harvestRoom() > 0) {
+      ersPower = -Car.ERS_PART_THROTTLE_CHARGE * actualThrottle;
+      storeEnergy(-ersPower * Car.ERS_REGEN_EFFICIENCY * dt);
     }
     const harvesting = !this.ersDeploying && forwardSpeed > 8 && (control.brake > 0.05 || (actualThrottle < 0.02 && forwardSpeed > 30));
     const engineForce = (actualThrottle > 0.005 || ersPower > 0)
-      ? (Car.ICE_POWER * actualThrottle * icePower + ersPower) * this.lapPowerFactor / Math.max(12, Math.abs(forwardSpeed)) : 0;
+      ? Math.max(0, Car.ICE_POWER * actualThrottle * icePower + ersPower) * this.lapPowerFactor / Math.max(12, Math.abs(forwardSpeed)) : 0;
     // Stability priority (traction control / brake-by-wire): each axle keeps the lateral
     // force it was using last step, so power or braking never silently removes the grip
     // that is holding the car on its line. Drive and brake use the rest of the friction circle.
@@ -1028,11 +1066,11 @@ export class Car {
     const resistanceScale = resistance > 0 ? Math.min(1, currentMass * Math.abs(vStar) / (dt * resistance)) : 0;
     const resistanceSign = Math.sign(vStar);
     if (harvesting) {
-      // Under braking the MGU-K recovers up to ERS_HARVEST_POWER, never more than the brakes dissipate.
+      // Brake-by-wire blends regen first: the MGU-K recovers up to ERS_HARVEST_POWER, never more than the brakes dissipate.
       const harvestPower = control.brake > 0.05
-        ? Math.min(Car.ERS_HARVEST_POWER * control.brake, (brakeFront + brakeRear) * resistanceScale * forwardSpeed)
+        ? Math.min(Car.ERS_HARVEST_POWER, (brakeFront + brakeRear) * resistanceScale * forwardSpeed)
         : Car.ERS_POWER * 0.3;
-      this.ersEnergy = Math.min(Car.ERS_CAPACITY, this.ersEnergy + harvestPower * Car.ERS_REGEN_EFFICIENCY * dt);
+      storeEnergy(harvestPower * Car.ERS_REGEN_EFFICIENCY * dt);
     }
     const frontFx = -resistanceSign * (brakeFront + rollingFront) * resistanceScale;
     const rearFx = Math.max(-rearLimit, Math.min(rearLimit, driveForce - resistanceSign * (brakeRear + rollingRear) * resistanceScale));
@@ -1415,11 +1453,10 @@ export class Car {
       if (onAsphalt) this.fitness += 1200;
       else this.fitness = Math.max(0, this.fitness - 600);
 
-      // Clean checkpoint bonus (higher reward for staying centered on racing line without sliding)
+      // Clean checkpoint bonus: grip and stability count, the lateral position does not, so the
+      // whole width of the asphalt is free for the racing line.
       if (isClean && onAsphalt) {
-        const halfWidth = Math.max(1, track.width * 0.5);
-        const centerRatio = Math.max(0, Math.min(1, 1.0 - distToCp / halfWidth));
-        this.fitness += 500 + Math.round(centerRatio * 500);
+        this.fitness += 1000;
       } else if (this.isSkidding) {
         // Slid through checkpoint sideways / out of control
         this.fitness = Math.max(0, this.fitness - 200);
@@ -1443,6 +1480,7 @@ export class Car {
 
       this.framesSinceLastCheckpoint = 0;
       this.currentCheckpointIdx = (clearedCpIdx + 1) % cpCount;
+      this.lineNet?.passPoint(clearedCpIdx, cpCount, this.lapTime);
 
       // Check 4 timing checkpoints (CP1, CP2, CP3)
       if (track.timingGates && track.timingGates.length === 4) {
@@ -1470,6 +1508,7 @@ export class Car {
 
       // Completed a full lap crossing the start/finish line (cleared checkpoint 0)!
       if (clearedCpIdx === 0) {
+        this.ersHarvestedLap = 0;
         if (this.checkpointsCleared >= track.checkpoints.length * 0.8) {
           const finishedLapTime = this.lapTime;
           this.lastLapTime = finishedLapTime;
@@ -1496,7 +1535,6 @@ export class Car {
           const compromised = this.lapCompromised || this.pressureLearningBlocked;
           if (!this.isManual) this.pace.finishLap(finishedLapTime, !compromised, this.lapExcursion);
           this.lapExcursion = false;
-          this.ersDeployedLap = 0;
           if (!compromised && (!this.bestLapTime || finishedLapTime < this.bestLapTime)) {
             this.bestLapTime = finishedLapTime;
             this.bestLapPressure = this.driverPressure;

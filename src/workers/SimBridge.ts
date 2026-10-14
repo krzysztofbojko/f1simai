@@ -255,8 +255,9 @@ export class SimBridge {
     return this.request(this.pendingLoadAllModels, { type: 'LOAD_ALL_MODELS', models });
   }
 
-  public startRace(totalLaps: number): void {
-    this.worker?.postMessage({ type: 'START_RACE', totalLaps });
+  /** `withQualifying` runs Q1–Q3 first; `useQualifyingGrid` lines the race up in qualifying order. */
+  public startRace(totalLaps: number, options: { withQualifying?: boolean; useQualifyingGrid?: boolean } = {}): void {
+    this.worker?.postMessage({ type: 'START_RACE', totalLaps, ...options });
   }
 
   public stopRace(): void {

@@ -84,6 +84,42 @@
             </div>
           </div>
 
+          <!-- Qualifying Results Modal -->
+          <div id="quali-modal" class="podium-modal hidden">
+            <div class="podium-box">
+              <div class="podium-header">
+                <span class="podium-trophy">⏱️</span>
+                <div class="podium-header-titles">
+                  <h2>WYNIKI KWALIFIKACJI</h2>
+                  <span class="panel-tag gold" id="quali-pole-tag">POLE POSITION</span>
+                </div>
+              </div>
+              <div class="podium-table-container">
+                <table class="podium-table">
+                  <thead>
+                    <tr>
+                      <th>POZ</th>
+                      <th>KIEROWCA</th>
+                      <th>Q1</th>
+                      <th>Q2</th>
+                      <th>Q3</th>
+                      <th>STRATA</th>
+                    </tr>
+                  </thead>
+                  <tbody id="quali-table-body"></tbody>
+                </table>
+              </div>
+              <div class="podium-actions">
+                <button id="btn-quali-hold" class="f1-btn">
+                  <span class="btn-icon">⏸️</span> Wstrzymaj odliczanie
+                </button>
+                <button id="btn-quali-start-race" class="f1-btn primary">
+                  <span class="btn-icon">🏁</span> <span id="quali-start-label">Start wyścigu</span>
+                </button>
+              </div>
+            </div>
+          </div>
+
           <!-- Race Finish / Podium Results Modal -->
           <div id="podium-modal" class="podium-modal hidden">
             <div class="podium-box">
@@ -220,10 +256,10 @@
             </div>
           </div>
 
-          <!-- 10 F1 Teams Leaderboard Card -->
+          <!-- Leaderboard Card: top 10 of the field -->
           <div class="f1-panel leaderboard-panel">
             <div class="panel-header">
-              <h3>KLASYFIKACJA 10 ZESPOŁÓW F1</h3>
+              <h3 id="leaderboard-title">KLASYFIKACJA · TOP 10 / 20</h3>
               <div style="display: flex; align-items: center; gap: 8px;">
                 <button class="f1-btn small" id="btn-reset-best-times" title="Zresetuj wszystkie najlepsze czasy okrążeń">🔄 Resetuj czasy</button>
                 <span class="panel-tag gold">CZASY OKRĄŻEŃ</span>
@@ -240,7 +276,7 @@
               </div>
             </div>
             <div class="leaderboard-list" id="leaderboard-list">
-              <div class="leaderboard-empty">Inicjalizacja 10 zespołów F1...</div>
+              <div class="leaderboard-empty">Inicjalizacja stawki F1...</div>
             </div>
           </div>
 
@@ -293,6 +329,11 @@
               </div>
             </div>
 
+            <label class="race-quali-toggle" title="Przed wyścigiem: Q1 18 min (20 aut, odpada 5), Q2 15 min (odpada 5), Q3 12 min (10 aut). Kolejność startu według wyników.">
+              <input type="checkbox" id="check-qualifying">
+              <span>Kwalifikacje do wyścigu <small>Q1 18′ · Q2 15′ · Q3 12′</small></span>
+            </label>
+
             <div class="race-actions-row">
               <button id="btn-start-race" class="f1-btn highlight" style="flex: 1.4;">
                 <span class="btn-icon">🏁</span> Rozpocznij Wyścig (F1)
@@ -303,6 +344,22 @@
               <button id="btn-pit-player" class="f1-btn accent" title="Zgłoś zjazd do boksu na najbliższym okrążeniu (Klawisz P)">
                 <span class="btn-icon">⛽</span> Zjedź do Boksu (P)
               </button>
+            </div>
+
+            <div class="race-info-banner quali-info-banner hidden" id="quali-info-banner">
+              <div class="race-info-col">
+                <span class="race-info-lbl">SESJA</span>
+                <span class="race-info-val" id="quali-session">Q1</span>
+              </div>
+              <div class="race-info-col">
+                <span class="race-info-lbl">POZOSTAŁO</span>
+                <span class="race-info-val" id="quali-time-left">18:00</span>
+              </div>
+              <div class="race-info-col">
+                <span class="race-info-lbl">PROWADZI</span>
+                <span class="race-info-val" id="quali-leader">-</span>
+              </div>
+              <div class="quali-dropzone" id="quali-dropzone"></div>
             </div>
 
             <div class="race-info-banner hidden" id="race-info-banner">
