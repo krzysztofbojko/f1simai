@@ -38,6 +38,7 @@ npm test               # regresje fizyki, wyścigu, treningu, poboczy i pomyłek
 npm run test:learning  # ochrona wiedzy AI i zmiany generacji
 npm run test:qualifying # zasady Q1–Q3, siatka startowa
 node scripts/bench-laptime.mjs 1800 145,456,789 # pomiar postępu nauki (ok. 15 min)
+npm run bench:step     # przepustowość fizyki: µs na krok i skrót stanu (do porównań po optymalizacjach)
 npm run test:runoff    # pobocza, bandy, powrót na asfalt i pomyłki AI
 npm run audit:physics  # wyniki prób numerycznych
 npm run build          # TypeScript i produkcyjne dist/

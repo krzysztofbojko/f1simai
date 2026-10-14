@@ -14,7 +14,8 @@
     "test:pressure": "node scripts/test-pressure.mjs",
     "test:neural": "node scripts/test-neural-driving.mjs",
     "test:qualifying": "node scripts/test-qualifying.mjs",
-    "diag:nn": "node scripts/diag-nn.mjs"
+    "diag:nn": "node scripts/diag-nn.mjs",
+    "bench:step": "node scripts/bench-step.mjs"
   },
   "devDependencies": {
     "typescript": "^7.0.2",

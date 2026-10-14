@@ -69,6 +69,7 @@ export class Track {
   private boundaryGrid: Map<number, IndexedSegment[]> = new Map();
   private centerGrid: Map<number, IndexedSegment[]> = new Map();
   private queryId: number = 0;
+  private surfaceCache = new WeakMap<Vector2, { x: number; y: number; sample: SurfaceSample }>();
 
   constructor(points: TrackPoint[], width: number = 90) {
     this.points = points;
@@ -323,24 +324,40 @@ export class Track {
         this.barrierSegments.push(segment); this.addSegmentToGrid(this.barrierGrid, segment);
       }
     }
+    this.surfaceCache = new WeakMap();
   }
 
+  /** Callers treat samples as read-only, so repeated queries for the same unmoved position reuse one. */
   sampleSurface(pos: Vector2): SurfaceSample {
+    const cached = this.surfaceCache.get(pos);
+    if (cached && cached.x === pos.x && cached.y === pos.y) return cached.sample;
+    const sample = this.computeSurface(pos);
+    this.surfaceCache.set(pos, { x: pos.x, y: pos.y, sample });
+    return sample;
+  }
+
+  private computeSurface(pos: Vector2): SurfaceSample {
     const cs = this.spatialCellSize, gx = Math.floor(pos.x / cs), gy = Math.floor(pos.y / cs);
-    let min = Infinity, best = 0, fraction = 0, center = this.points[0].center;
-    const test = (segment: IndexedSegment) => {
-      const edge = segment.p2.sub(segment.p1);
-      const t = Math.max(0, Math.min(1, pos.sub(segment.p1).dot(edge) / Math.max(0.0001, edge.magSq())));
-      const projection = segment.p1.add(edge.mul(t)), distance = projection.distSq(pos);
-      if (distance < min) { min = distance; best = segment.index!; fraction = t; center = projection; }
+    const px = pos.x, py = pos.y;
+    let min = Infinity, best = 0, fraction = 0, cx = 0, cy = 0;
+    // Scalar form of the segment projection; same operation order as the Vector2 version.
+    const test = (p1: Vector2, p2: Vector2, index: number) => {
+      const ex = p2.x - p1.x, ey = p2.y - p1.y;
+      const t = Math.max(0, Math.min(1, ((px - p1.x) * ex + (py - p1.y) * ey) / Math.max(0.0001, ex * ex + ey * ey)));
+      const qx = p1.x + ex * t, qy = p1.y + ey * t, dx = qx - px, dy = qy - py, distance = dx * dx + dy * dy;
+      if (distance < min) { min = distance; best = index; fraction = t; cx = qx; cy = qy; }
     };
     this.queryId++; const query = this.queryId;
     for (let x = gx - 1; x <= gx + 1; x++) for (let y = gy - 1; y <= gy + 1; y++) {
-      for (const seg of this.centerGrid.get(this.hashCell(x, y)) || []) {
-        if (seg.lastQueryId !== query) { seg.lastQueryId = query; test(seg); }
+      const cell = this.centerGrid.get(this.hashCell(x, y));
+      if (!cell) continue;
+      for (let i = 0; i < cell.length; i++) {
+        const seg = cell[i];
+        if (seg.lastQueryId !== query) { seg.lastQueryId = query; test(seg.p1, seg.p2, seg.index!); }
       }
     }
-    if (!Number.isFinite(min)) for (let i = 0; i < this.points.length; i++) test({ p1: this.points[i].center, p2: this.points[(i + 1) % this.points.length].center, index: i, id: i, lastQueryId: 0 });
+    if (!Number.isFinite(min)) for (let i = 0; i < this.points.length; i++) test(this.points[i].center, this.points[(i + 1) % this.points.length].center, i);
+    const center = new Vector2(cx, cy);
     const next = (best + 1) % this.points.length;
     const tangent = this.points[next].center.sub(this.points[best].center).normalize();
     const normal = tangent.normal(), lateral = pos.sub(center).dot(normal);
@@ -359,40 +376,60 @@ export class Track {
 
   /** Swept oriented 5.5 x 1.8 m body, including rotation and glancing contacts. */
   sweepBarrier(from: Vector2, to: Vector2, fromHeading: number, toHeading: number): BarrierContact | null {
-    const pad = 3.1, cs = this.spatialCellSize, candidates = new Set<IndexedSegment>();
+    const pad = 3.1, cs = this.spatialCellSize, candidates: IndexedSegment[] = [];
+    this.queryId++; const query = this.queryId;
     for (let x = Math.floor((Math.min(from.x, to.x) - pad) / cs); x <= Math.floor((Math.max(from.x, to.x) + pad) / cs); x++) {
       for (let y = Math.floor((Math.min(from.y, to.y) - pad) / cs); y <= Math.floor((Math.max(from.y, to.y) + pad) / cs); y++) {
-        for (const segment of this.barrierGrid.get(this.hashCell(x, y)) || []) candidates.add(segment);
+        const cell = this.barrierGrid.get(this.hashCell(x, y));
+        if (cell) for (const segment of cell) if (segment.lastQueryId !== query) { segment.lastQueryId = query; candidates.push(segment); }
       }
     }
-    if (!candidates.size) return null;
+    if (!candidates.length) return null;
+    // Scalar body corners (same arithmetic as the Vector2 form): order -+ as [-L,-W], [L,-W], [L,W], [-L,W].
+    const CX = [-2.75, 2.75, 2.75, -2.75], CY = [-0.9, -0.9, 0.9, 0.9];
+    let px = 0, py = 0, fx = 0, fy = 0, sx = 0, sy = 0;
+    const pose = (t: number, xs: number[], ys: number[]) => {
+      px = from.x + (to.x - from.x) * t; py = from.y + (to.y - from.y) * t;
+      const heading = fromHeading + (toHeading - fromHeading) * t;
+      fx = Math.cos(heading); fy = Math.sin(heading); sx = -fy; sy = fx;
+      for (let k = 0; k < 4; k++) { xs[k] = px + fx * CX[k] + sx * CY[k]; ys[k] = py + fy * CX[k] + sy * CY[k]; }
+    };
+    const ccw = (ax: number, ay: number, bx: number, by: number, cx: number, cy: number) => (cy - ay) * (bx - ax) > (by - ay) * (cx - ax);
+    const inside = (p: Vector2) => Math.abs((p.x - px) * fx + (p.y - py) * fy) <= 2.75 && Math.abs((p.x - px) * sx + (p.y - py) * sy) <= 0.9;
+    const cxs = [0, 0, 0, 0], cys = [0, 0, 0, 0];
     const contact = (t: number): IndexedSegment | null => {
-      const position = Vector2.lerp(from, to, t), heading = fromHeading + (toHeading - fromHeading) * t;
-      const forward = Vector2.fromAngle(heading), side = forward.normal();
-      const corners = [[-2.75, -0.9], [2.75, -0.9], [2.75, 0.9], [-2.75, 0.9]].map(([x, y]) => position.add(forward.mul(x)).add(side.mul(y)));
+      pose(t, cxs, cys);
       for (const segment of candidates) {
-        const inside = (p: Vector2) => Math.abs(p.sub(position).dot(forward)) <= 2.75 && Math.abs(p.sub(position).dot(side)) <= 0.9;
-        if (inside(segment.p1) || inside(segment.p2) || corners.some((p, i) => segmentsIntersect(p, corners[(i + 1) % 4], segment.p1, segment.p2))) return segment;
+        if (inside(segment.p1) || inside(segment.p2)) return segment;
+        const x3 = segment.p1.x, y3 = segment.p1.y, x4 = segment.p2.x, y4 = segment.p2.y;
+        for (let i = 0; i < 4; i++) {
+          const ax = cxs[i], ay = cys[i], bx = cxs[(i + 1) % 4], by = cys[(i + 1) % 4];
+          if (ccw(ax, ay, x3, y3, x4, y4) !== ccw(bx, by, x3, y3, x4, y4) && ccw(ax, ay, bx, by, x3, y3) !== ccw(ax, ay, bx, by, x4, y4)) return segment;
+        }
       }
       return null;
     };
     const steps = Math.max(1, Math.ceil((from.dist(to) + Math.abs(toHeading - fromHeading) * 3) / 0.25));
-    const bodyCorners = (t: number) => {
-      const position = Vector2.lerp(from, to, t), forward = Vector2.fromAngle(fromHeading + (toHeading - fromHeading) * t), side = forward.normal();
-      return [[-2.75,-0.9],[2.75,-0.9],[2.75,0.9],[-2.75,0.9]].map(([x,y]) => position.add(forward.mul(x)).add(side.mul(y)));
-    };
-    let previousCorners = bodyCorners(0);
+    let prevX = [0, 0, 0, 0], prevY = [0, 0, 0, 0], curX = [0, 0, 0, 0], curY = [0, 0, 0, 0];
+    pose(0, prevX, prevY);
     for (let i = 0; i <= steps; i++) {
       let hit = contact(i / steps), fraction = i / steps;
-      const corners = bodyCorners(i / steps);
+      pose(i / steps, curX, curY);
       if (i > 0) for (const segment of candidates) for (let k = 0; k < 4; k++) {
-        const path = corners[k].sub(previousCorners[k]), length = path.mag();
+        const pathX = curX[k] - prevX[k], pathY = curY[k] - prevY[k], length = Math.sqrt(pathX * pathX + pathY * pathY);
         if (length <= 1e-10) continue;
-        const crossing = raySegmentIntersection(previousCorners[k], path.div(length), segment.p1, segment.p2, length);
-        const t = crossing ? (i - 1 + crossing.dist / length) / steps : Infinity;
+        // Inlined raySegmentIntersection(previous corner, path / length, segment, length).
+        const x1 = prevX[k], y1 = prevY[k], x2 = x1 + pathX / length * length, y2 = y1 + pathY / length * length;
+        const x3 = segment.p1.x, y3 = segment.p1.y, x4 = segment.p2.x, y4 = segment.p2.y;
+        const den = (x1 - x2) * (y3 - y4) - (y1 - y2) * (x3 - x4);
+        if (Math.abs(den) < 1e-6) continue;
+        const s = ((x1 - x3) * (y3 - y4) - (y1 - y3) * (x3 - x4)) / den;
+        const u = -((x1 - x2) * (y1 - y3) - (y1 - y2) * (x1 - x3)) / den;
+        if (!(s >= 0 && s <= 1 && u >= 0 && u <= 1)) continue;
+        const t = (i - 1 + s * length / length) / steps;
         if (t < fraction) { hit = segment; fraction = t; }
       }
-      previousCorners = corners;
+      [prevX, curX] = [curX, prevX]; [prevY, curY] = [curY, prevY];
       if (!hit) continue;
       let low = Math.max(0, (i - 1) / steps), high = fraction;
       for (let k = 0; k < 10; k++) { const mid = (low + high) / 2; if (contact(mid)) high = mid; else low = mid; }
@@ -457,15 +494,14 @@ export class Track {
    */
   castRay(origin: Vector2, angleRad: number, maxDist: number = 300): IntersectionResult {
     const dir = Vector2.fromAngle(angleRad, 1);
-    const target = origin.add(dir.mul(maxDist));
-    let closestDist = maxDist;
-    let hitPoint = target;
+    const ox = origin.x, oy = origin.y, tx = ox + dir.x * maxDist, ty = oy + dir.y * maxDist;
+    let closestDist = maxDist, hitX = tx, hitY = ty;
 
     const cs = this.spatialCellSize;
-    const minGx = Math.floor(Math.min(origin.x, target.x) / cs);
-    const maxGx = Math.floor(Math.max(origin.x, target.x) / cs);
-    const minGy = Math.floor(Math.min(origin.y, target.y) / cs);
-    const maxGy = Math.floor(Math.max(origin.y, target.y) / cs);
+    const minGx = Math.floor(Math.min(ox, tx) / cs);
+    const maxGx = Math.floor(Math.max(ox, tx) / cs);
+    const minGy = Math.floor(Math.min(oy, ty) / cs);
+    const maxGy = Math.floor(Math.max(oy, ty) / cs);
 
     this.queryId++;
     const qId = this.queryId;
@@ -481,17 +517,30 @@ export class Track {
           if (seg.lastQueryId === qId) continue;
           seg.lastQueryId = qId;
 
-          const hit = raySegmentIntersection(origin, dir, seg.p1, seg.p2, closestDist);
-          if (hit && hit.dist < closestDist) {
-            closestDist = hit.dist;
-            hitPoint = hit.point;
+          // Inlined raySegmentIntersection(origin, dir, seg.p1, seg.p2, closestDist): same arithmetic, no allocation.
+          const x2 = ox + dir.x * closestDist, y2 = oy + dir.y * closestDist;
+          const x3 = seg.p1.x, y3 = seg.p1.y, x4 = seg.p2.x, y4 = seg.p2.y;
+          // A segment whose box is clearly apart from the ray's box cannot intersect it.
+          if (Math.max(x3, x4) < Math.min(ox, x2) - 1e-3 || Math.min(x3, x4) > Math.max(ox, x2) + 1e-3
+            || Math.max(y3, y4) < Math.min(oy, y2) - 1e-3 || Math.min(y3, y4) > Math.max(oy, y2) + 1e-3) continue;
+          const den = (ox - x2) * (y3 - y4) - (oy - y2) * (x3 - x4);
+          if (Math.abs(den) < 1e-6) continue;
+          const t = ((ox - x3) * (y3 - y4) - (oy - y3) * (x3 - x4)) / den;
+          const u = -((ox - x2) * (oy - y3) - (oy - y2) * (ox - x3)) / den;
+          if (t >= 0 && t <= 1 && u >= 0 && u <= 1) {
+            const dist = t * closestDist;
+            if (dist < closestDist) {
+              hitX = ox + t * (x2 - ox);
+              hitY = oy + t * (y2 - oy);
+              closestDist = dist;
+            }
           }
         }
       }
     }
 
     return {
-      point: hitPoint,
+      point: new Vector2(hitX, hitY),
       dist: closestDist
     };
   }
