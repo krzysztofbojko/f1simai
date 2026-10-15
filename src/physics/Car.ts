@@ -8,6 +8,13 @@ import { Vector2, IntersectionResult, segmentsIntersect } from '../math/Vector2'
 import { BattlePush } from '../ai/BattlePush';
 import { DriverMistakes } from '../ai/DriverMistakes';
 import { Track, type SurfaceType } from '../track/Track';
+
+export const DEFAULT_STRESS_LAP_SHARE = 0.25;
+/** Stress-lap share from a setting: 0..0.6, anything invalid falls back to the default. */
+export function clampStressShare(value: unknown): number {
+  const v = Number(value);
+  return Number.isFinite(v) ? Math.max(0, Math.min(0.6, v)) : DEFAULT_STRESS_LAP_SHARE;
+}
 import { NeuralNetwork } from '../ai/NeuralNetwork';
 
 export interface CarControl {
@@ -226,6 +233,13 @@ export class Car {
 
   // Tyre thermal / wear model, per axle. Active in training and race; set TYRE_MODEL_IN_TRAINING = false for tyre blankets (optimal, no wear).
   public static TYRE_MODEL_IN_TRAINING = true;
+  /**
+   * Share of training laps driven as stress laps (domain randomisation): wider grip and
+   * power spread the planner does not know about, plus noisy, mis-calibrated LiDAR for the
+   * network. The guardian's corrections on these laps teach robustness; the laps never set
+   * a record or evaluate a model, so luckier conditions cannot win selection.
+   */
+  public static STRESS_LAP_SHARE = DEFAULT_STRESS_LAP_SHARE;
   public static readonly TYRE_OPTIMUM = 100;     // deg C
   public static readonly TYRE_AMBIENT = 25;
   public static readonly TYRE_TRACK = 38;
@@ -252,6 +266,13 @@ export class Car {
   public lapPowerFactor: number = 1.0;
   public lapGripFactor: number = 1.0;
   public lapDragFactor: number = 1.0;
+  /** This lap is a stress lap (see `STRESS_LAP_SHARE`). */
+  public stressLap = false;
+  /** The brain is a stagnation-breaking mutation of the record brain, on trial until its next clean lap. */
+  public explorationTrial = false;
+  /** Stress-lap LiDAR error seen by the network: per-reading noise and a per-lap calibration bias. */
+  private sensorNoise = 0;
+  private sensorBias = 0;
 
   // Kinematics (in SI units: meters, m/s, radians)
   public pos: Vector2;
@@ -428,6 +449,14 @@ export class Car {
     this.lapPowerFactor = 1.0 + (random() * 0.04 - 0.02);
     this.lapGripFactor = 1.0 + (random() * 0.05 - 0.025);
     this.lapDragFactor = 1.0 + (random() * 0.03 - 0.015);
+    this.stressLap = Car.STRESS_LAP_SHARE > 0 && !this.isRaceMode && !this.isManual && random() < Car.STRESS_LAP_SHARE;
+    if (this.stressLap) {
+      this.lapPowerFactor = 1.0 + (random() * 0.08 - 0.04);
+      this.lapGripFactor = 1.0 + (random() * 0.11 - 0.08); // -8% .. +3%
+      this.sensorNoise = 0.01 + random() * 0.03;
+      this.sensorBias = random() * 0.04 - 0.02;
+      this.lapCompromised = true;
+    }
 
     // Style shift: driver's style shifts by a few % (+/- 5%) every few laps
     this.lapsUntilStyleShift--;
@@ -520,6 +549,14 @@ export class Car {
     this.gear = 1; this.engineRpm = Car.IDLE_RPM; this.shiftCutTimer = 0; this.shiftCooldown = 0;
     this.fullyOffTrack = false;
     this.rollLapPerformanceVariation();
+  }
+
+  /** LiDAR as the network sees it on a stress lap; the guardian keeps the true readings. */
+  private noisyRayDistances(): number[] {
+    return this.rayDistances.map(d => {
+      const gauss = (random() + random() + random() - 1.5) * 2; // ~N(0, 1)
+      return Math.max(0, Math.min(1, d + this.sensorBias + gauss * this.sensorNoise));
+    });
   }
 
   updateSensors(track: Track): void {
@@ -665,7 +702,7 @@ export class Car {
     const overspeedDelta = Math.max(-1.0, Math.min(1.0, maxOverspeed));
 
     const inputs: number[] = [
-      ...this.rayDistances,
+      ...(this.stressLap && !this.isRaceMode ? this.noisyRayDistances() : this.rayDistances),
       normalizedSpeed,
       Math.max(-1.0, Math.min(1.0, this.angularVelocity * 1.5)),
       cpAngleDiff,

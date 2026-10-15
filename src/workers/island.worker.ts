@@ -5,6 +5,7 @@ import { TopologySpecifier } from '../ai/NeuralNetwork';
 import { normalizePressure } from '../ai/DriverPressure';
 import { SerializedTrack, deserializeTrack, exportDriver, mergeBetterDrivers } from '../ai/Islands';
 import { Track } from '../track/Track';
+import { Car, clampStressShare } from '../physics/Car';
 
 export interface IslandSetup {
   type: 'SETUP';
@@ -15,6 +16,7 @@ export interface IslandSetup {
   driverPressure: number;
   mutationRate: number;
   startingFuelKg: number;
+  stressLapShare: number;
   drivers: any[];
 }
 
@@ -63,8 +65,9 @@ self.onmessage = (e: MessageEvent) => {
       population.setDriverPressure(normalizePressure(setup.driverPressure), true);
       population.mutationRate = setup.mutationRate;
       population.startingFuelKg = setup.startingFuelKg;
+      Car.STRESS_LAP_SHARE = clampStressShare(setup.stressLapShare);
       // Start from the main field's best models; the island's own seeds diverge from there.
-      mergeBetterDrivers(population, setup.drivers);
+      mergeBetterDrivers(population, setup.drivers, Infinity);
       version = setup.version;
       sinceExchange = 0; steps = 0; busyMs = 0;
       break;
@@ -74,6 +77,7 @@ self.onmessage = (e: MessageEvent) => {
       population.setDriverPressure(normalizePressure(data.driverPressure));
       population.mutationRate = data.mutationRate;
       population.startingFuelKg = data.startingFuelKg;
+      Car.STRESS_LAP_SHARE = clampStressShare(data.stressLapShare);
       break;
     }
     case 'MODELS': {

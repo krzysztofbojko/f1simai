@@ -213,6 +213,11 @@ export class SimBridge {
     this.worker?.postMessage({ type: 'SET_FUEL', value });
   }
 
+  /** Share of training laps driven as stress laps (0..0.6). */
+  public setStressLaps(value: number): void {
+    this.worker?.postMessage({ type: 'SET_STRESS_LAPS', value });
+  }
+
   public setLidarCount(value: number): void {
     this.worker?.postMessage({ type: 'SET_LIDAR_COUNT', value });
   }

@@ -18,6 +18,8 @@ try {
  for(const p of [-10,0,10]) assert.ok(pressureProfile(p).cornerGrip>0);
  assert.deepEqual(pressureProfile(0),{cornerGrip:.45,braking:1,coastMargin:.15,brakeFloor:.65,attacks:1,mistakes:1});
  const track=Presets.createGrandPrixTrack(14);
+ // Nominal laps only: stress laps (domain randomisation) are covered by test-robustness.
+ new Population(1,track).cars[0].constructor.STRESS_LAP_SHARE=0;
  // Identical positions/speeds/brain: positive pressure changes the actual AI brake policy.
  const probe=new Population(1,track).cars[0],policies=[];
  probe.brakingAggression=1.2;

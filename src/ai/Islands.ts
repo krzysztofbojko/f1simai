@@ -109,12 +109,13 @@ export function applyDriverModel(car: Car, record: TeamRecord | undefined, drive
 
 /**
  * Island migration: a driver takes another population's model only for a strictly
- * faster clean lap at the same driver pressure and with the same network inputs.
+ * faster clean lap at the same driver pressure and with the same network inputs,
+ * and one round replaces at most `maxAdoptions` drivers (largest gains first).
  * The lap in progress is flagged, so a mixed lap never evaluates either model.
  * Returns the number of drivers that changed.
  */
-export function mergeBetterDrivers(population: Population, drivers: any[]): number {
-  let adopted = 0;
+export function mergeBetterDrivers(population: Population, drivers: any[], maxAdoptions = migrationLimit(population)): number {
+  const candidates: { index: number; data: any; gain: number }[] = [];
   for (let i = 0; i < population.cars.length; i++) {
     const car = population.cars[i], record = population.teamRecords[i];
     const data = drivers.find(d => d?.color === car.color);
@@ -124,13 +125,27 @@ export function mergeBetterDrivers(population: Population, drivers: any[]): numb
     if (normalizePressure(data.bestLapPressure ?? 0) !== car.driverPressure) continue;
     if (!car.brain || !Array.isArray(data.bestBrain.layerSizes) || data.bestBrain.layerSizes.join() !== car.brain.layerSizes.join()) continue;
     if (car.isManual || car.isRaceMode) continue;
+    candidates.push({ index: i, data, gain: own !== null && own !== undefined && own > 0 ? own - data.bestLapTime : 1e9 });
+  }
+  // Diversity guard: one exchange replaces only the largest improvements, so the
+  // fields do not all collapse onto the same models in a single round.
+  candidates.sort((a, b) => b.gain - a.gain);
+  const chosen = candidates.slice(0, Math.max(0, maxAdoptions));
+  for (const { index, data } of chosen) {
+    const car = population.cars[index], record = population.teamRecords[index];
     // The proven network drives from now on, not the island's current mutation.
     applyDriverModel(car, record, { ...data, brain: data.bestBrain }, true);
     car.lapCompromised = true;
+    car.explorationTrial = false;
+    if (record) record.stagnationCounter = 0;
     car.replayBuffer = [];
     car.replayStepTimer = 0;
     if (population.globalBestLap === null || data.bestLapTime < population.globalBestLap) population.globalBestLap = data.bestLapTime;
-    adopted++;
   }
-  return adopted;
+  return chosen.length;
+}
+
+/** Drivers one migration round may replace: a quarter of the field. */
+export function migrationLimit(population: Population): number {
+  return Math.max(1, Math.ceil(population.cars.length / 4));
 }

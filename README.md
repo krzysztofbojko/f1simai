@@ -14,7 +14,10 @@ Przeglądarkowy symulator wyścigów 2D w TypeScript i Vite. Dwadzieścia bolid�
 - Sterowanie gracza: WASD lub strzałki; P zgłasza postój.
 - Profile obliczeniowe, pauza i przyspieszenie symulacji.
 - „Czysta tablica” (panel sterowania): po potwierdzeniu wszyscy kierowcy zapominają wszystko, czego się nauczyli (sieci, linie przejazdu, tempo, rekordy, generacje), autozapis jest usuwany, a trwająca sesja przerwana. Tor i ustawienia zostają; stawka startuje jak po pierwszym uruchomieniu.
-- Wyspy treningowe (suwak w ustawieniach): dodatkowe Web Workery trenują w tle własne stawki na tym samym torze, na wolnych rdzeniach (np. rdzenie wydajnościowe Apple M1). Co 30 s czasu symulacji kierowca przejmuje model z wyspy tylko przy szybszym czystym okrążeniu, tej samej presji i tych samych wejściach sieci; przerwane tym okrążenie nie ocenia modeli. Wyspy stoją przy pauzie, w kwalifikacjach i w wyścigu. GPU nie jest używane: sieci są zbyt małe (ok. 2% czasu kroku), by zyskać na przesyłaniu danych do karty.
+- Wyspy treningowe (suwak w ustawieniach): dodatkowe Web Workery trenują w tle własne stawki na tym samym torze, na wolnych rdzeniach (np. rdzenie wydajnościowe Apple M1). Co 30 s czasu symulacji kierowca przejmuje model z wyspy tylko przy szybszym czystym okrążeniu, tej samej presji i tych samych wejściach sieci; przerwane tym okrążenie nie ocenia modeli. Jedna wymiana podmienia najwyżej ćwierć stawki (największe zyski najpierw), żeby stawki nie zbiegały jednocześnie do tych samych modeli. Wyspy stoją przy pauzie, w kwalifikacjach i w wyścigu. GPU nie jest używane: sieci są zbyt małe (ok. 2% czasu kroku), by zyskać na przesyłaniu danych do karty.
+- Ochrona przed przeuczeniem:
+  - Trudne okrążenia (suwak, domyślnie 25%): część okrążeń treningowych jedzie się w losowych warunkach. Przyczepność wynosi od −8% do +3%, moc ±4%, a LIDAR widziany przez sieć ma szum i przesunięcie kalibracji. Planista o tym nie wie. Poprawki strażnika na tych okrążeniach uczą odporności. Takie okrążenia nie ustanawiają rekordów i nie oceniają modeli, więc szczęśliwe warunki nie wygrywają selekcji. W kwalifikacjach i wyścigu warunki są zawsze nominalne.
+  - Wyjście ze stagnacji: po 8 czystych okrążeniach bez rekordu kierowca przez jedno okrążenie jedzie silniej zmutowaną kopią rekordowej sieci. Jeśli pobije rekord, kopia zostaje. Jeśli nie, wraca sprawdzona sieć, więc rekord nigdy się nie pogarsza. Kolejne nieudane próby zwiększają krok mutacji, najwyżej do 12%.
 
 ## Fizyka
 
@@ -40,6 +43,7 @@ npm test               # regresje fizyki, wyścigu, treningu, poboczy i pomyłek
 npm run test:learning  # ochrona wiedzy AI i zmiany generacji
 npm run test:qualifying # zasady Q1–Q3, siatka startowa
 npm run test:islands   # wyspy treningowe: przenoszenie toru i reguły wymiany modeli
+npm run test:robustness # trudne okrążenia, próby wyjścia ze stagnacji, limit migracji
 node scripts/bench-laptime.mjs 1800 145,456,789 # pomiar postępu nauki (ok. 15 min)
 npm run bench:step     # przepustowość fizyki: µs na krok i skrót stanu (do porównań po optymalizacjach)
 npm run test:runoff    # pobocza, bandy, powrót na asfalt i pomyłki AI

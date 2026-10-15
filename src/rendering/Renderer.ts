@@ -10,6 +10,9 @@ export class Renderer {
   public showCheckpoints: boolean = false;
   public showRacingLine: boolean = true;
   public showCarSpeed: boolean = true;
+  // Speed badges are queued during the car pass and drawn last, so they can avoid each other.
+  private pendingLabels: { car: Car; isLeader: boolean; isPlayer: boolean; isSelected: boolean; priority: boolean }[] = [];
+  private placedLabels: number[] = [];
 
   constructor(ctx: CanvasRenderingContext2D) {
     this.ctx = ctx;
@@ -17,6 +20,7 @@ export class Renderer {
 
   clear(width: number, height: number, zoom: number = 1): void {
     this.viewZoom = Math.max(.01, zoom);
+    this.pendingLabels.length = 0;
     const ctx = this.ctx;
 
     // Dark motorsport asphalt / grass background
@@ -582,7 +586,8 @@ export class Renderer {
 
     // 8. Floating Speed Display above the car (horizontal, always readable)
     if (this.showCarSpeed) {
-      this.renderSpeedLabel(car, isLeader, isPlayer, isSelected);
+      const priority = isLeader || isPlayer || isSelected || car.isPitting || car.yellowFlag || (car.wantsToPit && !car.isPitting) || car.isOutOfFuel;
+      this.pendingLabels.push({ car, isLeader, isPlayer, isSelected, priority });
     }
 
     // Render sensor rays for selected car (or leader if no specific car selected)
@@ -593,9 +598,32 @@ export class Renderer {
   }
 
   /**
+   * Draw the queued speed badges: important ones first, then any ordinary badge
+   * that does not overlap one already drawn. Call in world space after all cars.
+   */
+  renderLabels(): void {
+    this.placedLabels.length = 0;
+    const labels = this.pendingLabels;
+    for (const pass of [true, false]) {
+      for (const label of labels) {
+        if (label.priority === pass) this.renderSpeedLabel(label.car, label.isLeader, label.isPlayer, label.isSelected, !pass);
+      }
+    }
+    labels.length = 0;
+  }
+
+  private labelOverlaps(x: number, y: number, w: number, h: number): boolean {
+    const placed = this.placedLabels;
+    for (let i = 0; i < placed.length; i += 4) {
+      if (x < placed[i] + placed[i + 2] && x + w > placed[i] && y < placed[i + 1] + placed[i + 3] && y + h > placed[i + 1]) return true;
+    }
+    return false;
+  }
+
+  /**
    * Render floating speed badge above the car
    */
-  private renderSpeedLabel(car: Car, isLeader: boolean, isPlayer: boolean, isSelected: boolean = false): void {
+  private renderSpeedLabel(car: Car, isLeader: boolean, isPlayer: boolean, isSelected: boolean = false, skipIfCrowded = false): void {
     const ctx = this.ctx;
     ctx.save();
     ctx.translate(car.pos.x, car.pos.y);
@@ -634,6 +662,19 @@ export class Renderer {
     const boxH = isLeader || isPlayer || isSelected || isPitting ? 16 : 14;
     const posX = -boxW / 2;
     const posY = -Math.max(24, car.width * this.viewZoom / 2 + 16);
+
+    // Screen-space footprint (labels are never rotated), with a small gap.
+    const m = ctx.getTransform();
+    const gap = 2 * m.a;
+    const sx = m.e + posX * m.a - gap;
+    const sy = m.f + posY * m.d - gap;
+    const sw = boxW * m.a + gap * 2;
+    const sh = boxH * m.d + gap * 2;
+    if (skipIfCrowded && this.labelOverlaps(sx, sy, sw, sh)) {
+      ctx.restore();
+      return;
+    }
+    this.placedLabels.push(sx, sy, sw, sh);
 
     // Dark pill container with team color border
     ctx.fillStyle = isPitting

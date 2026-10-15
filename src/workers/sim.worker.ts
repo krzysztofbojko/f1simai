@@ -3,7 +3,7 @@ import { captureMotion, resolveTraffic, avoidTraffic } from '../physics/Traffic'
 import { Track, TimingGate } from '../track/Track';
 import { Presets } from '../track/Presets';
 import { Population, LapLeaderboardEntry } from '../ai/Population';
-import { Car, CarControl, TrajectoryPoint, CheckpointDelta, driverInputCount } from '../physics/Car';
+import { Car, CarControl, TrajectoryPoint, CheckpointDelta, driverInputCount, clampStressShare } from '../physics/Car';
 import { Spline } from '../math/Spline';
 import { Vector2 } from '../math/Vector2';
 import { TopologySpecifier } from '../ai/NeuralNetwork';
@@ -290,7 +290,7 @@ function exportAllDrivers(): any[] {
 
 function islandSetupMessage(): object {
   return { type: 'SETUP', version: islandVersion, track: serializeTrack(track), rayCount, topology: currentTopology,
-    driverPressure, mutationRate, startingFuelKg, drivers: exportAllDrivers() };
+    driverPressure, mutationRate, startingFuelKg, stressLapShare: Car.STRESS_LAP_SHARE, drivers: exportAllDrivers() };
 }
 
 function onIslandMessage(worker: Worker, message: any): void {
@@ -328,7 +328,7 @@ function resetIslands(): void {
 }
 
 function configureIslands(): void {
-  for (const worker of islands) worker.postMessage({ type: 'CONFIG', driverPressure, mutationRate, startingFuelKg });
+  for (const worker of islands) worker.postMessage({ type: 'CONFIG', driverPressure, mutationRate, startingFuelKg, stressLapShare: Car.STRESS_LAP_SHARE });
 }
 
 /** Islands train only while the main field trains: not when paused, in qualifying or in a race. */
@@ -920,7 +920,7 @@ setInterval(simLoop, 16);
 /** Messages after which islands restart from the main field, or only take new settings. */
 const ISLAND_RESET_MESSAGES = new Set(['SET_TOPOLOGY', 'SET_TRACK_WIDTH', 'SET_PRESET', 'SET_CUSTOM_TRACK', 'SET_LIDAR_COUNT',
   'RESET_POPULATION', 'CLEAR_LEARNING', 'RESET_SINGLE_BRAIN', 'RESET_BEST_TIMES', 'LOAD_BRAIN', 'LOAD_ALL_MODELS']);
-const ISLAND_CONFIG_MESSAGES = new Set(['SET_DRIVER_PRESSURE', 'SET_MUTATION', 'SET_FUEL']);
+const ISLAND_CONFIG_MESSAGES = new Set(['SET_DRIVER_PRESSURE', 'SET_MUTATION', 'SET_FUEL', 'SET_STRESS_LAPS']);
 
 // Message handling from Main Thread
 self.onmessage = (e: MessageEvent) => {
@@ -1047,6 +1047,11 @@ self.onmessage = (e: MessageEvent) => {
     case 'SET_MUTATION': {
       mutationRate = data.value;
       population.mutationRate = mutationRate;
+      break;
+    }
+
+    case 'SET_STRESS_LAPS': {
+      Car.STRESS_LAP_SHARE = clampStressShare(data.value);
       break;
     }
 

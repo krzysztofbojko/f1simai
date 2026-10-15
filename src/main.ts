@@ -5,8 +5,9 @@ import { Spline } from './math/Spline';
 import { Track } from './track/Track';
 import { Presets } from './track/Presets';
 import { Population, LapLeaderboardEntry } from './ai/Population';
-import { Car, CarControl, driverInputCount } from './physics/Car';
+import { Car, CarControl, driverInputCount, clampStressShare, DEFAULT_STRESS_LAP_SHARE } from './physics/Car';
 import { Renderer } from './rendering/Renderer';
+import { hydrateIcons, setControlContent } from './ui/icons';
 import { SimBridge, type ComputeProfile, type TopologySpecifier } from './workers/SimBridge';
 import type { SimSnapshot, RaceState, QualifyingSnapshot } from './workers/sim.worker';
 
@@ -146,7 +147,8 @@ class App {
     this.bridge.onTrackError = message => alert(message);
     const threadBadge = document.getElementById('thread-badge');
     if (threadBadge) {
-      threadBadge.textContent = `⚡ ${this.bridge.cpuCores} RDZENI (WEB WORKER)`;
+      threadBadge.textContent = `${this.bridge.cpuCores} rdzeni`;
+      threadBadge.title = `${this.bridge.cpuCores} rdzeni CPU · symulacja w Web Workerze`;
     }
 
     this.bridge.onSnapshotCallback = (snapshot: SimSnapshot) => {
@@ -698,14 +700,14 @@ class App {
         this.cameraZoom = 1;
         this.cameraOffset = new Vector2(0, 0);
         btnDraw.classList.add('active');
-        btnDraw.innerHTML = '<span class="btn-icon">✅</span> Zakończ Rysowanie';
+        setControlContent(btnDraw, 'check', 'Zakończ rysowanie');
         drawBanner.classList.remove('hidden');
         this.drawnTrackRejected = false;
         this.drawSourceBackup = this.rawDrawnPoints.map(p => p.clone());
         this.rawDrawnPoints = [];
       } else {
         btnDraw.classList.remove('active');
-        btnDraw.innerHTML = '<span class="btn-icon">✏️</span> Rysuj Własny Tor';
+        setControlContent(btnDraw, 'pencil', 'Rysuj tor');
         drawBanner.classList.add('hidden');
         if (this.rawDrawnPoints.length > 5 && !this.drawnTrackRejected) {
           this.finishDrawnTrack();
@@ -725,10 +727,10 @@ class App {
       this.bridge.setPaused(this.isPaused);
       if (play) {
         startBanner?.classList.add('hidden');
-        btnPlay.innerHTML = '<span class="btn-icon">⏸️</span> Pauza';
+        setControlContent(btnPlay, 'pause', 'Pauza');
         btnPlay.classList.add('primary');
       } else {
-        btnPlay.innerHTML = '<span class="btn-icon">▶️</span> Wznów';
+        setControlContent(btnPlay, 'play', 'Wznów');
         btnPlay.classList.remove('primary');
       }
     };
@@ -744,7 +746,7 @@ class App {
     btnStop.addEventListener('click', () => {
       this.isPaused = true;
       this.bridge.setPaused(true);
-      btnPlay.innerHTML = '<span class="btn-icon">▶️</span> Start';
+      setControlContent(btnPlay, 'play', 'Start');
       btnPlay.classList.remove('primary');
 
       if (this.latestRaceState !== 'IDLE') {
@@ -815,7 +817,7 @@ class App {
           const startBanner = document.getElementById('start-banner');
           startBanner?.classList.add('hidden');
           if (btnPlay) {
-            btnPlay.innerHTML = '<span class="btn-icon">⏸️</span> Pauza';
+            setControlContent(btnPlay, 'pause', 'Pauza');
             btnPlay.classList.add('primary');
           }
         }
@@ -957,6 +959,25 @@ class App {
       this.population.mutationRate = val / 100;
       this.bridge.setMutation(val / 100);
     });
+
+    // Stress laps (domain randomisation): share of training laps in randomised conditions.
+    const stressSlider = document.getElementById('slider-stress-laps') as HTMLInputElement | null;
+    const stressLabel = document.getElementById('val-stress-laps');
+    const applyStress = (percent: number, save: boolean) => {
+      const share = clampStressShare(percent / 100);
+      Car.STRESS_LAP_SHARE = share;
+      this.bridge.setStressLaps(share);
+      if (stressLabel) stressLabel.textContent = `${Math.round(share * 100)}%`;
+      if (save) try { localStorage.setItem('f1_stress_laps', String(Math.round(share * 100))); } catch {}
+    };
+    let savedStress = DEFAULT_STRESS_LAP_SHARE * 100;
+    try { const v = localStorage.getItem('f1_stress_laps'); if (v !== null && Number.isFinite(Number(v))) savedStress = Number(v); } catch {}
+    if (stressSlider) {
+      stressSlider.value = String(savedStress);
+      stressSlider.addEventListener('input', () => applyStress(parseInt(stressSlider.value, 10), false));
+      stressSlider.addEventListener('change', () => applyStress(parseInt(stressSlider.value, 10), true));
+    }
+    applyStress(savedStress, false);
 
     // Sensor raycast checkbox
     const checkSensors = document.getElementById('check-sensors') as HTMLInputElement;
@@ -1289,7 +1310,7 @@ class App {
     document.getElementById('start-banner')?.classList.add('hidden');
     const playBtn = document.getElementById('btn-play');
     if (playBtn) {
-      playBtn.innerHTML = '<span class="btn-icon">⏸️</span> Pauza';
+      setControlContent(playBtn, 'pause', 'Pauza');
       playBtn.classList.remove('primary');
       playBtn.classList.add('active');
     }
@@ -1315,7 +1336,7 @@ class App {
     const clock = (t: number) => `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, '0')}`;
     const set = (id: string, text: string) => { const el = document.getElementById(id); if (el && el.textContent !== text) el.textContent = text; };
     set('quali-session', `Q${session + 1}`);
-    set('quali-time-left', q.phase === 'session' ? clock(q.timeLeft) : q.phase === 'overtime' ? '🏁 FLAGA' : q.phase === 'break' ? `PRZERWA ${Math.ceil(q.timeLeft)} s` : 'KONIEC');
+    set('quali-time-left', q.phase === 'session' ? clock(q.timeLeft) : q.phase === 'overtime' ? 'FLAGA' : q.phase === 'break' ? `PRZERWA ${Math.ceil(q.timeLeft)} s` : 'KONIEC');
     const leader = q.standings[0];
     const leaderTime = leader?.times[session] ?? null;
     set('quali-leader', leader && leaderTime !== null ? `${leader.driverName.split(' ').slice(-1)[0]} ${this.formatLapTime(leaderTime)}` : '-');
@@ -1613,19 +1634,19 @@ class App {
           <div class="podium-pos-badge" style="background:${p2.carColor}; color:#fff;">2</div>
           <div class="podium-driver">${p2.driverName}</div>
           <div class="podium-time">${p2.gap}</div>
-          <div class="podium-time">🛑 ${p2.pitStops} PIT</div>
+          <div class="podium-time">Pit stopy: ${p2.pitStops}</div>
         </div>
         <div class="podium-card p1">
           <div class="podium-pos-badge" style="background:${p1.carColor}; color:#fff;">1</div>
-          <div class="podium-driver">🏆 ${p1.driverName}</div>
+          <div class="podium-driver">${p1.driverName}</div>
           <div class="podium-time">ZWYCIĘZCA</div>
-          <div class="podium-time">🛑 ${p1.pitStops} PIT</div>
+          <div class="podium-time">Pit stopy: ${p1.pitStops}</div>
         </div>
         <div class="podium-card p3">
           <div class="podium-pos-badge" style="background:${p3.carColor}; color:#fff;">3</div>
           <div class="podium-driver">${p3.driverName}</div>
           <div class="podium-time">${p3.gap}</div>
-          <div class="podium-time">🛑 ${p3.pitStops} PIT</div>
+          <div class="podium-time">Pit stopy: ${p3.pitStops}</div>
         </div>
       `;
     }
@@ -1839,7 +1860,7 @@ class App {
       this.isDrawMode = false;
       const btnDraw = document.getElementById('btn-draw')!;
       btnDraw.classList.remove('active');
-      btnDraw.innerHTML = '<span class="btn-icon">✏️</span> Rysuj Własny Tor';
+      setControlContent(btnDraw, 'pencil', 'Rysuj tor');
       document.getElementById('draw-banner')!.classList.add('hidden');
     }
   }
@@ -1939,6 +1960,7 @@ class App {
         const isPlayerSelected = this.selectedCar === this.playerCar;
         this.renderer.renderCar(this.playerCar, false, true, isPlayerSelected, hasSelected);
       }
+      this.renderer.renderLabels();
 
       this.ctx.restore();
 
@@ -2021,10 +2043,10 @@ class App {
       }
       if (btnTakeover) {
         if (this.isPlayerDriving && this.selectedCar.isManual) {
-          btnTakeover.innerHTML = '🤖 Oddaj AI';
+          setControlContent(btnTakeover, 'chip', 'Oddaj AI');
           btnTakeover.classList.add('active');
         } else {
-          btnTakeover.innerHTML = '🏎️ Prowadź Bolid (WASD)';
+          setControlContent(btnTakeover, 'wheel', 'Prowadź bolid (WASD)');
           btnTakeover.classList.remove('active');
         }
       }
@@ -2037,10 +2059,10 @@ class App {
       if (this.isPlayerDriving) {
         const currentDriven = this.population.cars.find(c => c.isManual) || this.selectedCar;
         const driverTitle = currentDriven ? currentDriven.driverName.split(' ')[0] : 'WŁ.';
-        btnDrive.innerHTML = `<span class="btn-icon">🏎️</span> Gracz: ${driverTitle} (WASD)`;
+        setControlContent(btnDrive, 'wheel', `Gracz: ${driverTitle} (WASD)`);
         btnDrive.classList.add('active');
       } else {
-        btnDrive.innerHTML = '<span class="btn-icon">🏎️</span> Gracz (WASD)';
+        setControlContent(btnDrive, 'wheel', 'Gracz (WASD)');
         btnDrive.classList.remove('active');
       }
     }
@@ -2218,7 +2240,7 @@ class App {
           currentTimeStr = `PIT (${car.pitTimer.toFixed(1)}s)`;
         } else if (car && !car.isAlive) {
           if (this.latestRaceState !== 'IDLE') {
-            currentTimeStr = '<span class="time-dnf">💥 DNF</span>';
+            currentTimeStr = '<span class="time-dnf">DNF</span>';
           } else {
             currentTimeStr = 'PIT (RESPAWN)';
           }
@@ -2259,16 +2281,15 @@ class App {
                 <div class="driver-title">
                   <span class="team-dot" style="background-color: ${entry.carColor}"></span>
                   <span>${entry.driverName}</span>
-                  ${isSelected ? '<span style="color:var(--f1-cyan); font-size:10px; margin-left:4px;">🎯</span>' : ''}
                 </div>
                 <div class="driver-stats-row">
                   <span class="avg-speed-badge">Śr: ${entry.avgSpeed} km/h</span>
                   <span>Vmax: ${entry.topSpeed} km/h</span>
-                  <span>⛽ ${entry.fuelRemaining} kg</span>
-                  ${car && car.pitStopsCount > 0 ? `<span style="color:#ffd700">🛑 ${car.pitStopsCount} PIT</span>` : ''}
-                  ${this.latestRaceState !== 'IDLE' && car ? `<span>🏁 L${car.raceLapsCompleted}/${this.latestRaceTotalLaps}</span>` : (car && car.currentLap > 0 ? `<span>🏁 L${car.currentLap}</span>` : '')}
-                  ${car && !car.isAlive && this.latestRaceState !== 'IDLE' ? '<span class="time-dnf">💥 DNF (ROZBITY)</span>' : ''}
-                  ${car ? `<span>🛑 ${Math.round(car.brakingAggression * 100)}%</span>` : ''}
+                  <span title="Paliwo">${entry.fuelRemaining} kg</span>
+                  ${car && car.pitStopsCount > 0 ? `<span class="stat-pit">PIT ×${car.pitStopsCount}</span>` : ''}
+                  ${this.latestRaceState !== 'IDLE' && car ? `<span>L${car.raceLapsCompleted}/${this.latestRaceTotalLaps}</span>` : (car && car.currentLap > 0 ? `<span>L${car.currentLap}</span>` : '')}
+                  ${car && !car.isAlive && this.latestRaceState !== 'IDLE' ? '<span class="time-dnf">DNF (rozbity)</span>' : ''}
+                  ${car ? `<span title="Agresja hamowania">Ham. ${Math.round(car.brakingAggression * 100)}%</span>` : ''}
                 </div>
               </div>
             </div>
@@ -2584,5 +2605,6 @@ class App {
 
 // Boot application
 window.addEventListener('DOMContentLoaded', () => {
+  hydrateIcons();
   new App();
 });

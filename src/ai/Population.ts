@@ -237,6 +237,30 @@ export class Population {
     if (mateLine && mateLine !== line && !mateLine.hasProposal && line.bestTime + 0.1 < mateLine.bestTime) mateLine.propose(line);
   }
 
+  /**
+   * Stagnation breaker: after this many clean laps without a personal best the driver tries a
+   * stronger mutation of its record brain for one lap. A personal best keeps it, anything else
+   * restores the record brain, so the record can never get worse. Repeated failures raise the
+   * mutation step (up to `MAX_SHAKE_RATE`); a personal best anneals it back down.
+   */
+  static readonly STAGNATION_LAPS = 8;
+  static readonly MAX_SHAKE_RATE = 0.12;
+
+  private shakeBrain(car: Car, record: TeamRecord): void {
+    if (!record.bestBrain) return;
+    const rate = Math.max(this.mutationRate, record.currentMutationRate);
+    const brain = record.bestBrain.clone();
+    brain.mutate(rate, rate * 2.5);
+    car.brain = brain;
+    // A race-time rescue restores the proven brain, never the trial.
+    car.safeBrainBackup = record.bestBrain.clone();
+    car.explorationTrial = true;
+    car.replayBuffer = [];
+    car.replayStepTimer = 0;
+    record.stagnationCounter = 0;
+    record.currentMutationRate = Math.min(Population.MAX_SHAKE_RATE, rate * 1.5);
+  }
+
   recordLap(lapEvent: LapFinishEvent, car: Car, isPlayer: boolean = false, track?: Track): void {
     if (car.pressureLearningBlocked) lapEvent = {...lapEvent, compromised: true};
     const lapPressure = lapEvent.pressure ?? car.driverPressure;
@@ -283,19 +307,26 @@ export class Population {
         // Point 3: Simulated Annealing Cooldown on personal best lap
         t.stagnationCounter = 0;
         t.currentMutationRate = Math.max(0.025, t.currentMutationRate * 0.85);
+        car.explorationTrial = false;
         if (car.brain) {
           t.bestBrain = car.brain.clone();
         }
         car.safeBrainBackup = car.brain ? car.brain.clone() : null;
         car.safeBrainPressure = lapPressure;
-      } else if ((t.bestLapPressure ?? 0) === lapPressure && t.bestBrain && lapEvent.lapTime > t.bestLapTime + 2.5) {
-        // PERFORMANCE GUARD: If car suffered degradation or slow lap, restore its proven championship brain!
+      } else if ((t.bestLapPressure ?? 0) === lapPressure && t.bestBrain && (car.explorationTrial || lapEvent.lapTime > t.bestLapTime + 2.5)) {
+        // PERFORMANCE GUARD: a failed exploration trial or a degraded brain goes back to the proven championship brain.
+        if (!car.explorationTrial) t.stagnationCounter++;
+        car.explorationTrial = false;
         car.brain = t.bestBrain.clone();
         car.safeBrainBackup = t.bestBrain.clone();
         car.safeBrainPressure = lapPressure;
         car.replayBuffer = [];
         car.replayStepTimer = 0;
+      } else if ((t.bestLapPressure ?? 0) === lapPressure) {
+        t.stagnationCounter++;
       }
+      if (!this.isRaceMode && !isPlayer && t.bestBrain && (t.bestLapPressure ?? 0) === lapPressure
+        && t.stagnationCounter >= Population.STAGNATION_LAPS) this.shakeBrain(car, t);
     }
 
     // Record learning history point for the live progress chart
@@ -545,6 +576,7 @@ export class Population {
             }
 
             car.brain = newBrain;
+            car.explorationTrial = false;
             car.safeBrainBackup = newBrain.clone();
             car.safeBrainPressure = record?.bestBrain ? record.bestLapPressure ?? 0 : eliteRecord?.bestLapPressure ?? 0;
             car.replayBuffer = [];
