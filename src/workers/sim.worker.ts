@@ -168,6 +168,8 @@ export interface SerializedCar {
 }
 
 export interface SimSnapshot {
+  /** Simulated seconds since the worker started; the display interpolates car motion on it. */
+  simTime: number;
   driverPressure: number;
   cars: SerializedCar[];
   playerCar: SerializedCar | null;
@@ -651,6 +653,7 @@ function createSnapshot(): SimSnapshot {
     activeCarBrainJson: activeBrainJson,
     cpuCores: detectedCores,
     speedMultiplier,
+    simTime,
     timingGates: track.timingGates.map(g => ({ ...g })),
     sessionBestSplits: [...sessionBestSplits],
     raceState,
@@ -783,6 +786,7 @@ function attachPopulationHooks(): void {
 // Simulation step execution: elapsed-time accumulator keeps 1x tied to real time.
 let lastPhysicsTick = performance.now();
 let physicsAccumulator = 0;
+let simTime = 0;
 function runSimulationSteps(): void {
   const now = performance.now();
   const elapsed = Math.max(0, Math.min(0.25, (now - lastPhysicsTick) / 1000));
@@ -808,6 +812,7 @@ function runSimulationSteps(): void {
       }
     }
     if (speedMultiplier !== 'max') physicsAccumulator = Math.max(0, physicsAccumulator - fixedDt);
+    simTime += fixedDt;
     if (raceState === 'QUALIFYING' && !stepQualifying(fixedDt)) {
       if (raceState !== 'QUALIFYING') break;
       continue;

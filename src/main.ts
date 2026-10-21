@@ -7,6 +7,7 @@ import { Presets } from './track/Presets';
 import { Population, LapLeaderboardEntry } from './ai/Population';
 import { Car, CarControl, driverInputCount, clampStressShare, DEFAULT_STRESS_LAP_SHARE } from './physics/Car';
 import { SceneRenderer } from './rendering/three/SceneRenderer';
+import { MotionInterpolator } from './rendering/MotionInterpolator';
 import type { CameraMode } from './rendering/three/Cameras';
 import { HudCharts } from './rendering/HudCharts';
 import { hydrateIcons, setControlContent } from './ui/icons';
@@ -27,6 +28,7 @@ class App {
   private gMeterCanvas: HTMLCanvasElement;
   private learningChartCanvas: HTMLCanvasElement;
   private renderer: SceneRenderer;
+  private motion = new MotionInterpolator();
   private readonly hudCharts = new HudCharts();
 
   // Web Worker Multithreading Bridge
@@ -395,6 +397,10 @@ class App {
         this.playerCar.trackLimitExits = sp.trackLimitExits ?? 0;
         this.playerCar.raceLapsCompleted = sp.raceLapsCompleted;
       }
+
+      const synced = this.population.cars.filter((_, i) => snapshot.cars[i]);
+      if (this.playerCar && snapshot.playerCar) synced.push(this.playerCar);
+      this.motion.push(snapshot.simTime, synced);
 
       if (snapshot.activeCarBrainJson) {
         const activeCar = this.selectedCar || this.population.currentLeader;
@@ -1947,6 +1953,7 @@ class App {
     }
 
     // Render frame
+    if (this.bridge.isReady) this.motion.apply();
     if (width !== this.viewSize.width || height !== this.viewSize.height) {
       this.viewSize = { width, height };
       this.renderer.resize(width, height);
