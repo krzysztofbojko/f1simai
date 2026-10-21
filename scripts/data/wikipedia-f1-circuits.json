@@ -1,0 +1,772 @@
+[
+ {
+  "name": "Adelaide Street Circuit",
+  "type": "Uliczny",
+  "direction": "clockwise",
+  "location": "Adelaide, Australia",
+  "lengthMeters": 3780,
+  "grandPrix": "Grand Prix Australii",
+  "seasons": "1985–1995",
+  "grandsPrix": 11
+ },
+ {
+  "name": "Ain-Diab Circuit",
+  "type": "Mieszany",
+  "direction": "clockwise",
+  "location": "Casablanca, Maroko",
+  "lengthMeters": 7618,
+  "grandPrix": "Grand Prix Maroka",
+  "seasons": "1958",
+  "grandsPrix": 1
+ },
+ {
+  "name": "Aintree Motor Racing Circuit",
+  "type": "Mieszany",
+  "direction": "clockwise",
+  "location": "Aintree, Wielka Brytania",
+  "lengthMeters": 4828,
+  "grandPrix": "Grand Prix Wielkiej Brytanii",
+  "seasons": "1955, 1957, 1959, 1961–1962",
+  "grandsPrix": 5
+ },
+ {
+  "name": "Albert Park Circuit",
+  "type": "Uliczny",
+  "direction": "clockwise",
+  "location": "Melbourne, Australia",
+  "lengthMeters": 5278,
+  "grandPrix": "Grand Prix Australii",
+  "seasons": "1996–2019, od 2022",
+  "grandsPrix": 27
+ },
+ {
+  "name": "Autódromo Internacional do Algarve",
+  "type": "Stały",
+  "direction": "clockwise",
+  "location": "Portimão, Portugalia",
+  "lengthMeters": 4653,
+  "grandPrix": "Grand Prix Portugalii",
+  "seasons": "2020–2021",
+  "grandsPrix": 2
+ },
+ {
+  "name": "AVUS",
+  "type": "Uliczny",
+  "direction": "counterclockwise",
+  "location": "Berlin, Niemcy",
+  "lengthMeters": 8300,
+  "grandPrix": "Grand Prix Niemiec",
+  "seasons": "1959",
+  "grandsPrix": 1
+ },
+ {
+  "name": "Bahrain International Circuit",
+  "type": "Stały",
+  "direction": "clockwise",
+  "location": "Sakhir, Bahrajn",
+  "lengthMeters": 5412,
+  "grandPrix": "Grand Prix Bahrajnu,Grand Prix Sakhiru",
+  "seasons": "2004–2010, od 2012",
+  "grandsPrix": 21
+ },
+ {
+  "name": "Baku City Circuit",
+  "type": "Uliczny",
+  "direction": "counterclockwise",
+  "location": "Baku, Azerbejdżan",
+  "lengthMeters": 6003,
+  "grandPrix": "Grand Prix Europy,Grand Prix Azerbejdżanu",
+  "seasons": "2016–2019, od 2021",
+  "grandsPrix": 7
+ },
+ {
+  "name": "Circuit de Barcelona-Catalunya",
+  "type": "Stały",
+  "direction": "clockwise",
+  "location": "Montmeló, Hiszpania",
+  "lengthMeters": 4657,
+  "grandPrix": "Grand Prix Hiszpanii",
+  "seasons": "od 1991",
+  "grandsPrix": 33
+ },
+ {
+  "name": "Circuito da Boavista",
+  "type": "Uliczny",
+  "direction": "counterclockwise",
+  "location": "Porto, Portugalia",
+  "lengthMeters": 7775,
+  "grandPrix": "Grand Prix Portugalii",
+  "seasons": "1958, 1960",
+  "grandsPrix": 2
+ },
+ {
+  "name": "Brands Hatch",
+  "type": "Stały",
+  "direction": "clockwise",
+  "location": "West Kingsdown, Wielka Brytania",
+  "lengthMeters": 4206,
+  "grandPrix": "Grand Prix Wielkiej Brytanii,Grand Prix Europy",
+  "seasons": "1964, 1966, 1968, 1970, 1972, 1974, 1976, 1978, 1980, 1982–1986",
+  "grandsPrix": 14
+ },
+ {
+  "name": "Circuit Bremgarten",
+  "type": "Mieszany",
+  "direction": "clockwise",
+  "location": "Bremgarten bei Bern, Szwajcaria",
+  "lengthMeters": 7280,
+  "grandPrix": "Grand Prix Szwajcarii",
+  "seasons": "1950–1954",
+  "grandsPrix": 5
+ },
+ {
+  "name": "Buddh International Circuit",
+  "type": "Stały",
+  "direction": "clockwise",
+  "location": "Wielka Noida, Indie",
+  "lengthMeters": 5125,
+  "grandPrix": "Grand Prix Indii",
+  "seasons": "2011–2013",
+  "grandsPrix": 3
+ },
+ {
+  "name": "Bugatti Circuit",
+  "type": "Stały",
+  "direction": "clockwise",
+  "location": "Le Mans, Francja",
+  "lengthMeters": 4442,
+  "grandPrix": "Grand Prix Francji",
+  "seasons": "1967",
+  "grandsPrix": 1
+ },
+ {
+  "name": "Caesars Palace",
+  "type": "Uliczny",
+  "direction": "counterclockwise",
+  "location": "Las Vegas, Stany Zjednoczone",
+  "lengthMeters": 3650,
+  "grandPrix": "Grand Prix Las Vegas",
+  "seasons": "1981–1982",
+  "grandsPrix": 2
+ },
+ {
+  "name": "Charade Circuit",
+  "type": "Mieszany",
+  "direction": "clockwise",
+  "location": "Saint-Genès-Champanelle, Francja",
+  "lengthMeters": 8055,
+  "grandPrix": "Grand Prix Francji",
+  "seasons": "1965, 1969–1970, 1972",
+  "grandsPrix": 4
+ },
+ {
+  "name": "Circuit of the Americas",
+  "type": "Stały",
+  "direction": "counterclockwise",
+  "location": "Austin, Stany Zjednoczone",
+  "lengthMeters": 5513,
+  "grandPrix": "Grand Prix Stanów Zjednoczonych",
+  "seasons": "2012–2019, od 2021",
+  "grandsPrix": 11
+ },
+ {
+  "name": "Detroit Street Circuit",
+  "type": "Uliczny",
+  "direction": "counterclockwise",
+  "location": "Detroit, Stany Zjednoczone",
+  "lengthMeters": 4023,
+  "grandPrix": "Grand Prix Stanów Zjednoczonych – Wschód",
+  "seasons": "1982–1988",
+  "grandsPrix": 7
+ },
+ {
+  "name": "Dijon-Prenois",
+  "type": "Stały",
+  "direction": "clockwise",
+  "location": "Prenois, Francja",
+  "lengthMeters": 3800,
+  "grandPrix": "Grand Prix Francji,Grand Prix Szwajcarii",
+  "seasons": "1974, 1977, 1979, 1981–1982, 1984",
+  "grandsPrix": 6
+ },
+ {
+  "name": "Donington Park",
+  "type": "Stały",
+  "direction": "clockwise",
+  "location": "Castle Donington, Wielka Brytania",
+  "lengthMeters": 4023,
+  "grandPrix": "Grand Prix Europy",
+  "seasons": "1993",
+  "grandsPrix": 1
+ },
+ {
+  "name": "Autodromo Enzo e Dino Ferrari",
+  "type": "Stały",
+  "direction": "counterclockwise",
+  "location": "Imola, Włochy",
+  "lengthMeters": 4909,
+  "grandPrix": "Grand Prix Włoch,Grand Prix San Marino,Grand Prix Emilii-Romanii",
+  "seasons": "1980–2006, 2020–2022, od 2024",
+  "grandsPrix": 30
+ },
+ {
+  "name": "Autódromo do Estoril",
+  "type": "Stały",
+  "direction": "clockwise",
+  "location": "Cascais, Portugalia",
+  "lengthMeters": 4360,
+  "grandPrix": "Grand Prix Portugalii",
+  "seasons": "1984–1996",
+  "grandsPrix": 13
+ },
+ {
+  "name": "Fair Park",
+  "type": "Uliczny",
+  "direction": "clockwise",
+  "location": "Dallas, Stany Zjednoczone",
+  "lengthMeters": 3901,
+  "grandPrix": "Grand Prix Stanów Zjednoczonych",
+  "seasons": "1984",
+  "grandsPrix": 1
+ },
+ {
+  "name": "Fuji International Speedway",
+  "type": "Stały",
+  "direction": "clockwise",
+  "location": "Oyama, Japonia",
+  "lengthMeters": 4563,
+  "grandPrix": "Grand Prix Japonii",
+  "seasons": "1976–1977, 2007–2008",
+  "grandsPrix": 4
+ },
+ {
+  "name": "Circuit Gilles Villeneuve",
+  "type": "Mieszany",
+  "direction": "clockwise",
+  "location": "Montreal, Kanada",
+  "lengthMeters": 4361,
+  "grandPrix": "Grand Prix Kanady",
+  "seasons": "1978–1986, 1988–2008, 2010–2019, od 2022",
+  "grandsPrix": 42
+ },
+ {
+  "name": "Autódromo Hermanos Rodríguez",
+  "type": "Stały",
+  "direction": "clockwise",
+  "location": "Meksyk, Meksyk",
+  "lengthMeters": 4304,
+  "grandPrix": "Grand Prix Meksyku,Grand Prix Miasta Meksyk",
+  "seasons": "1963–1970, 1986–1992, 2015–2019, od 2021",
+  "grandsPrix": 23
+ },
+ {
+  "name": "Hockenheimring",
+  "type": "Stały",
+  "direction": "clockwise",
+  "location": "Hockenheim, Niemcy",
+  "lengthMeters": 4574,
+  "grandPrix": "Grand Prix Niemiec",
+  "seasons": "1970, 1977–1984, 1986–2006, 2008, 2010, 2012, 2014, 2016, 2018–2019",
+  "grandsPrix": 37
+ },
+ {
+  "name": "Hungaroring",
+  "type": "Stały",
+  "direction": "clockwise",
+  "location": "Budapeszt, Węgry",
+  "lengthMeters": 4381,
+  "grandPrix": "Grand Prix Węgier",
+  "seasons": "od 1986",
+  "grandsPrix": 38
+ },
+ {
+  "name": "Indianapolis Motor Speedway",
+  "type": "Stały",
+  "direction": "clockwise",
+  "location": "Speedway, Stany Zjednoczone",
+  "lengthMeters": 4192,
+  "grandPrix": "Indianapolis 500,Grand Prix Stanów Zjednoczonych",
+  "seasons": "1950–1960, 2000–2007",
+  "grandsPrix": 19
+ },
+ {
+  "name": "Istanbul Park",
+  "type": "Stały",
+  "direction": "counterclockwise",
+  "location": "Stambuł, Turcja",
+  "lengthMeters": 5338,
+  "grandPrix": "Grand Prix Turcji",
+  "seasons": "2005–2011, 2020–2021",
+  "grandsPrix": 9
+ },
+ {
+  "name": "Autódromo Internacional Nelson Piquet",
+  "type": "Stały",
+  "direction": "counterclockwise",
+  "location": "Rio de Janeiro, Brazylia",
+  "lengthMeters": 5031,
+  "grandPrix": "Grand Prix Brazylii",
+  "seasons": "1978, 1981–1989",
+  "grandsPrix": 10
+ },
+ {
+  "name": "Circuito del Jarama",
+  "type": "Stały",
+  "direction": "clockwise",
+  "location": "San Sebastián de los Reyes, Hiszpania",
+  "lengthMeters": 3312,
+  "grandPrix": "Grand Prix Hiszpanii",
+  "seasons": "1968, 1970, 1972, 1974, 1976–1979, 1981",
+  "grandsPrix": 9
+ },
+ {
+  "name": "Jeddah Corniche Circuit",
+  "type": "Uliczny",
+  "direction": "counterclockwise",
+  "location": "Dżudda, Arabia Saudyjska",
+  "lengthMeters": 6174,
+  "grandPrix": "Grand Prix Arabii Saudyjskiej",
+  "seasons": "od 2021",
+  "grandsPrix": 4
+ },
+ {
+  "name": "Circuito Permanente de Jerez",
+  "type": "Stały",
+  "direction": "clockwise",
+  "location": "Jerez de la Frontera, Hiszpania",
+  "lengthMeters": 4428,
+  "grandPrix": "Grand Prix Hiszpanii,Grand Prix Europy",
+  "seasons": "1986–1990, 1994, 1997",
+  "grandsPrix": 7
+ },
+ {
+  "name": "Autódromo José Carlos Pace",
+  "type": "Stały",
+  "direction": "counterclockwise",
+  "location": "São Paulo, Brazylia",
+  "lengthMeters": 4309,
+  "grandPrix": "Grand Prix Brazylii,Grand Prix São Paulo",
+  "seasons": "1973–1977, 1979–1980, 1990–2019, od 2021",
+  "grandsPrix": 40
+ },
+ {
+  "name": "Korea International Circuit",
+  "type": "Stały",
+  "direction": "counterclockwise",
+  "location": "Yeongam, Korea Południowa",
+  "lengthMeters": 5615,
+  "grandPrix": "Grand Prix Korei Południowej",
+  "seasons": "2010–2013",
+  "grandsPrix": 4
+ },
+ {
+  "name": "Kyalami Circuit",
+  "type": "Stały",
+  "direction": "counterclockwise",
+  "location": "Midrand, Południowa Afryka",
+  "lengthMeters": 4261,
+  "grandPrix": "Grand Prix Południowej Afryki",
+  "seasons": "1967–1980, 1982–1985, 1992–1993",
+  "grandsPrix": 20
+ },
+ {
+  "name": "Las Vegas Street Circuit",
+  "type": "Uliczny",
+  "direction": "clockwise",
+  "location": "Las Vegas, Stany Zjednoczone",
+  "lengthMeters": 6201,
+  "grandPrix": "Grand Prix Las Vegas",
+  "seasons": "od 2023",
+  "grandsPrix": 1
+ },
+ {
+  "name": "Long Beach Street Circuit",
+  "type": "Uliczny",
+  "direction": "clockwise",
+  "location": "Long Beach, Stany Zjednoczone",
+  "lengthMeters": 3275,
+  "grandPrix": "Grand Prix Stanów Zjednoczonych – Zachód",
+  "seasons": "1976–1983",
+  "grandsPrix": 8
+ },
+ {
+  "name": "Losail International Circuit",
+  "type": "Uliczny",
+  "direction": "clockwise",
+  "location": "Lusajl, Katar",
+  "lengthMeters": 5419,
+  "grandPrix": "Grand Prix Kataru",
+  "seasons": "2021, od 2023",
+  "grandsPrix": 2
+ },
+ {
+  "name": "Circuit de Nevers Magny-Cours",
+  "type": "Stały",
+  "direction": "clockwise",
+  "location": "Magny-Cours, Francja",
+  "lengthMeters": 4411,
+  "grandPrix": "Grand Prix Francji",
+  "seasons": "1991–2008",
+  "grandsPrix": 18
+ },
+ {
+  "name": "Marina Bay Street Circuit",
+  "type": "Uliczny",
+  "direction": "counterclockwise",
+  "location": "Singapur",
+  "lengthMeters": 5063,
+  "grandPrix": "Grand Prix Singapuru",
+  "seasons": "2008–2019, od 2022",
+  "grandsPrix": 14
+ },
+ {
+  "name": "Miami International Autodrome",
+  "type": "Uliczny",
+  "direction": "counterclockwise",
+  "location": "Miami, Stany Zjednoczone",
+  "lengthMeters": 5410,
+  "grandPrix": "Grand Prix Miami",
+  "seasons": "od 2022",
+  "grandsPrix": 2
+ },
+ {
+  "name": "Monsanto Park",
+  "type": "Uliczny",
+  "direction": "clockwise",
+  "location": "Lizbona, Portugalia",
+  "lengthMeters": 5440,
+  "grandPrix": "Grand Prix Portugalii",
+  "seasons": "1959",
+  "grandsPrix": 1
+ },
+ {
+  "name": "Mugello Circuit",
+  "type": "Stały",
+  "direction": "clockwise",
+  "location": "Scarperia e San Piero, Włochy",
+  "lengthMeters": 5245,
+  "grandPrix": "Grand Prix Toskanii",
+  "seasons": "2020",
+  "grandsPrix": 1
+ },
+ {
+  "name": "Circuit de Monaco",
+  "type": "Uliczny",
+  "direction": "clockwise",
+  "location": "Monako",
+  "lengthMeters": 3337,
+  "grandPrix": "Grand Prix Monako",
+  "seasons": "1950, 1955–2019, od 2021",
+  "grandsPrix": 69
+ },
+ {
+  "name": "Circuit Mont-Tremblant",
+  "type": "Stały",
+  "direction": "clockwise",
+  "location": "Mont-Tremblant, Kanada",
+  "lengthMeters": 4265,
+  "grandPrix": "Grand Prix Kanady",
+  "seasons": "1968, 1970",
+  "grandsPrix": 2
+ },
+ {
+  "name": "Mosport International Raceway",
+  "type": "Stały",
+  "direction": "clockwise",
+  "location": "Bowmanville, Kanada",
+  "lengthMeters": 3957,
+  "grandPrix": "Grand Prix Kanady",
+  "seasons": "1967, 1969, 1971–1977",
+  "grandsPrix": 8
+ },
+ {
+  "name": "Montjuïc Circuit",
+  "type": "Uliczny",
+  "direction": "counterclockwise",
+  "location": "Barcelona, Hiszpania",
+  "lengthMeters": 3790,
+  "grandPrix": "Grand Prix Hiszpanii",
+  "seasons": "1969, 1971, 1973, 1975",
+  "grandsPrix": 4
+ },
+ {
+  "name": "Autodromo Nazionale di Monza",
+  "type": "Stały",
+  "direction": "clockwise",
+  "location": "Monza, Włochy",
+  "lengthMeters": 5793,
+  "grandPrix": "Grand Prix Włoch",
+  "seasons": "1950–1979, od 1981",
+  "grandsPrix": 73
+ },
+ {
+  "name": "Nivelles-Baulers",
+  "type": "Stały",
+  "direction": "clockwise",
+  "location": "Nivelles, Belgia",
+  "lengthMeters": 3724,
+  "grandPrix": "Grand Prix Belgii",
+  "seasons": "1972, 1974",
+  "grandsPrix": 2
+ },
+ {
+  "name": "Nürburgring",
+  "type": "Mieszany",
+  "direction": "clockwise",
+  "location": "Nürburg, Niemcy",
+  "lengthMeters": 5148,
+  "grandPrix": "Grand Prix Niemiec,Grand Prix Europy,Grand Prix Luksemburga,Grand Prix Eifelu",
+  "seasons": "1951–1954, 1956–1958, 1961–1969, 1971–1976, 1984–1985, 1995–2007, 2009, 2011, 2013, 2020",
+  "grandsPrix": 41
+ },
+ {
+  "name": "Autódromo Oscar Alfredo Gálvez",
+  "type": "Mieszany",
+  "direction": "clockwise",
+  "location": "Buenos Aires, Argentyna",
+  "lengthMeters": 4259,
+  "grandPrix": "Grand Prix Argentyny",
+  "seasons": "1953–1958, 1960, 1972–1975, 1977–1981, 1995–1998",
+  "grandsPrix": 20
+ },
+ {
+  "name": "Circuit Paul Ricard",
+  "type": "Stały",
+  "direction": "clockwise",
+  "location": "Le Castellet, Francja",
+  "lengthMeters": 5842,
+  "grandPrix": "Grand Prix Francji",
+  "seasons": "1971, 1973, 1975–1976, 1978, 1980, 1982–1983, 1985–1990, 2018–2019, 2021–2022",
+  "grandsPrix": 18
+ },
+ {
+  "name": "Pedralbes Circuit",
+  "type": "Uliczny",
+  "direction": "clockwise",
+  "location": "Barcelona, Hiszpania",
+  "lengthMeters": 6316,
+  "grandPrix": "Grand Prix Hiszpanii",
+  "seasons": "1951, 1954",
+  "grandsPrix": 2
+ },
+ {
+  "name": "Pescara Circuit",
+  "type": "Mieszany",
+  "direction": "clockwise",
+  "location": "Pescara, Włochy",
+  "lengthMeters": 25579,
+  "grandPrix": "Grand Prix Pescara",
+  "seasons": "1957",
+  "grandsPrix": 1
+ },
+ {
+  "name": "Phoenix Circuit",
+  "type": "Uliczny",
+  "direction": "counterclockwise",
+  "location": "Phoenix, Stany Zjednoczone",
+  "lengthMeters": 3721,
+  "grandPrix": "Grand Prix Stanów Zjednoczonych",
+  "seasons": "1989–1991",
+  "grandsPrix": 3
+ },
+ {
+  "name": "Prince George Circuit",
+  "type": "Stały",
+  "direction": "clockwise",
+  "location": "East London, Południowa Afryka",
+  "lengthMeters": 3920,
+  "grandPrix": "Grand Prix RPA",
+  "seasons": "1962–1963, 1965",
+  "grandsPrix": 3
+ },
+ {
+  "name": "Red Bull Ring",
+  "type": "Stały",
+  "direction": "clockwise",
+  "location": "Spielberg, Austria",
+  "lengthMeters": 4318,
+  "grandPrix": "Grand Prix Austrii,Grand Prix Styrii",
+  "seasons": "1970–1987, 1997–2003, od 2014",
+  "grandsPrix": 37
+ },
+ {
+  "name": "Reims-Gueux",
+  "type": "Mieszany",
+  "direction": "clockwise",
+  "location": "Gueux, Francja",
+  "lengthMeters": 8302,
+  "grandPrix": "Grand Prix Francji",
+  "seasons": "1950–1951, 1953–1954, 1956, 1958–1961, 1963, 1966",
+  "grandsPrix": 11
+ },
+ {
+  "name": "Riverside International Raceway",
+  "type": "Stały",
+  "direction": "clockwise",
+  "location": "Moreno Valley, Stany Zjednoczone",
+  "lengthMeters": 5271,
+  "grandPrix": "Grand Prix Stanów Zjednoczonych",
+  "seasons": "1960",
+  "grandsPrix": 1
+ },
+ {
+  "name": "Rouen-Les-Essarts",
+  "type": "Mieszany",
+  "direction": "clockwise",
+  "location": "Orival, Francja",
+  "lengthMeters": 6542,
+  "grandPrix": "Grand Prix Francji",
+  "seasons": "1952, 1957, 1962, 1964, 1968",
+  "grandsPrix": 5
+ },
+ {
+  "name": "Scandinavian Raceway",
+  "type": "Stały",
+  "direction": "clockwise",
+  "location": "Anderstorp, Szwecja",
+  "lengthMeters": 4031,
+  "grandPrix": "Grand Prix Szwecji",
+  "seasons": "1973–1978",
+  "grandsPrix": 6
+ },
+ {
+  "name": "Sebring International Raceway",
+  "type": "Mieszany",
+  "direction": "clockwise",
+  "location": "Sebring, Stany Zjednoczone",
+  "lengthMeters": 8369,
+  "grandPrix": "Grand Prix Stanów Zjednoczonych",
+  "seasons": "1959",
+  "grandsPrix": 1
+ },
+ {
+  "name": "Sepang International Circuit",
+  "type": "Stały",
+  "direction": "clockwise",
+  "location": "Sepang, Malezja",
+  "lengthMeters": 5543,
+  "grandPrix": "Grand Prix Malezji",
+  "seasons": "1999–2017",
+  "grandsPrix": 19
+ },
+ {
+  "name": "Shanghai International Circuit",
+  "type": "Stały",
+  "direction": "clockwise",
+  "location": "Szanghaj, Chiny",
+  "lengthMeters": 5451,
+  "grandPrix": "Grand Prix Chin",
+  "seasons": "2004–2019, od 2024",
+  "grandsPrix": 16
+ },
+ {
+  "name": "Silverstone Circuit",
+  "type": "Stały",
+  "direction": "clockwise",
+  "location": "Silverstone, Wielka Brytania",
+  "lengthMeters": 5891,
+  "grandPrix": "Grand Prix Wielkiej Brytanii,Grand Prix 70-lecia",
+  "seasons": "1950–1954, 1956, 1958, 1960, 1963, 1965, 1967, 1969, 1971, 1973, 1975, 1977, 1979, 1981, 1983, 1985, od 1987",
+  "grandsPrix": 58
+ },
+ {
+  "name": "Sochi Autodrom",
+  "type": "Mieszany",
+  "direction": "clockwise",
+  "location": "Soczi, Rosja",
+  "lengthMeters": 5848,
+  "grandPrix": "Grand Prix Rosji",
+  "seasons": "2014–2021",
+  "grandsPrix": 8
+ },
+ {
+  "name": "Circuit de Spa-Francorchamps",
+  "type": "Mieszany",
+  "direction": "clockwise",
+  "location": "Stavelot, Belgia",
+  "lengthMeters": 7004,
+  "grandPrix": "Grand Prix Belgii",
+  "seasons": "1950–1956, 1958, 1960–1968, 1970, 1983, 1985–2002, 2004–2005, od 2007",
+  "grandsPrix": 56
+ },
+ {
+  "name": "Suzuka International Racing Course",
+  "type": "Stały",
+  "direction": "Oba",
+  "location": "Suzuka, Japonia",
+  "lengthMeters": 5807,
+  "grandPrix": "Grand Prix Japonii",
+  "seasons": "1987–2006, 2009–2019, od 2022",
+  "grandsPrix": 33
+ },
+ {
+  "name": "Okayama International Circuit",
+  "type": "Stały",
+  "direction": "clockwise",
+  "location": "Mimasaka, Japonia",
+  "lengthMeters": 3703,
+  "grandPrix": "Grand Prix Pacyfiku",
+  "seasons": "1994–1995",
+  "grandsPrix": 2
+ },
+ {
+  "name": "Valencia Street Circuit",
+  "type": "Uliczny",
+  "direction": "clockwise",
+  "location": "Walencja, Hiszpania",
+  "lengthMeters": 5419,
+  "grandPrix": "Grand Prix Europy",
+  "seasons": "2008–2012",
+  "grandsPrix": 5
+ },
+ {
+  "name": "Watkins Glen",
+  "type": "Mieszany",
+  "direction": "clockwise",
+  "location": "Watkins Glen, Stany Zjednoczone",
+  "lengthMeters": 5435,
+  "grandPrix": "Grand Prix Stanów Zjednoczonych",
+  "seasons": "1961–1980",
+  "grandsPrix": 20
+ },
+ {
+  "name": "Yas Marina Circuit",
+  "type": "Stały",
+  "direction": "counterclockwise",
+  "location": "Abu Zabi, Zjednoczone Emiraty Arabskie",
+  "lengthMeters": 5281,
+  "grandPrix": "Grand Prix Abu Zabi",
+  "seasons": "od 2009",
+  "grandsPrix": 15
+ },
+ {
+  "name": "Circuit Park Zandvoort",
+  "type": "Stały",
+  "direction": "clockwise",
+  "location": "Zandvoort, Holandia",
+  "lengthMeters": 4259,
+  "grandPrix": "Grand Prix Holandii",
+  "seasons": "1952–1953, 1955, 1958–1971, 1973–1985, od 2021",
+  "grandsPrix": 33
+ },
+ {
+  "name": "Zeltweg Airfield",
+  "type": "Mieszany",
+  "direction": "clockwise",
+  "location": "Zeltweg, Austria",
+  "lengthMeters": 3200,
+  "grandPrix": "Grand Prix Austrii",
+  "seasons": "1964",
+  "grandsPrix": 1
+ },
+ {
+  "name": "Circuit Zolder",
+  "type": "Stały",
+  "direction": "clockwise",
+  "location": "Heusden-Zolder, Belgia",
+  "lengthMeters": 4262,
+  "grandPrix": "Grand Prix Belgii",
+  "seasons": "1973, 1975–1982, 1984",
+  "grandsPrix": 10
+ }
+]

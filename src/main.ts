@@ -12,6 +12,10 @@ import { HudCharts } from './rendering/HudCharts';
 import { hydrateIcons, setControlContent } from './ui/icons';
 import { SimBridge, type ComputeProfile, type TopologySpecifier } from './workers/SimBridge';
 import type { SimSnapshot, RaceState, QualifyingSnapshot } from './workers/sim.worker';
+import realTrackIndex from '../tracks/index.json';
+
+/** Real F1 circuits built by scripts/build-tracks.mjs; each file is fetched only when picked. */
+const REAL_TRACK_FILES = import.meta.glob<string>(['../tracks/*.json', '!../tracks/index.json'], { query: '?raw', import: 'default' });
 
 function loadFlag(key: string): boolean {
   try { return localStorage.getItem(key) === '1'; } catch { return false; }
@@ -45,6 +49,8 @@ class App {
   private isDrawMode: boolean = false;
   private isMouseDown: boolean = false;
   private rawDrawnPoints: Vector2[] = [];
+  /** Driving direction of an imported real circuit: its point order is kept. Null for drawn tracks and presets. */
+  private trackDirection: 'clockwise' | 'counterclockwise' | null = null;
   private drawSourceBackup: Vector2[] = [];
   private drawnTrackRejected = false;
   private mousePos: Vector2 | null = null;
@@ -856,6 +862,7 @@ class App {
       const dims = Car.getDimensionsForTrackWidth(this.trackWidth);
       this.track = Presets.createGrandPrixTrack(dims.effectiveTrackWidth);
       this.rawDrawnPoints = Presets.GRAND_PRIX_POINTS.map(p => p.clone());
+      this.trackDirection = null;
       this.population = new Population(Population.MAX_CARS, this.track, this.population.rayCount, this.population.topology);
       this.population.setDriverPressure(this.driverPressure, true);
       this.bridge.setPreset('gp');
@@ -873,6 +880,7 @@ class App {
       const dims = Car.getDimensionsForTrackWidth(this.trackWidth);
       this.track = Presets.createOvalTrack(dims.effectiveTrackWidth);
       this.rawDrawnPoints = Presets.OVAL_POINTS.map(p => p.clone());
+      this.trackDirection = null;
       this.population = new Population(Population.MAX_CARS, this.track, this.population.rayCount, this.population.topology);
       this.population.setDriverPressure(this.driverPressure, true);
       this.bridge.setPreset('oval');
@@ -885,6 +893,8 @@ class App {
         this.playerCar.updateDimensionsForTrackWidth(this.trackWidth);
       }
     });
+
+    this.setupRealTrackSelect();
 
     // Sliders
     const widthSlider = document.getElementById('slider-track-width') as HTMLInputElement;
@@ -902,7 +912,7 @@ class App {
         const sourcePoints = (this.rawDrawnPoints && this.rawDrawnPoints.length >= 4)
           ? this.rawDrawnPoints
           : this.track.points.map((p) => p.center);
-        const newPoints = Spline.generateClosedTrack(sourcePoints, dims.effectiveTrackWidth, 18);
+        const newPoints = Spline.generateClosedTrack(sourcePoints, dims.effectiveTrackWidth, 18, !!this.trackDirection);
         if (newPoints.length > 3) {
           try { this.track = new Track(newPoints, dims.effectiveTrackWidth); }
           catch (error) {
@@ -911,7 +921,7 @@ class App {
             alert(error instanceof Error ? error.message : 'Niepoprawna szerokość toru.'); return;
           }
           this.population.resetAll(this.track);
-          this.bridge.setTrackWidth(this.trackWidth, sourcePoints.map(p => ({ x: p.x, y: p.y })));
+          this.bridge.setTrackWidth(this.trackWidth, sourcePoints.map(p => ({ x: p.x, y: p.y })), !!this.trackDirection);
           if (this.playerCar) {
             this.playerCar.reset(this.track.startPosition, this.track.startAngle, true);
             this.playerCar.updateDimensionsForTrackWidth(this.trackWidth);
@@ -1156,6 +1166,7 @@ class App {
         version: 1,
         name: trackName,
         trackWidth: this.trackWidth,
+        ...(this.trackDirection ? { direction: this.trackDirection } : {}),
         rawPoints: ptsToSave.map(p => ({ x: Math.round(p.x * 10) / 10, y: Math.round(p.y * 10) / 10 })),
         centerPoints: this.track.points.map(p => ({ x: Math.round(p.center.x * 10) / 10, y: Math.round(p.center.y * 10) / 10 })),
         lengthMeters: Math.round(this.track.totalLength / 2),
@@ -1738,7 +1749,39 @@ class App {
     }
   }
 
-  public loadTrackFromJSON(content: string, sourceName?: string): boolean {
+  private setupRealTrackSelect(): void {
+    const select = document.getElementById('select-real-track') as HTMLSelectElement | null;
+    if (!select) return;
+    const km = (m: number) => (m / 1000).toLocaleString('pl-PL', { minimumFractionDigits: 3, maximumFractionDigits: 3 });
+    for (const t of realTrackIndex.tracks) {
+      if (!REAL_TRACK_FILES[`../tracks/${t.file}`]) continue;
+      const option = document.createElement('option');
+      option.value = t.file;
+      option.textContent = `${t.name} — ${t.country} (${km(t.generatedLengthMeters)} km)`;
+      option.title = `${t.location}, ${t.circuitType}, ${t.direction === 'clockwise' ? 'prawoskrętny' : 'lewoskrętny'}, GP: ${t.grandsPrix}`;
+      select.appendChild(option);
+    }
+    select.addEventListener('change', async () => {
+      const load = REAL_TRACK_FILES[`../tracks/${select.value}`];
+      if (!load) return;
+      select.disabled = true;
+      try {
+        if (!this.loadTrackFromJSON(await load(), select.value, true)) select.value = '';
+      } catch (error) {
+        alert(error instanceof Error ? error.message : 'Nie udało się wczytać toru.');
+        select.value = '';
+      } finally {
+        select.disabled = false;
+      }
+    });
+    // Any other way of setting the track clears the circuit choice.
+    for (const id of ['preset-gp', 'preset-oval', 'btn-draw']) {
+      document.getElementById(id)?.addEventListener('click', () => { select.value = ''; });
+    }
+  }
+
+  /** `quiet` skips the success alert (picking a circuit from the list already shows the result). */
+  public loadTrackFromJSON(content: string, sourceName?: string, quiet = false): boolean {
     try {
       const data = JSON.parse(content);
 
@@ -1775,7 +1818,9 @@ class App {
       const nextWidth = typeof data.trackWidth === 'number' && Number.isFinite(data.trackWidth)
         ? Math.max(5, Math.min(20, Math.round(data.trackWidth))) : this.trackWidth;
       const dims = Car.getDimensionsForTrackWidth(nextWidth);
-      const splinePoints = Spline.generateClosedTrack(parsedPoints, dims.effectiveTrackWidth, 18);
+      // Real circuits carry their driving direction: keep the file's point order.
+      const direction = data.direction === 'clockwise' || data.direction === 'counterclockwise' ? data.direction : null;
+      const splinePoints = Spline.generateClosedTrack(parsedPoints, dims.effectiveTrackWidth, 18, !!direction);
 
       if (splinePoints.length < 8) {
         alert('Błąd: Nie udało się wygenerować zamkniętej pętli toru z podanych punktów.');
@@ -1788,10 +1833,11 @@ class App {
       (document.getElementById('slider-track-width') as HTMLInputElement).value = String(nextWidth);
       document.getElementById('val-track-width')!.textContent = String(nextWidth);
       this.rawDrawnPoints = parsedPoints;
+      this.trackDirection = direction;
       this.population = new Population(Population.MAX_CARS, this.track, this.population.rayCount, this.population.topology);
       this.population.setDriverPressure(this.driverPressure, true);
       this.selectedCar = null;
-      this.bridge.setCustomTrack(parsedPoints.map(p => ({ x: p.x, y: p.y })), this.trackWidth);
+      this.bridge.setCustomTrack(parsedPoints.map(p => ({ x: p.x, y: p.y })), this.trackWidth, !!direction);
 
       if (this.playerCar) {
         this.playerCar.reset(this.track.startPosition, this.track.startAngle, true);
@@ -1805,7 +1851,7 @@ class App {
       }
 
       const trackName = data.name || sourceName || 'Własny Tor';
-      alert(`Tor "${trackName}" został pomyślnie załadowany!`);
+      if (!quiet) alert(`Tor "${trackName}" został pomyślnie załadowany!`);
       return true;
     } catch (e) {
       alert(e instanceof Error ? e.message : 'Błąd: Niepoprawny plik toru.');
@@ -1833,6 +1879,7 @@ class App {
         alert(error instanceof Error ? error.message : 'Niepoprawna geometria toru.');
         return;
       }
+      this.trackDirection = null;
       this.population = new Population(Population.MAX_CARS, this.track, this.population.rayCount, this.population.topology);
       this.population.setDriverPressure(this.driverPressure, true);
       this.selectedCar = null;

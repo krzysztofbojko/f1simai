@@ -55,6 +55,16 @@ try {
     assert.equal(segmentsIntersect(segment.p1, segment.p2, road.p1, road.p2), false, 'fence crosses asphalt');
   }
   assert.throws(()=>Spline.generateClosedTrack([new Vector2(Infinity,0),new Vector2(200,0),new Vector2(200,200),new Vector2(0,200)],14),/współrzędne/);
+  // Imported circuits keep their point order as the driving direction; drawn loops are normalised.
+  const loop = [[0,0],[300,0],[300,300],[0,300]].map(p => new Vector2(...p));
+  const loopReversed = [loop[0], ...loop.slice(1).reverse()];
+  for (const raw of [loop, loopReversed]) {
+    const kept = new Track(Spline.generateClosedTrack(raw, 14, 18, true), 14);
+    assert.ok(kept.points[1].center.sub(kept.points[0].center).dot(raw[1].sub(raw[0])) > 0, 'keepOrder must drive towards the second raw point');
+  }
+  const winding = pts => Math.sign(pts.reduce((sum, p, i) => sum + p.center.cross(pts[(i + 1) % pts.length].center), 0));
+  assert.equal(winding(Spline.generateClosedTrack(loop, 14, 18)), winding(Spline.generateClosedTrack(loopReversed, 14, 18)), 'without keepOrder both windings drive the same way');
+  assert.notEqual(winding(Spline.generateClosedTrack(loop, 14, 18, true)), winding(Spline.generateClosedTrack(loopReversed, 14, 18, true)), 'keepOrder keeps opposite windings');
   assert.throws(() => new Track(Spline.generateClosedTrack([[0,0],[200,200],[0,200],[200,0]].map(p => new Vector2(...p)),14,18),14), /przecina/);
   const closeRaw = [[0,0],[400,0],[400,80],[80,80],[80,160],[400,160],[400,300],[0,300]].map(p => new Vector2(...p));
   const closeTrack = new Track(Spline.generateClosedTrack(closeRaw,14,18),14);
@@ -133,7 +143,8 @@ try {
       const baseline = attacker.getAIControl(gp);
       attacker.battlePush.remaining = 3;
       const attack = attacker.getAIControl(gp);
-      laterBraking = baseline.brake > .6 && attack.brake === 0 && attack.throttle > 0;
+      // Same place and speed: the baseline is clearly braking, the attacker has not started yet.
+      laterBraking = baseline.brake > .2 && attack.brake === 0;
     }
   }
   assert.ok(laterBraking, 'attack must produce genuinely later braking, not just a telemetry label');
@@ -176,6 +187,21 @@ try {
   dirtyCar.lapCompromised=true; dirtyCar.lapTime=60; dirtyCar.bestLapTime=65;
   const dirtyFinish=dirtyCar.updatePhysics(idle,1/60,gp);
   assert.ok(dirtyFinish?.compromised); assert.equal(dirtyCar.bestLapTime,65); assert.equal(dirtyCar.raceLapsCompleted,1);
+  // A car rejoining the asphalt beyond gates it passed off the road resumes at the gate ahead
+  // (spoiled lap, no reward) instead of being retired as stuck on the racing line.
+  const rejoin=(expected,ahead)=>{
+    const at=gp.checkpoints[(expected+ahead)%gp.checkpoints.length];
+    const c=new Car(at.center.add(at.tangent.mul(2)),at.tangent.heading(),NeuralNetwork.createTrainedDriverNetwork(25));
+    c.mistakesEnabled=false; c.vel=at.tangent.mul(15); c.speed=15;
+    c.currentCheckpointIdx=expected; c.framesSinceLastCheckpoint=598; c.fitness=5000;
+    for(let i=0;i<5;i++) c.updatePhysics(idle,1/60,gp);
+    return c;
+  };
+  const rejoined=rejoin(20,3);
+  assert.ok(rejoined.isAlive,'a car rejoining past missed gates was retired as stuck');
+  assert.equal(rejoined.currentCheckpointIdx,24); assert.equal(rejoined.lapCompromised,true); assert.ok(rejoined.fitness<5000+1200,'skipped gates must not earn the gate reward');
+  assert.equal(rejoin(20,Car.MAX_REJOIN_SKIPPED_GATES+2).isAlive,false,'a far cut is not resynchronised');
+  assert.equal(rejoin(gp.checkpoints.length-2,3).currentCheckpointIdx,gp.checkpoints.length-2,'the start/finish gate is never skipped');
   const forced=make(0,30); forced.brain=NeuralNetwork.createTrainedDriverNetwork(25); forced.mistakesEnabled=true; forced.tireUtilization=1; forced.mistakes=new DriverMistakes(()=>0);
   const weights=JSON.stringify(forced.brain.layers.map(l=>l.weights));
   forced.updatePhysics({...idle,brake:0.5},1/60,track);

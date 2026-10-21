@@ -18,7 +18,9 @@
     "test:qualifying": "node scripts/test-qualifying.mjs",
     "test:islands": "node scripts/test-islands.mjs",
     "diag:nn": "node scripts/diag-nn.mjs",
-    "bench:step": "node scripts/bench-step.mjs"
+    "bench:step": "node scripts/bench-step.mjs",
+    "build:tracks": "node scripts/build-tracks.mjs",
+    "test:tracks": "node scripts/test-tracks.mjs"
   },
   "devDependencies": {
     "@types/three": "^0.186.0",

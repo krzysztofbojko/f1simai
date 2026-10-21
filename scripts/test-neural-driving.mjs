@@ -97,6 +97,41 @@ try {
   { const c = new Car(new Vector2(0, 0), 0); c.vel = new Vector2(60, 0); c.speed = 60; c.lapPowerFactor = c.lapGripFactor = c.lapDragFactor = 1;
     for (let i = 0; i < 40; i++) { c.framesSinceLastCheckpoint = 0; c.updatePhysics({ throttle: 0, brake: 0, steer: 0.5 }, 1 / 60, stub); }
     assert.equal(c.isSkidding, true); }
+  // Pedal actuators: brake pressure builds within ~0.2 s, independent of the step; a demand that
+  // flickers every frame between brake and full throttle reaches the tyres as a smooth force.
+  { const pressureAfter = dt => { const c = new Car(new Vector2(0, 0), 0); c.vel = new Vector2(60, 0); c.speed = 60;
+      for (let t = 0; t < Math.round(0.1 / dt); t++) { c.framesSinceLastCheckpoint = 0; c.updatePhysics({ throttle: 0, brake: 1, steer: 0 }, dt, stub); }
+      return c.brakePressure; };
+    const p = [1 / 30, 1 / 60, 1 / 120].map(pressureAfter);
+    assert.ok(p.every(x => Math.abs(x - p[1]) < 0.01), `brake pressure depends on the step: ${p}`);
+    assert.ok(p[1] > 0.75 && p[1] < 0.9, `brake pressure after 0.1 s: ${p[1]}`);
+    const c = new Car(new Vector2(0, 0), 0); c.vel = new Vector2(70, 0); c.speed = 70; c.lapPowerFactor = c.lapGripFactor = c.lapDragFactor = 1;
+    let last = null, maxStep = 0;
+    for (let i = 0; i < 90; i++) {
+      c.framesSinceLastCheckpoint = 0;
+      c.updatePhysics(i % 2 ? { throttle: 1, brake: 0, steer: 0 } : { throttle: 0, brake: 0.66, steer: 0 }, 1 / 60, stub);
+      if (i > 30 && last !== null) maxStep = Math.max(maxStep, Math.abs(c.longitudinalG - last));
+      last = c.longitudinalG;
+    }
+    assert.ok(maxStep < 0.4, `flickering pedals jerk the car by ${maxStep.toFixed(2)} g per frame`); }
+  // The expert (teacher of the seed networks) brakes in one progressive application per corner,
+  // not on/off at the edge of the braking envelope (that was ~12 switches per second).
+  { const c = new Car(gp.startPosition, gp.startAngle, null, '#fff', 'teacher', 60);
+    const slot = gp.getGridSlot(0);
+    c.reset(slot.pos, slot.heading, true, (slot.checkpointIdx + 1) % gp.checkpoints.length);
+    c.mistakesEnabled = false; c.isRaceMode = true; c.updateDimensionsForTrackWidth(gp.width);
+    let switches = 0, frames = 0, braking = 0, wasOn = false;
+    for (let i = 0; i < 90 * 60 && c.isAlive; i++) {
+      c.updateSensors(gp);
+      const control = c.planDrive(gp).expert;
+      const on = control.brake > 0.02;
+      if (i > 0 && on !== wasOn) switches++;
+      wasOn = on; frames++; if (on) braking++;
+      c.updatePhysics(control, 1 / 60, gp);
+    }
+    assert.ok(c.isAlive && c.currentLap >= 1, `the expert must lap the GP circuit: ${JSON.stringify({ alive: c.isAlive, reason: c.eliminationReason, laps: c.currentLap, frames, cp: c.currentCheckpointIdx })}`);
+    assert.ok(braking > 0, 'the expert never braked');
+    assert.ok(switches / (frames / 60) < 2, `expert brake switches ${(switches / (frames / 60)).toFixed(1)} times per second`); }
 
   // 5. Impacts: damage accumulates, gentle contact does not wreck, hard contact does and the wreck keeps sliding.
   const body = (x, vx) => { const c = new Car(new Vector2(x, 0), 0); c.vel = new Vector2(vx, 0); c.speed = Math.abs(vx); c.isRaceMode = true; return c; };

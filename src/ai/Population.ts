@@ -537,11 +537,23 @@ export class Population {
         if (!car.isManual && car.respawnTimer > 0 && car.respawnTimer <= dt && (car.eliminationReason === 'barrier' || car.eliminationReason === 'stuck' || car.eliminationReason === 'wrong-way')) car.pace.fail();
         car.mistakes.cooldown = Math.max(0, car.mistakes.cooldown - dt);
         if (car.respawnTimer <= 0) {
-          const slot = track.getGridSlot(i);
-          if (traffic.some(other => other !== car && other.isAlive && other.pos.dist(slot.pos) < 6)) {
+          // Own grid slot first, then the nearest free one. With every slot taken the wreck leaves
+          // the track while it waits: a car queued behind it may be the one holding its slot.
+          const free = (k: number) => {
+            const pos = track.getGridSlot(k).pos;
+            return !traffic.some(other => other !== car && other.isAlive && other.pos.dist(pos) < 6);
+          };
+          let slotIdx = -1;
+          for (let d = 0; d <= traffic.length && slotIdx < 0; d++) {
+            if (free(i + d)) slotIdx = i + d;
+            else if (d > 0 && i - d >= 0 && free(i - d)) slotIdx = i - d;
+          }
+          if (slotIdx < 0) {
+            car.wreckRemoved = true;
             car.respawnTimer = .1;
             continue;
           }
+          const slot = track.getGridSlot(slotIdx);
 
           if (!car.isManual) {
             // Snapshot before mutation if current brain holds an unsaved peak fitness

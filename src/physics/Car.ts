@@ -146,6 +146,15 @@ export class Car {
 
   /** Conservative planning deceleration: ~55% of low-speed tyre braking (0.9·μ·g) before downforce. */
   public static readonly PLANNED_BRAKE_DECEL: number = 8.5;
+  /**
+   * Pedal actuators (first-order lags, s): brake pressure builds and bleeds off, engine torque
+   * follows the throttle. A demand that flickers between frames reaches the tyres as a smooth force.
+   */
+  public static readonly BRAKE_APPLY_TAU = 0.06;
+  /** Share of the planned deceleration at which the expert starts squeezing the brake (ramps to the full demand at 1). */
+  public static readonly BRAKE_ONSET = 0.9;
+  public static readonly BRAKE_RELEASE_TAU = 0.1;
+  public static readonly THROTTLE_TAU = 0.08;
 
   // Simulation mass and fuel parameters
   public static readonly BASE_DRY_MASS: number = 798; // kg
@@ -200,6 +209,8 @@ export class Car {
   public static readonly ERS_CLIP_POWER = 50000;
   /** Seconds an AI car may spend off the asphalt trying to rejoin before it is retired as stuck. */
   public static readonly OFF_TRACK_RECOVERY_TIME = 12;
+  /** Gates (about 18 m apart) a car rejoining the asphalt may have passed off the road; see checkTrackProgress. */
+  public static readonly MAX_REJOIN_SKIPPED_GATES = 8;
   /**
    * Quasi-static ride-height aero: downforce compresses the axles, the floor works best at a
    * particular height and chokes when it gets too close to the road. Ride height follows with a lag
@@ -607,6 +618,11 @@ export class Car {
   public manualControl: CarControl = { steer: 0, throttle: 0, brake: 0 };
   public currentControl: CarControl = { steer: 0, throttle: 0, brake: 0 };
   private readonly appliedControl: CarControl = { steer: 0, throttle: 0, brake: 0 };
+  /** Pedals as the actuators deliver them (see BRAKE_APPLY_TAU); steering passes through. */
+  private readonly actuatedControl: CarControl = { steer: 0, throttle: 0, brake: 0 };
+  /** Delivered brake pressure and engine torque request, 0..1. */
+  public brakePressure = 0;
+  public throttleResponse = 0;
   public effectiveThrottle: number = 0;
   public isOutOfFuel: boolean = false;
   public fitness: number = 0;
@@ -765,6 +781,7 @@ export class Car {
     this.isFinishedRace = false;
     this.currentControl = { steer: 0, throttle: 0, brake: 0 };
     this.effectiveThrottle = 0;
+    this.brakePressure = this.throttleResponse = 0;
     if (resetFuel) {
       this.fuelKg = 105.0;
       this.totalFuelConsumed = 0;
@@ -899,6 +916,8 @@ export class Car {
 
     let accumulatedDist = 0;
     let prevPos = this.pos;
+    // Deceleration still needed to reach the safe speed of the most demanding corner ahead.
+    let requiredDecel = 0;
 
     for (let k = 0; k <= lookaheadSteps; k++) {
       const cp = track.checkpoints[(this.currentCheckpointIdx + k) % n];
@@ -921,11 +940,14 @@ export class Car {
 
         const maxAllowedV = Math.sqrt(safeV * safeV + 2.0 * aBrake * accumulatedDist);
 
-        if (this.speed > maxAllowedV) {
-          const overspeed = (this.speed - maxAllowedV) / Math.max(8.0, safeV * 0.35);
-          if (overspeed > maxOverspeed) {
-            maxOverspeed = overspeed;
-          }
+        // Signed margin to the braking envelope: negative below it, so the input (and the expert)
+        // see the braking point coming instead of a jump from -1 to 0 when the car reaches it.
+        const overspeed = (this.speed - maxAllowedV) / Math.max(8.0, safeV * 0.35);
+        if (overspeed > maxOverspeed) maxOverspeed = overspeed;
+        if (this.speed > safeV) {
+          // Over at least 0.4 s of travel: inside the corner a small overspeed must not read as a stop.
+          const horizon = Math.max(2, accumulatedDist, this.speed * 0.4);
+          requiredDecel = Math.max(requiredDecel, (this.speed * this.speed - safeV * safeV) / (2 * horizon));
         }
       }
     }
@@ -982,10 +1004,18 @@ export class Car {
     let throttle: number;
     let brake: number;
 
-    if (overspeedDelta > 0.0) {
-      // Actively in braking zone before turn: FIRM BRAKE, ZERO THROTTLE
+    // 1 at the planned braking point (the deceleration needed equals the planned one).
+    const brakingNeed = requiredDecel / aBrake;
+    if (brakingNeed > Car.BRAKE_ONSET) {
+      // Braking zone: one progressive application. The pedal asks for the deceleration still needed,
+      // converted with the tyre grip (with downforce) and drag at this speed, so it eases off by
+      // itself as the speed approaches the corner's safe speed instead of pulsing on and off.
       throttle = 0.0;
-      brake = Math.max(pressure.brakeFloor, Math.min(1.0, .60 - (.65 - pressure.brakeFloor) + overspeedDelta * 1.5));
+      const v2 = this.speed * this.speed;
+      const tyreDecel = this.baseTireGrip * Math.min(this.tyreGripFront, this.tyreGripRear) * (Car.GRAVITY + 0.5 * this.airDensity * this.downforceCoeff * this.wakeDownforce * v2 / this.totalMass);
+      const dragDecel = 0.5 * this.airDensity * this.dragCoeff * v2 / this.totalMass;
+      const onset = Math.min(1, (brakingNeed - Car.BRAKE_ONSET) / (1 - Car.BRAKE_ONSET));
+      brake = Math.min(1, Math.max(0, requiredDecel * onset - dragDecel) / Math.max(1, tyreDecel));
     } else if (overspeedDelta > -pressure.coastMargin) {
       // Transition / lift & coast zone: cut throttle, prevent violent bang-bang throttle spikes
       throttle = 0.0;
@@ -1178,6 +1208,15 @@ export class Car {
     const applied = this.appliedControl;
     applied.steer = control.steer; applied.throttle = control.throttle; applied.brake = control.brake;
     this.currentControl = applied;
+    // The driver's demand is `applied`; the forces below use what the actuators deliver.
+    this.brakePressure += (control.brake - this.brakePressure)
+      * (1 - Math.exp(-dt / (control.brake > this.brakePressure ? Car.BRAKE_APPLY_TAU : Car.BRAKE_RELEASE_TAU)));
+    this.throttleResponse += (control.throttle - this.throttleResponse) * (1 - Math.exp(-dt / Car.THROTTLE_TAU));
+    if (this.brakePressure < 1e-4) this.brakePressure = 0;
+    if (this.throttleResponse < 1e-4) this.throttleResponse = 0;
+    const actuated = this.actuatedControl;
+    actuated.steer = control.steer; actuated.throttle = this.throttleResponse; actuated.brake = this.brakePressure;
+    control = actuated;
     this.updateSurface(track);
     if (this.surfaceFractions.asphalt < 1) {
       this.lapCompromised = true;
@@ -1796,6 +1835,21 @@ export class Car {
     const isNearCp = clearedCpIdx !== 0 && distToCp < Math.min(3, track.width * 0.2) && this.surface === 'asphalt';
     // (1) Checkpoint zaliczaj tylko przy ruchu zgodnym z tangentem toru
     const isMovingForwardAlongTrack = this.vel.dot(nextCp.tangent) > 0.5;
+
+    // A car that rejoins the asphalt beyond gates it passed off the road resumes at the gate ahead.
+    // The skipped gates earn nothing and spoil the lap; without this the car could never clear
+    // them and would be retired as stuck while driving, leaving a wreck on the racing line.
+    if (this.framesSinceLastCheckpoint > 30 && this.surface === 'asphalt' && isMovingForwardAlongTrack && !crossedGate && !isNearCp) {
+      const missed = (track.sampleSurface(this.pos).index - clearedCpIdx + cpCount) % cpCount + 1;
+      // Never past the start/finish gate (index 0), which counts the lap.
+      if (missed <= Car.MAX_REJOIN_SKIPPED_GATES && clearedCpIdx !== 0 && clearedCpIdx + missed <= cpCount) {
+        this.currentCheckpointIdx = (clearedCpIdx + missed) % cpCount;
+        this.framesSinceLastCheckpoint = 0;
+        this.lapCompromised = true;
+        this.lapExcursion = true;
+        return null;
+      }
+    }
 
     if (this.surface === 'asphalt' && isMovingForwardAlongTrack && (crossedGate || isNearCp)) {
       this.checkpointsCleared++;

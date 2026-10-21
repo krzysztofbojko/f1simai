@@ -29,12 +29,15 @@ export class Spline {
   }
 
   /**
-   * Smooth raw points into a closed spline with uniform point spacing
+   * Smooth raw points into a closed spline with uniform point spacing.
+   * `keepOrder` keeps the given point order as the driving direction (real circuits);
+   * otherwise the loop is normalised to one winding, as for hand-drawn tracks.
    */
   static generateClosedTrack(
     rawPoints: Vector2[],
     trackWidth: number = 90,
-    targetSpacing: number = 20
+    targetSpacing: number = 20,
+    keepOrder: boolean = false
   ): TrackPoint[] {
     if (rawPoints.some(p => !Number.isFinite(p.x) || !Number.isFinite(p.y)) || !Number.isFinite(trackWidth) || trackWidth <= 0 || !Number.isFinite(targetSpacing) || targetSpacing <= 0) {
       throw new Error('Tor zawiera niepoprawne współrzędne lub szerokość.');
@@ -58,7 +61,7 @@ export class Spline {
       area += filtered[i].cross(filtered[j]);
     }
     // If clockwise, reverse so cars travel in a standard counter-clockwise or clockwise direction
-    if (area < 0) {
+    if (area < 0 && !keepOrder) {
       filtered.reverse();
     }
 

@@ -189,16 +189,17 @@ export class SimBridge {
     this.worker?.postMessage({ type: 'SET_SPEED', speed });
   }
 
-  public setTrackWidth(trackWidth: number, points?: { x: number; y: number }[]): void {
-    this.worker?.postMessage({ type: 'SET_TRACK_WIDTH', trackWidth, points });
+  public setTrackWidth(trackWidth: number, points?: { x: number; y: number }[], keepOrder = false): void {
+    this.worker?.postMessage({ type: 'SET_TRACK_WIDTH', trackWidth, points, keepOrder });
   }
 
   public setPreset(preset: 'gp' | 'oval'): void {
     this.worker?.postMessage({ type: 'SET_PRESET', preset });
   }
 
-  public setCustomTrack(points: { x: number; y: number }[], trackWidth?: number): void {
-    this.worker?.postMessage({ type: 'SET_CUSTOM_TRACK', points, trackWidth });
+  /** `keepOrder`: the points' order is the driving direction (imported real circuits). */
+  public setCustomTrack(points: { x: number; y: number }[], trackWidth?: number, keepOrder = false): void {
+    this.worker?.postMessage({ type: 'SET_CUSTOM_TRACK', points, trackWidth, keepOrder });
   }
 
   public setDriverPressure(value: number): void {

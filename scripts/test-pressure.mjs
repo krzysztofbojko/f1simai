@@ -16,7 +16,7 @@ try {
  const {BattlePush}=await import(pathToFileURL(join(dir,'battle.mjs')));
  assert.equal(normalizePressure(NaN),0);assert.equal(normalizePressure(100),10);assert.equal(normalizePressure(-100),-10);
  for(const p of [-10,0,10]) assert.ok(pressureProfile(p).cornerGrip>0);
- assert.deepEqual(pressureProfile(0),{cornerGrip:.45,braking:1,coastMargin:.15,brakeFloor:.65,attacks:1,mistakes:1});
+ assert.deepEqual(pressureProfile(0),{cornerGrip:.45,braking:1,coastMargin:.15,attacks:1,mistakes:1});
  const track=Presets.createGrandPrixTrack(14);
  // Nominal laps only: stress laps (domain randomisation) are covered by test-robustness.
  new Population(1,track).cars[0].constructor.STRESS_LAP_SHARE=0;

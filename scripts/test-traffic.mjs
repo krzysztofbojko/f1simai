@@ -78,12 +78,13 @@ try {
  assert.equal(trainingRear.eliminationReason,'car');assert.equal(trainingFront.eliminationReason,'car');
  assert.equal(trainingRear.length,5.5);assert.equal(trainingRear.width,1.8);
  assert.deepEqual(Car.getDimensionsForTrackWidth(14),{length:5.5,width:1.8,effectiveTrackWidth:14});
- // Respawn must wait for an occupied start slot instead of placing a car on another.
+ // An occupied start slot sends the respawn to the nearest free one, never onto another car.
  const slot=circuit.getGridSlot(0);
  trainingFront.isAlive=true;trainingFront.pos=slot.pos.clone();trainingFront.vel.set(0,0);trainingFront.speed=0;
  trainingRear.respawnTimer=0;
  training.update(1/60,circuit);
- assert.equal(trainingRear.isAlive,false,'respawn placed a car in an occupied slot');
+ assert.equal(trainingRear.isAlive,true,'an occupied own slot blocked the respawn');
+ assert.ok(trainingRear.pos.dist(trainingFront.pos)>6,'respawn placed a car in an occupied slot');
  // Wrecks produce a local yellow and are cleared after a fixed time (WRECK_CLEAR_SECONDS).
  a=car(150,0,35);b=car(190,0,0);b.isAlive=false;b.eliminationReason='car';
  updateRaceSafety([a,b],circuit);assert.equal(a.yellowFlag,true);assert.equal(b.wreckAge,0);

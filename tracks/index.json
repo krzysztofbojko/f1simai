@@ -1,0 +1,664 @@
+{
+ "tracks": [
+  {
+   "file": "au-1953-melbourne.json",
+   "name": "Albert Park Circuit",
+   "location": "Melbourne",
+   "country": "Australia",
+   "direction": "clockwise",
+   "lengthMeters": 5278,
+   "generatedLengthMeters": 5278,
+   "trackWidth": 14,
+   "circuitType": "uliczny",
+   "grandsPrix": 27
+  },
+  {
+   "file": "it-1953-imola.json",
+   "name": "Autodromo Enzo e Dino Ferrari",
+   "location": "Imola",
+   "country": "Włochy",
+   "direction": "counterclockwise",
+   "lengthMeters": 4909,
+   "generatedLengthMeters": 4909,
+   "trackWidth": 14,
+   "circuitType": "stały",
+   "grandsPrix": 30
+  },
+  {
+   "file": "it-1922-monza.json",
+   "name": "Autodromo Nazionale di Monza",
+   "location": "Monza",
+   "country": "Włochy",
+   "direction": "clockwise",
+   "lengthMeters": 5793,
+   "generatedLengthMeters": 5793,
+   "trackWidth": 14,
+   "circuitType": "stały",
+   "grandsPrix": 73
+  },
+  {
+   "file": "pt-1972-estoril.json",
+   "name": "Autódromo do Estoril",
+   "location": "Cascais",
+   "country": "Portugalia",
+   "direction": "clockwise",
+   "lengthMeters": 4360,
+   "generatedLengthMeters": 4361,
+   "trackWidth": 14,
+   "circuitType": "stały",
+   "grandsPrix": 13
+  },
+  {
+   "file": "mx-1962-mexico-city.json",
+   "name": "Autódromo Hermanos Rodríguez",
+   "location": "Meksyk",
+   "country": "Meksyk",
+   "direction": "clockwise",
+   "lengthMeters": 4304,
+   "generatedLengthMeters": 4304,
+   "trackWidth": 14,
+   "circuitType": "stały",
+   "grandsPrix": 23
+  },
+  {
+   "file": "pt-2008-portimao.json",
+   "name": "Autódromo Internacional do Algarve",
+   "location": "Portimão",
+   "country": "Portugalia",
+   "direction": "clockwise",
+   "lengthMeters": 4653,
+   "generatedLengthMeters": 4653,
+   "trackWidth": 14,
+   "circuitType": "stały",
+   "grandsPrix": 2
+  },
+  {
+   "file": "br-1977-jacarepagua.json",
+   "name": "Autódromo Internacional Nelson Piquet",
+   "location": "Rio de Janeiro",
+   "country": "Brazylia",
+   "direction": "counterclockwise",
+   "lengthMeters": 5031,
+   "generatedLengthMeters": 5031,
+   "trackWidth": 14,
+   "circuitType": "stały",
+   "grandsPrix": 10
+  },
+  {
+   "file": "br-1940-sao-paulo.json",
+   "name": "Autódromo José Carlos Pace",
+   "location": "São Paulo",
+   "country": "Brazylia",
+   "direction": "counterclockwise",
+   "lengthMeters": 4309,
+   "generatedLengthMeters": 4309,
+   "trackWidth": 14,
+   "circuitType": "stały",
+   "grandsPrix": 40
+  },
+  {
+   "file": "ar-1952-buenos-aires.json",
+   "name": "Autódromo Oscar Alfredo Gálvez",
+   "location": "Buenos Aires",
+   "country": "Argentyna",
+   "direction": "clockwise",
+   "lengthMeters": 4259,
+   "generatedLengthMeters": 4259,
+   "trackWidth": 14,
+   "circuitType": "mieszany",
+   "grandsPrix": 20
+  },
+  {
+   "file": "bh-2002-sakhir.json",
+   "name": "Bahrain International Circuit",
+   "location": "Sakhir",
+   "country": "Bahrajn",
+   "direction": "clockwise",
+   "lengthMeters": 5412,
+   "generatedLengthMeters": 5413,
+   "trackWidth": 14,
+   "circuitType": "stały",
+   "grandsPrix": 21
+  },
+  {
+   "file": "az-2016-baku.json",
+   "name": "Baku City Circuit",
+   "location": "Baku",
+   "country": "Azerbejdżan",
+   "direction": "counterclockwise",
+   "lengthMeters": 6003,
+   "generatedLengthMeters": 6003,
+   "trackWidth": 10,
+   "circuitType": "uliczny",
+   "grandsPrix": 7
+  },
+  {
+   "file": "es-1991-barcelona.json",
+   "name": "Circuit de Barcelona-Catalunya",
+   "location": "Montmeló",
+   "country": "Hiszpania",
+   "direction": "clockwise",
+   "lengthMeters": 4657,
+   "generatedLengthMeters": 4652,
+   "trackWidth": 14,
+   "circuitType": "stały",
+   "grandsPrix": 33
+  },
+  {
+   "file": "mc-1929-monaco.json",
+   "name": "Circuit de Monaco",
+   "location": "Monako",
+   "country": "Monako",
+   "direction": "clockwise",
+   "lengthMeters": 3337,
+   "generatedLengthMeters": 3336,
+   "trackWidth": 12,
+   "circuitType": "uliczny",
+   "grandsPrix": 69
+  },
+  {
+   "file": "fr-1960-magny-cours.json",
+   "name": "Circuit de Nevers Magny-Cours",
+   "location": "Magny-Cours",
+   "country": "Francja",
+   "direction": "clockwise",
+   "lengthMeters": 4411,
+   "generatedLengthMeters": 4410,
+   "trackWidth": 14,
+   "circuitType": "stały",
+   "grandsPrix": 18
+  },
+  {
+   "file": "be-1925-spa-francorchamps.json",
+   "name": "Circuit de Spa-Francorchamps",
+   "location": "Stavelot",
+   "country": "Belgia",
+   "direction": "clockwise",
+   "lengthMeters": 7004,
+   "generatedLengthMeters": 7004,
+   "trackWidth": 14,
+   "circuitType": "mieszany",
+   "grandsPrix": 56
+  },
+  {
+   "file": "ca-1978-montreal.json",
+   "name": "Circuit Gilles Villeneuve",
+   "location": "Montreal",
+   "country": "Kanada",
+   "direction": "clockwise",
+   "lengthMeters": 4361,
+   "generatedLengthMeters": 4362,
+   "trackWidth": 14,
+   "circuitType": "mieszany",
+   "grandsPrix": 42
+  },
+  {
+   "file": "us-2012-austin.json",
+   "name": "Circuit of the Americas",
+   "location": "Austin",
+   "country": "Stany Zjednoczone",
+   "direction": "counterclockwise",
+   "lengthMeters": 5513,
+   "generatedLengthMeters": 5514,
+   "trackWidth": 14,
+   "circuitType": "stały",
+   "grandsPrix": 11
+  },
+  {
+   "file": "nl-1948-zandvoort.json",
+   "name": "Circuit Park Zandvoort",
+   "location": "Zandvoort",
+   "country": "Holandia",
+   "direction": "clockwise",
+   "lengthMeters": 4259,
+   "generatedLengthMeters": 4259,
+   "trackWidth": 14,
+   "circuitType": "stały",
+   "grandsPrix": 33
+  },
+  {
+   "file": "fr-1969-le-castellet.json",
+   "name": "Circuit Paul Ricard",
+   "location": "Le Castellet",
+   "country": "Francja",
+   "direction": "clockwise",
+   "lengthMeters": 5842,
+   "generatedLengthMeters": 5841,
+   "trackWidth": 14,
+   "circuitType": "stały",
+   "grandsPrix": 18
+  },
+  {
+   "file": "de-1932-hockenheim.json",
+   "name": "Hockenheimring",
+   "location": "Hockenheim",
+   "country": "Niemcy",
+   "direction": "clockwise",
+   "lengthMeters": 4574,
+   "generatedLengthMeters": 4574,
+   "trackWidth": 14,
+   "circuitType": "stały",
+   "grandsPrix": 37
+  },
+  {
+   "file": "hu-1986-budapest.json",
+   "name": "Hungaroring",
+   "location": "Budapeszt",
+   "country": "Węgry",
+   "direction": "clockwise",
+   "lengthMeters": 4381,
+   "generatedLengthMeters": 4381,
+   "trackWidth": 14,
+   "circuitType": "stały",
+   "grandsPrix": 38
+  },
+  {
+   "file": "us-1909-indianapolis.json",
+   "name": "Indianapolis Motor Speedway",
+   "location": "Speedway",
+   "country": "Stany Zjednoczone",
+   "direction": "clockwise",
+   "lengthMeters": 4192,
+   "generatedLengthMeters": 4192,
+   "trackWidth": 14,
+   "circuitType": "stały",
+   "grandsPrix": 19
+  },
+  {
+   "file": "tr-2005-istanbul.json",
+   "name": "Istanbul Park",
+   "location": "Stambuł",
+   "country": "Turcja",
+   "direction": "counterclockwise",
+   "lengthMeters": 5338,
+   "generatedLengthMeters": 5338,
+   "trackWidth": 14,
+   "circuitType": "stały",
+   "grandsPrix": 9
+  },
+  {
+   "file": "sa-2021-jeddah.json",
+   "name": "Jeddah Corniche Circuit",
+   "location": "Dżudda",
+   "country": "Arabia Saudyjska",
+   "direction": "counterclockwise",
+   "lengthMeters": 6174,
+   "generatedLengthMeters": 6178,
+   "trackWidth": 14,
+   "circuitType": "uliczny",
+   "grandsPrix": 4
+  },
+  {
+   "file": "za-1961-johannesburg.json",
+   "name": "Kyalami Circuit",
+   "location": "Midrand",
+   "country": "Południowa Afryka",
+   "direction": "counterclockwise",
+   "lengthMeters": 4261,
+   "generatedLengthMeters": 4521,
+   "trackWidth": 14,
+   "circuitType": "stały",
+   "grandsPrix": 20
+  },
+  {
+   "file": "us-2023-las-vegas.json",
+   "name": "Las Vegas Street Circuit",
+   "location": "Las Vegas",
+   "country": "Stany Zjednoczone",
+   "direction": "counterclockwise",
+   "lengthMeters": 6201,
+   "generatedLengthMeters": 6202,
+   "trackWidth": 14,
+   "circuitType": "uliczny",
+   "grandsPrix": 1
+  },
+  {
+   "file": "qa-2004-lusail.json",
+   "name": "Losail International Circuit",
+   "location": "Lusajl",
+   "country": "Katar",
+   "direction": "clockwise",
+   "lengthMeters": 5419,
+   "generatedLengthMeters": 5419,
+   "trackWidth": 14,
+   "circuitType": "uliczny",
+   "grandsPrix": 2
+  },
+  {
+   "file": "sg-2008-singapore.json",
+   "name": "Marina Bay Street Circuit",
+   "location": "Singapur",
+   "country": "Singapur",
+   "direction": "counterclockwise",
+   "lengthMeters": 5063,
+   "generatedLengthMeters": 4940,
+   "trackWidth": 14,
+   "circuitType": "uliczny",
+   "grandsPrix": 14
+  },
+  {
+   "file": "us-2022-miami.json",
+   "name": "Miami International Autodrome",
+   "location": "Miami",
+   "country": "Stany Zjednoczone",
+   "direction": "counterclockwise",
+   "lengthMeters": 5410,
+   "generatedLengthMeters": 5410,
+   "trackWidth": 14,
+   "circuitType": "uliczny",
+   "grandsPrix": 2
+  },
+  {
+   "file": "it-1914-scarperia-e-san-piero.json",
+   "name": "Mugello Circuit",
+   "location": "Scarperia e San Piero",
+   "country": "Włochy",
+   "direction": "clockwise",
+   "lengthMeters": 5245,
+   "generatedLengthMeters": 5245,
+   "trackWidth": 14,
+   "circuitType": "stały",
+   "grandsPrix": 1
+  },
+  {
+   "file": "de-1927-nurburg.json",
+   "name": "Nürburgring",
+   "location": "Nürburg",
+   "country": "Niemcy",
+   "direction": "clockwise",
+   "lengthMeters": 5148,
+   "generatedLengthMeters": 5149,
+   "trackWidth": 14,
+   "circuitType": "mieszany",
+   "grandsPrix": 41
+  },
+  {
+   "file": "at-1969-spielberg.json",
+   "name": "Red Bull Ring",
+   "location": "Spielberg",
+   "country": "Austria",
+   "direction": "clockwise",
+   "lengthMeters": 4318,
+   "generatedLengthMeters": 4318,
+   "trackWidth": 14,
+   "circuitType": "stały",
+   "grandsPrix": 37
+  },
+  {
+   "file": "my-1999-sepang.json",
+   "name": "Sepang International Circuit",
+   "location": "Sepang",
+   "country": "Malezja",
+   "direction": "clockwise",
+   "lengthMeters": 5543,
+   "generatedLengthMeters": 5543,
+   "trackWidth": 14,
+   "circuitType": "stały",
+   "grandsPrix": 19
+  },
+  {
+   "file": "cn-2004-shanghai.json",
+   "name": "Shanghai International Circuit",
+   "location": "Szanghaj",
+   "country": "Chiny",
+   "direction": "clockwise",
+   "lengthMeters": 5451,
+   "generatedLengthMeters": 5451,
+   "trackWidth": 14,
+   "circuitType": "stały",
+   "grandsPrix": 16
+  },
+  {
+   "file": "gb-1948-silverstone.json",
+   "name": "Silverstone Circuit",
+   "location": "Silverstone",
+   "country": "Wielka Brytania",
+   "direction": "clockwise",
+   "lengthMeters": 5891,
+   "generatedLengthMeters": 5891,
+   "trackWidth": 14,
+   "circuitType": "stały",
+   "grandsPrix": 58
+  },
+  {
+   "file": "ru-2014-sochi.json",
+   "name": "Sochi Autodrom",
+   "location": "Soczi",
+   "country": "Rosja",
+   "direction": "clockwise",
+   "lengthMeters": 5848,
+   "generatedLengthMeters": 5848,
+   "trackWidth": 14,
+   "circuitType": "mieszany",
+   "grandsPrix": 8
+  },
+  {
+   "file": "us-1956-dix.json",
+   "name": "Watkins Glen",
+   "location": "Watkins Glen",
+   "country": "Stany Zjednoczone",
+   "direction": "clockwise",
+   "lengthMeters": 5435,
+   "generatedLengthMeters": 5437,
+   "trackWidth": 14,
+   "circuitType": "mieszany",
+   "grandsPrix": 20
+  },
+  {
+   "file": "ae-2009-yas-marina.json",
+   "name": "Yas Marina Circuit",
+   "location": "Abu Zabi",
+   "country": "Zjednoczone Emiraty Arabskie",
+   "direction": "counterclockwise",
+   "lengthMeters": 5281,
+   "generatedLengthMeters": 5273,
+   "trackWidth": 14,
+   "circuitType": "stały",
+   "grandsPrix": 15
+  }
+ ],
+ "skipped": [
+  {
+   "id": "jp-1962",
+   "name": "Suzuka International Racing Course",
+   "reason": "symulator odrzuca geometrię: Asfalt toru przecina się. Narysuj trasę bez przecinających się odcinków."
+  },
+  {
+   "id": "es-2026",
+   "name": "Circuito de Madring",
+   "reason": "brak na liście torów F1 z Wikipedii"
+  }
+ ],
+ "missingGeometry": [
+  {
+   "name": "Adelaide Street Circuit",
+   "location": "Adelaide, Australia",
+   "seasons": "1985–1995"
+  },
+  {
+   "name": "Ain-Diab Circuit",
+   "location": "Casablanca, Maroko",
+   "seasons": "1958"
+  },
+  {
+   "name": "Aintree Motor Racing Circuit",
+   "location": "Aintree, Wielka Brytania",
+   "seasons": "1955, 1957, 1959, 1961–1962"
+  },
+  {
+   "name": "AVUS",
+   "location": "Berlin, Niemcy",
+   "seasons": "1959"
+  },
+  {
+   "name": "Circuito da Boavista",
+   "location": "Porto, Portugalia",
+   "seasons": "1958, 1960"
+  },
+  {
+   "name": "Brands Hatch",
+   "location": "West Kingsdown, Wielka Brytania",
+   "seasons": "1964, 1966, 1968, 1970, 1972, 1974, 1976, 1978, 1980, 1982–1986"
+  },
+  {
+   "name": "Circuit Bremgarten",
+   "location": "Bremgarten bei Bern, Szwajcaria",
+   "seasons": "1950–1954"
+  },
+  {
+   "name": "Buddh International Circuit",
+   "location": "Wielka Noida, Indie",
+   "seasons": "2011–2013"
+  },
+  {
+   "name": "Bugatti Circuit",
+   "location": "Le Mans, Francja",
+   "seasons": "1967"
+  },
+  {
+   "name": "Caesars Palace",
+   "location": "Las Vegas, Stany Zjednoczone",
+   "seasons": "1981–1982"
+  },
+  {
+   "name": "Charade Circuit",
+   "location": "Saint-Genès-Champanelle, Francja",
+   "seasons": "1965, 1969–1970, 1972"
+  },
+  {
+   "name": "Detroit Street Circuit",
+   "location": "Detroit, Stany Zjednoczone",
+   "seasons": "1982–1988"
+  },
+  {
+   "name": "Dijon-Prenois",
+   "location": "Prenois, Francja",
+   "seasons": "1974, 1977, 1979, 1981–1982, 1984"
+  },
+  {
+   "name": "Donington Park",
+   "location": "Castle Donington, Wielka Brytania",
+   "seasons": "1993"
+  },
+  {
+   "name": "Fair Park",
+   "location": "Dallas, Stany Zjednoczone",
+   "seasons": "1984"
+  },
+  {
+   "name": "Fuji International Speedway",
+   "location": "Oyama, Japonia",
+   "seasons": "1976–1977, 2007–2008"
+  },
+  {
+   "name": "Circuito del Jarama",
+   "location": "San Sebastián de los Reyes, Hiszpania",
+   "seasons": "1968, 1970, 1972, 1974, 1976–1979, 1981"
+  },
+  {
+   "name": "Circuito Permanente de Jerez",
+   "location": "Jerez de la Frontera, Hiszpania",
+   "seasons": "1986–1990, 1994, 1997"
+  },
+  {
+   "name": "Korea International Circuit",
+   "location": "Yeongam, Korea Południowa",
+   "seasons": "2010–2013"
+  },
+  {
+   "name": "Long Beach Street Circuit",
+   "location": "Long Beach, Stany Zjednoczone",
+   "seasons": "1976–1983"
+  },
+  {
+   "name": "Monsanto Park",
+   "location": "Lizbona, Portugalia",
+   "seasons": "1959"
+  },
+  {
+   "name": "Circuit Mont-Tremblant",
+   "location": "Mont-Tremblant, Kanada",
+   "seasons": "1968, 1970"
+  },
+  {
+   "name": "Mosport International Raceway",
+   "location": "Bowmanville, Kanada",
+   "seasons": "1967, 1969, 1971–1977"
+  },
+  {
+   "name": "Montjuïc Circuit",
+   "location": "Barcelona, Hiszpania",
+   "seasons": "1969, 1971, 1973, 1975"
+  },
+  {
+   "name": "Nivelles-Baulers",
+   "location": "Nivelles, Belgia",
+   "seasons": "1972, 1974"
+  },
+  {
+   "name": "Pedralbes Circuit",
+   "location": "Barcelona, Hiszpania",
+   "seasons": "1951, 1954"
+  },
+  {
+   "name": "Pescara Circuit",
+   "location": "Pescara, Włochy",
+   "seasons": "1957"
+  },
+  {
+   "name": "Phoenix Circuit",
+   "location": "Phoenix, Stany Zjednoczone",
+   "seasons": "1989–1991"
+  },
+  {
+   "name": "Prince George Circuit",
+   "location": "East London, Południowa Afryka",
+   "seasons": "1962–1963, 1965"
+  },
+  {
+   "name": "Reims-Gueux",
+   "location": "Gueux, Francja",
+   "seasons": "1950–1951, 1953–1954, 1956, 1958–1961, 1963, 1966"
+  },
+  {
+   "name": "Riverside International Raceway",
+   "location": "Moreno Valley, Stany Zjednoczone",
+   "seasons": "1960"
+  },
+  {
+   "name": "Rouen-Les-Essarts",
+   "location": "Orival, Francja",
+   "seasons": "1952, 1957, 1962, 1964, 1968"
+  },
+  {
+   "name": "Scandinavian Raceway",
+   "location": "Anderstorp, Szwecja",
+   "seasons": "1973–1978"
+  },
+  {
+   "name": "Sebring International Raceway",
+   "location": "Sebring, Stany Zjednoczone",
+   "seasons": "1959"
+  },
+  {
+   "name": "Okayama International Circuit",
+   "location": "Mimasaka, Japonia",
+   "seasons": "1994–1995"
+  },
+  {
+   "name": "Valencia Street Circuit",
+   "location": "Walencja, Hiszpania",
+   "seasons": "2008–2012"
+  },
+  {
+   "name": "Zeltweg Airfield",
+   "location": "Zeltweg, Austria",
+   "seasons": "1964"
+  },
+  {
+   "name": "Circuit Zolder",
+   "location": "Heusden-Zolder, Belgia",
+   "seasons": "1973, 1975–1982, 1984"
+  }
+ ]
+}
