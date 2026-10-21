@@ -6,12 +6,13 @@
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
-    "test": "node scripts/audit-physics.mjs --test && node scripts/test-learning.mjs && node scripts/test-runoff.mjs && node scripts/test-traffic.mjs && node scripts/test-lines.mjs && node scripts/test-pressure.mjs --unit && node scripts/test-neural-driving.mjs && node scripts/test-qualifying.mjs && node scripts/test-islands.mjs && node scripts/test-robustness.mjs",
+    "test": "node scripts/audit-physics.mjs --test && node scripts/test-learning.mjs && node scripts/test-runoff.mjs && node scripts/test-traffic.mjs && node scripts/test-suspension.mjs && node scripts/test-lines.mjs && node scripts/test-pressure.mjs --unit && node scripts/test-neural-driving.mjs && node scripts/test-qualifying.mjs && node scripts/test-islands.mjs && node scripts/test-robustness.mjs",
     "test:robustness": "node scripts/test-robustness.mjs",
     "test:learning": "node scripts/test-learning.mjs",
     "audit:physics": "node scripts/audit-physics.mjs",
     "test:runoff": "node scripts/test-runoff.mjs",
     "test:traffic": "node scripts/test-traffic.mjs",
+    "test:suspension": "node scripts/test-suspension.mjs",
     "test:pressure": "node scripts/test-pressure.mjs",
     "test:neural": "node scripts/test-neural-driving.mjs",
     "test:qualifying": "node scripts/test-qualifying.mjs",
@@ -20,7 +21,11 @@
     "bench:step": "node scripts/bench-step.mjs"
   },
   "devDependencies": {
+    "@types/three": "^0.186.0",
     "typescript": "^7.0.2",
     "vite": "^8.3.0"
+  },
+  "dependencies": {
+    "three": "^0.186.1"
   }
 }

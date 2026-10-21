@@ -36,6 +36,36 @@ export function avoidTraffic(car: Car, cars: Car[], control: CarControl, track?:
   return { ...control, throttle: 0, brake: Math.max(control.brake, brake) };
 }
 
+/**
+ * Wake of the cars ahead: a tow cuts drag up to 30% (fading out 50 m behind the car ahead),
+ * dirty air cuts downforce up to 20% (fading out by 30 m). The wake is ±1.6 m wide and weakens
+ * when the car ahead is slower. Sets `wakeDrag` / `wakeDownforce` on every car.
+ */
+export function computeWake(cars: Car[], track?: Track): void {
+  for (const car of cars) {
+    car.wakeDrag = 1;
+    car.wakeDownforce = 1;
+    if (!Car.WAKE_AERO || (!car.isRaceMode && !Car.WAKE_IN_TRAINING)) continue;
+    if (!car.isAlive || car.isPitting || car.isFinishedRace || car.speed < 20) continue;
+    const forward = Vector2.fromAngle(car.heading);
+    const road = track?.sampleSurface(car.pos);
+    let tow = 0, dirty = 0;
+    for (const other of cars) {
+      if (other === car || !other.isAlive || other.isPitting || other.isFinishedRace || other.speed < 20) continue;
+      const offset = other.pos.sub(car.pos);
+      if (offset.magSq() > 60 * 60) continue;
+      const ahead = (track ? trackGap(track, car.pos, other.pos) : offset.dot(forward)) - 5.5;
+      if (ahead <= 0 || ahead > 50) continue;
+      const lateral = track && road ? track.sampleSurface(other.pos).lateral - road.lateral : offset.cross(forward);
+      const strength = Math.exp(-((lateral / 1.6) ** 2)) * Math.min(1, other.speed / car.speed);
+      tow = Math.max(tow, strength * Math.min(1, (50 - ahead) / 45));
+      dirty = Math.max(dirty, strength * Math.max(0, Math.min(1, (30 - ahead) / 25)));
+    }
+    car.wakeDrag = 1 - 0.3 * tow;
+    car.wakeDownforce = 1 - 0.2 * dirty;
+  }
+}
+
 // Continuous separating-axis test for oriented 5.5 × 1.8 m physical bodies.
 // Angular substeps bound rotational motion; translation is swept analytically.
 function contact(a: Car, b: Car, ma: Motion, mb: Motion): { time: number; normal: Vector2 } | null {
@@ -69,6 +99,50 @@ function contact(a: Car, b: Car, ma: Motion, mb: Motion): { time: number; normal
   return null;
 }
 
+/** Contact friction between two bodies (carbon on carbon / tyre on bodywork). */
+const CONTACT_FRICTION = 0.3;
+
+/** Corner (or face centre) of a 5.5 × 1.8 m body furthest along `dir`. */
+function support(car: Car, dir: Vector2): Vector2 {
+  const f = Vector2.fromAngle(car.heading), r = f.normal();
+  const side = (d: number) => Math.abs(d) < 0.05 ? 0 : Math.sign(d);
+  return car.pos.add(f.mul(2.75 * side(f.dot(dir)))).add(r.mul(0.9 * side(r.dot(dir))));
+}
+
+/**
+ * Inelastic impulse at the contact point with Coulomb friction: an off-centre touch
+ * spins the cars (yaw inertia as in Car.updatePhysics), a head-on one only slows them.
+ * The normal impulse stops the approach and friction only removes sliding, so no energy is gained.
+ */
+function applyContactImpulse(a: Car, b: Car, normal: Vector2, ia: number, ib: number): void {
+  const point = Vector2.lerp(support(a, normal), support(b, normal.mul(-1)), 0.5);
+  const ra = point.sub(a.pos), rb = point.sub(b.pos);
+  const spin = Car.CONTACT_SPIN ? 1 / Car.YAW_INERTIA_FACTOR : 0;
+  const ja = ia * spin, jb = ib * spin; // 1/Iz, Iz = factor·m
+  const yawBefore = [a.angularVelocity, b.angularVelocity];
+  const relative = () => b.vel.add(rb.normal().mul(b.angularVelocity)).sub(a.vel.add(ra.normal().mul(a.angularVelocity)));
+  const push = (dir: Vector2, impulse: number) => {
+    a.vel.subMut(dir.mul(impulse * ia));
+    b.vel.addMut(dir.mul(impulse * ib));
+    a.angularVelocity -= ra.cross(dir) * impulse * ja;
+    b.angularVelocity += rb.cross(dir) * impulse * jb;
+  };
+  const mass = (dir: Vector2) => ia + ib + ra.cross(dir) ** 2 * ja + rb.cross(dir) ** 2 * jb;
+  const approach = relative().dot(normal);
+  if (approach >= 0) return;
+  const normalImpulse = -approach / mass(normal);
+  push(normal, normalImpulse);
+  const tangent = normal.normal();
+  const slide = relative().dot(tangent);
+  const limit = Car.CONTACT_SPIN ? CONTACT_FRICTION * normalImpulse : 0;
+  push(tangent, Math.max(-limit, Math.min(limit, -slide / mass(tangent))));
+  // Same bound as a barrier hit, so a touch cannot set up an unrecoverable spin.
+  [a, b].forEach((car, k) => {
+    const bound = Math.max(1.2, Math.abs(yawBefore[k]));
+    car.angularVelocity = Math.max(-bound, Math.min(bound, car.angularVelocity));
+  });
+}
+
 export function resolveTraffic(cars: Car[], motion: Map<Car, Motion>, onlyCar?: Car, pass = 0): void {
   let contacts = 0;
   for (let i = 0; i < cars.length; i++) for (let j = i + 1; j < cars.length; j++) {
@@ -92,11 +166,7 @@ export function resolveTraffic(cars: Car[], motion: Map<Car, Motion>, onlyCar?: 
     const ia = a.isAlive || a.speed > 0.5 ? 1 / a.totalMass : 0, ib = b.isAlive || b.speed > 0.5 ? 1 / b.totalMass : 0, inv = ia + ib;
     a.pos.subMut(hit.normal.mul(overlap * ia / inv));
     b.pos.addMut(hit.normal.mul(overlap * ib / inv));
-    if (closing > 0) {
-      const impulse = closing / inv; // Inelastic normal impulse, no artificial energy gain.
-      a.vel.subMut(hit.normal.mul(impulse * ia));
-      b.vel.addMut(hit.normal.mul(impulse * ib));
-    }
+    if (closing > 0) applyContactImpulse(a, b, hit.normal, ia, ib);
     for (const car of [a, b]) {
       car.lapCompromised = true;
       car.recoveryTimer = 2;

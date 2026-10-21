@@ -6,7 +6,9 @@ import { Track } from './track/Track';
 import { Presets } from './track/Presets';
 import { Population, LapLeaderboardEntry } from './ai/Population';
 import { Car, CarControl, driverInputCount, clampStressShare, DEFAULT_STRESS_LAP_SHARE } from './physics/Car';
-import { Renderer } from './rendering/Renderer';
+import { SceneRenderer } from './rendering/three/SceneRenderer';
+import type { CameraMode } from './rendering/three/Cameras';
+import { HudCharts } from './rendering/HudCharts';
 import { hydrateIcons, setControlContent } from './ui/icons';
 import { SimBridge, type ComputeProfile, type TopologySpecifier } from './workers/SimBridge';
 import type { SimSnapshot, RaceState, QualifyingSnapshot } from './workers/sim.worker';
@@ -17,11 +19,11 @@ function loadFlag(key: string): boolean {
 
 class App {
   private canvas: HTMLCanvasElement;
-  private ctx: CanvasRenderingContext2D;
   private brainCanvas: HTMLCanvasElement;
   private gMeterCanvas: HTMLCanvasElement;
   private learningChartCanvas: HTMLCanvasElement;
-  private renderer: Renderer;
+  private renderer: SceneRenderer;
+  private readonly hudCharts = new HudCharts();
 
   // Web Worker Multithreading Bridge
   private bridge: SimBridge;
@@ -34,10 +36,9 @@ class App {
   private isPlayerDriving: boolean = false;
   private selectedCar: Car | null = null;
 
-  private cameraZoom = 1;
-  private cameraOffset = new Vector2(0, 0);
   private followSelected = false;
-  private panStart: { x: number; y: number; offset: Vector2 } | null = null;
+  private viewSize = { width: 0, height: 0 };
+  private panStart: { x: number; y: number } | null = null;
   private didPan = false;
 
   // Drawing state
@@ -77,11 +78,10 @@ class App {
 
   constructor() {
     this.canvas = document.getElementById('sim-canvas') as HTMLCanvasElement;
-    this.ctx = this.canvas.getContext('2d')!;
     this.brainCanvas = document.getElementById('brain-canvas') as HTMLCanvasElement;
     this.gMeterCanvas = document.getElementById('g-meter-canvas') as HTMLCanvasElement;
     this.learningChartCanvas = document.getElementById('learning-chart') as HTMLCanvasElement;
-    this.renderer = new Renderer(this.ctx);
+    this.renderer = new SceneRenderer(this.canvas, document.getElementById('canvas-wrapper')!);
 
     const initDims = Car.getDimensionsForTrackWidth(this.trackWidth);
     this.track = Presets.createGrandPrixTrack(initDims.effectiveTrackWidth);
@@ -170,6 +170,8 @@ class App {
         car.ersEnergy = (sc.ersSoc ?? 0.85) * Car.ERS_CAPACITY;
         car.gear = sc.gear ?? 1; car.engineRpm = sc.engineRpm ?? Car.IDLE_RPM;
         car.rideHeightFront = (sc.rideHeightFront ?? 30) / 1000; car.rideHeightRear = (sc.rideHeightRear ?? 55) / 1000; car.aeroStall = !!sc.aeroStall;
+        car.heave = sc.heave ?? 0; car.pitch = sc.pitch ?? 0; car.roll = sc.roll ?? 0;
+        car.wakeDrag = sc.wakeDrag ?? 1; car.wakeDownforce = sc.wakeDownforce ?? 1; car.plankForce = sc.plankForce ?? 0; car.porpoisingHz = sc.porpoisingHz ?? 0;
         car.tyreTempFront = sc.tyreTempFront ?? 100; car.tyreTempRear = sc.tyreTempRear ?? 100;
         car.tyreWearFront = sc.tyreWearFront ?? 0; car.tyreWearRear = sc.tyreWearRear ?? 0;
         car.incidentActive = sc.incidentActive;
@@ -338,6 +340,8 @@ class App {
         this.playerCar.ersEnergy = (sp.ersSoc ?? 0.85) * Car.ERS_CAPACITY;
         this.playerCar.gear = sp.gear ?? 1; this.playerCar.engineRpm = sp.engineRpm ?? Car.IDLE_RPM;
         this.playerCar.rideHeightFront = (sp.rideHeightFront ?? 30) / 1000; this.playerCar.rideHeightRear = (sp.rideHeightRear ?? 55) / 1000; this.playerCar.aeroStall = !!sp.aeroStall;
+        this.playerCar.heave = sp.heave ?? 0; this.playerCar.pitch = sp.pitch ?? 0; this.playerCar.roll = sp.roll ?? 0;
+        this.playerCar.wakeDrag = sp.wakeDrag ?? 1; this.playerCar.wakeDownforce = sp.wakeDownforce ?? 1; this.playerCar.plankForce = sp.plankForce ?? 0; this.playerCar.porpoisingHz = sp.porpoisingHz ?? 0;
         this.playerCar.tyreTempFront = sp.tyreTempFront ?? 100; this.playerCar.tyreTempRear = sp.tyreTempRear ?? 100;
         this.playerCar.tyreWearFront = sp.tyreWearFront ?? 0; this.playerCar.tyreWearRear = sp.tyreWearRear ?? 0;
         this.playerCar.incidentActive = sp.incidentActive;
@@ -446,13 +450,8 @@ class App {
 
   private resizeCanvas(): void {
     const wrapper = document.getElementById('canvas-wrapper')!;
-    const dpr = window.devicePixelRatio || 1;
     const rect = wrapper.getBoundingClientRect();
-
-    this.canvas.width = rect.width * dpr;
-    this.canvas.height = rect.height * dpr;
-    this.ctx.resetTransform();
-    this.ctx.scale(dpr, dpr);
+    this.renderer.resize(rect.width, rect.height);
   }
 
   private commitStraightSegment(from: Vector2, to: Vector2): void {
@@ -502,17 +501,26 @@ class App {
   private setupUIEvents(): void {
     const canvas = this.canvas;
 
-    document.getElementById('btn-zoom-in')!.addEventListener('click', () => this.setCameraZoom(this.cameraZoom * 1.25));
-    document.getElementById('btn-zoom-out')!.addEventListener('click', () => this.setCameraZoom(this.cameraZoom / 1.25));
+    const cameras = this.renderer.cameras;
+    document.getElementById('btn-zoom-in')!.addEventListener('click', () => cameras.zoomAt(1.25));
+    document.getElementById('btn-zoom-out')!.addEventListener('click', () => cameras.zoomAt(1 / 1.25));
     document.getElementById('btn-camera-fit')!.addEventListener('click', () => {
       this.followSelected = false;
-      const rect = canvas.getBoundingClientRect();
-      const bounds = this.track.runoff.flatMap(p => [p.leftBarrier, p.rightBarrier]);
-      const xs = bounds.map(p => p.x), ys = bounds.map(p => p.y);
-      const minX = Math.min(...xs), maxX = Math.max(...xs);
-      const minY = Math.min(...ys), maxY = Math.max(...ys);
-      this.cameraZoom = Math.max(0.25, Math.min(8, Math.min(rect.width / (maxX - minX + 100), rect.height / (maxY - minY + 100))));
-      this.cameraOffset = new Vector2(rect.width / 2 - (minX + maxX) / 2 * this.cameraZoom, rect.height / 2 - (minY + maxY) / 2 * this.cameraZoom);
+      cameras.mode = 'top';
+      cameras.fit(this.renderer.trackBounds);
+    });
+    const cameraModes: CameraMode[] = ['top', 'chase', 'tv'];
+    document.querySelectorAll<HTMLButtonElement>('[data-camera-mode]').forEach(button => {
+      button.addEventListener('click', () => {
+        const mode = button.dataset.cameraMode as CameraMode;
+        if (!cameraModes.includes(mode)) return;
+        cameras.mode = mode;
+        // Chase and TV need a car: default to the leader, as the follow button does.
+        if (mode !== 'top' && !this.selectedCar) {
+          this.selectedCar = this.population.currentLeader || this.population.cars[0] || null;
+          this.bridge.setActiveCarColor(this.selectedCar?.color || null);
+        }
+      });
     });
     document.getElementById('btn-camera-follow')!.addEventListener('click', () => {
       this.followSelected = !this.followSelected;
@@ -525,12 +533,14 @@ class App {
       if (this.isDrawMode) return;
       e.preventDefault();
       const rect = canvas.getBoundingClientRect();
-      this.setCameraZoom(this.cameraZoom * Math.exp(-e.deltaY * 0.0015), new Vector2(e.clientX - rect.left, e.clientY - rect.top));
+      cameras.zoomAt(Math.exp(-e.deltaY * 0.0015), e.clientX - rect.left, e.clientY - rect.top);
     }, { passive: false });
     canvas.addEventListener('pointerdown', e => {
       if (this.isDrawMode || e.button !== 0) return;
       this.didPan = false;
-      this.panStart = { x: e.clientX, y: e.clientY, offset: this.cameraOffset.clone() };
+      this.panStart = { x: e.clientX, y: e.clientY };
+      const rect = canvas.getBoundingClientRect();
+      cameras.beginPan(e.clientX - rect.left, e.clientY - rect.top);
       canvas.setPointerCapture(e.pointerId);
     });
     canvas.addEventListener('pointermove', e => {
@@ -539,10 +549,11 @@ class App {
       if (Math.hypot(dx, dy) > 4) this.didPan = true;
       if (this.didPan) {
         this.followSelected = false;
-        this.cameraOffset = new Vector2(this.panStart.offset.x + dx, this.panStart.offset.y + dy);
+        const rect = canvas.getBoundingClientRect();
+        cameras.panTo(e.clientX - rect.left, e.clientY - rect.top);
       }
     });
-    const endPan = () => { this.panStart = null; };
+    const endPan = () => { this.panStart = null; cameras.endPan(); };
     canvas.addEventListener('pointerup', endPan);
     canvas.addEventListener('pointercancel', endPan);
 
@@ -590,26 +601,10 @@ class App {
     // Canvas click to select a car on track
     canvas.addEventListener('click', (e) => {
       if (this.isDrawMode || this.didPan) return;
-      const clickPos = this.getCanvasMousePos(e);
-      let closestCar: Car | null = null;
-      let minDist = 24 / this.cameraZoom; // Constant screen-space selection radius
-
-      for (const car of this.population.cars) {
-        if (!car.isAlive) continue;
-        const d = car.pos.dist(clickPos);
-        if (d < minDist) {
-          minDist = d;
-          closestCar = car;
-        }
-      }
-
-      if (this.playerCar && this.playerCar.isAlive) {
-        const d = this.playerCar.pos.dist(clickPos);
-        if (d < minDist) {
-          minDist = d;
-          closestCar = this.playerCar;
-        }
-      }
+      const rect = canvas.getBoundingClientRect();
+      const candidates = this.playerCar ? [...this.population.cars, this.playerCar] : this.population.cars;
+      // Constant screen-space selection radius, for any camera.
+      const closestCar = this.renderer.pickCar(e.clientX - rect.left, e.clientY - rect.top, candidates, 24);
 
       if (closestCar) {
         this.selectedCar = (this.selectedCar === closestCar) ? null : closestCar;
@@ -697,8 +692,6 @@ class App {
       this.isDrawMode = !this.isDrawMode;
       if (this.isDrawMode) {
         this.followSelected = false;
-        this.cameraZoom = 1;
-        this.cameraOffset = new Vector2(0, 0);
         btnDraw.classList.add('active');
         setControlContent(btnDraw, 'check', 'Zakończ rysowanie');
         drawBanner.classList.remove('hidden');
@@ -1822,16 +1815,9 @@ class App {
 
   private getCanvasMousePos(e: MouseEvent): Vector2 {
     const rect = this.canvas.getBoundingClientRect();
-    return new Vector2((e.clientX - rect.left - this.cameraOffset.x) / this.cameraZoom, (e.clientY - rect.top - this.cameraOffset.y) / this.cameraZoom);
-  }
-
-  private setCameraZoom(zoom: number, anchor?: Vector2): void {
-    const rect = this.canvas.getBoundingClientRect();
-    const point = anchor || new Vector2(rect.width / 2, rect.height / 2);
-    const next = Math.max(0.25, Math.min(8, zoom));
-    const ratio = next / this.cameraZoom;
-    this.cameraOffset = new Vector2(point.x - (point.x - this.cameraOffset.x) * ratio, point.y - (point.y - this.cameraOffset.y) * ratio);
-    this.cameraZoom = next;
+    const sx = e.clientX - rect.left, sy = e.clientY - rect.top;
+    // Above the horizon (low cameras) there is no ground point; fall back to the screen position.
+    return this.renderer.screenToWorld(sx, sy) ?? new Vector2(sx, sy);
   }
 
   private finishDrawnTrack(): void {
@@ -1914,66 +1900,45 @@ class App {
     }
 
     // Render frame
+    if (width !== this.viewSize.width || height !== this.viewSize.height) {
+      this.viewSize = { width, height };
+      this.renderer.resize(width, height);
+    }
+    const cameras = this.renderer.cameras;
     if (this.followSelected && !this.selectedCar) this.followSelected = false;
-    if (this.followSelected && this.selectedCar) {
-      this.cameraOffset = new Vector2(width / 2 - this.selectedCar.pos.x * this.cameraZoom, height / 2 - this.selectedCar.pos.y * this.cameraZoom);
+    if (this.followSelected && this.selectedCar && cameras.mode === 'top' && !this.isDrawMode) {
+      cameras.target.set(this.selectedCar.pos.x, this.selectedCar.pos.y);
     }
     document.querySelector('.camera-controls')!.classList.toggle('hidden', this.isDrawMode);
     const followButton = document.getElementById('btn-camera-follow')!;
     followButton.classList.toggle('active', this.followSelected);
     followButton.setAttribute('aria-pressed', String(this.followSelected));
-    document.getElementById('camera-zoom-value')!.textContent = `${Math.round(this.cameraZoom * 100)}%`;
-    document.getElementById('camera-status')!.textContent = this.followSelected && this.selectedCar
-      ? `Śledzenie: ${this.selectedCar.driverName}` : 'Kółko: zoom • Przeciągnij: przesuń • Kliknij zawodnika w tabeli';
-    this.renderer.clear(width, height, this.cameraZoom);
-    this.ctx.save();
-    this.ctx.translate(this.cameraOffset.x, this.cameraOffset.y);
-    this.ctx.scale(this.cameraZoom, this.cameraZoom);
-    this.renderer.renderTrack(this.track);
-    this.renderer.renderSkidMarks(this.population.cars);
+    document.querySelectorAll<HTMLElement>('[data-camera-mode]').forEach(button => {
+      const active = button.dataset.cameraMode === cameras.mode;
+      button.classList.toggle('active', active);
+      button.setAttribute('aria-pressed', String(active));
+    });
+    document.getElementById('camera-zoom-value')!.textContent = cameras.mode === 'top' ? `${Math.round(cameras.zoom * 100)}%`
+      : cameras.mode === 'chase' ? `${Math.round(cameras.chaseDistance)} m` : 'TV';
+    const focusName = this.selectedCar?.driverName ?? this.population.currentLeader?.driverName ?? '';
+    document.getElementById('camera-status')!.textContent = cameras.mode === 'chase' ? `Kamera pościgowa: ${focusName} • Kółko: odległość`
+      : cameras.mode === 'tv' ? `Kamery TV: ${focusName}`
+      : this.followSelected && this.selectedCar ? `Śledzenie: ${this.selectedCar.driverName}` : 'Kółko: zoom • Przeciągnij: przesuń • Kliknij zawodnika w tabeli';
 
-    if (this.isDrawMode) {
-      this.renderer.renderDrawingPath(this.rawDrawnPoints, this.mousePos, this.straightAnchor);
-    } else {
-      // Render optimal racing line (najbardziej optymalna nitka toru)
-      this.renderer.renderOptimalRacingLine(this.population.bestRacingLine);
-
-      // Render AI cars
-      const leader = this.population.currentLeader;
-      const hasSelected = !!this.selectedCar;
-      for (const car of this.population.cars) {
-        if (car !== leader && car !== this.selectedCar) {
-          this.renderer.renderCar(car, false, car.isManual, false, hasSelected);
-        }
-      }
-      // Render leader
-      if (leader && leader !== this.selectedCar) {
-        this.renderer.renderCar(leader, true, leader.isManual, false, hasSelected);
-      }
-      // Render selected car on top
-      if (this.selectedCar && this.selectedCar !== this.playerCar) {
-        this.renderer.renderCar(this.selectedCar, this.selectedCar === leader, this.selectedCar.isManual, true, true);
-      }
-
-      // Render Player car if driving
-      if (this.playerCar && this.playerCar.isAlive) {
-        const isPlayerSelected = this.selectedCar === this.playerCar;
-        this.renderer.renderCar(this.playerCar, false, true, isPlayerSelected, hasSelected);
-      }
-      this.renderer.renderLabels();
-
-      this.ctx.restore();
-
-      // Render 5 F1 Start Lights during countdown
-      this.renderer.renderStartLights(this.latestRaceStartLights, this.latestRaceState);
-
-      // Render Chequered Flag finish banner if race finished
-      if (this.latestRaceState === 'FINISHED') {
-        this.renderer.renderChequeredFlagBanner(this.latestRaceWinner);
-      }
-    }
-
-    if (this.isDrawMode) this.ctx.restore();
+    this.renderer.render({
+      track: this.track,
+      cars: this.population.cars,
+      player: this.playerCar,
+      leader: this.population.currentLeader,
+      selected: this.selectedCar,
+      racingLine: this.population.bestRacingLine,
+      drawMode: this.isDrawMode,
+      frozen: this.isPaused || this.latestRaceState === 'FINISHED' || this.latestRaceState === 'QUALI_FINISHED',
+      drawing: this.isDrawMode ? { points: this.rawDrawnPoints, mouse: this.mousePos, anchor: this.straightAnchor } : null,
+      raceState: this.latestRaceState,
+      startLights: this.latestRaceStartLights,
+      winner: this.latestRaceWinner,
+    });
 
     // Update Telemetry & UI
     this.updateHUD();
@@ -1991,7 +1956,7 @@ class App {
     const targetPressure = activeCar?.driverPressure ?? this.driverPressure;
     const pressureText = (p: number) => `${p > 0 ? '+' : ''}${Math.round(p)}`;
     const rpmEl = document.getElementById('tele-rpm');
-    if (rpmEl) rpmEl.textContent = activeCar ? `${Math.round(activeCar.engineRpm / 10) * 10} rpm · prześwit ${Math.round(activeCar.rideHeightFront * 1000)}/${Math.round(activeCar.rideHeightRear * 1000)} mm${activeCar.aeroStall ? ' ⚠ ZERWANIE PRZEPŁYWU' : ''}` : 'rpm'
+    if (rpmEl) rpmEl.textContent = activeCar ? `${Math.round(activeCar.engineRpm / 10) * 10} rpm · prześwit ${Math.round(activeCar.rideHeightFront * 1000)}/${Math.round(activeCar.rideHeightRear * 1000)} mm${activeCar.aeroStall ? ' ⚠ ZERWANIE PRZEPŁYWU' : ''}${activeCar.plankForce > 0 ? ' ⚠ DOBIJANIE DESKI' : ''}${Car.PORPOISING && activeCar.porpoisingHz > 0 ? ` ⚠ MORŚWINOWANIE ${activeCar.porpoisingHz.toFixed(1)} Hz` : ''}${activeCar.wakeDrag < 0.97 ? ` · cień aero opór −${Math.round((1 - activeCar.wakeDrag) * 100)}% docisk −${Math.round((1 - activeCar.wakeDownforce) * 100)}%` : ''}` : 'rpm'
     const tyreEl = document.getElementById('tele-tyres');
     if (tyreEl) tyreEl.textContent = activeCar ? `OPONY P ${Math.round(activeCar.tyreTempFront)}° T ${Math.round(activeCar.tyreTempRear)}° · zużycie ${Math.round(Math.max(activeCar.tyreWearFront, activeCar.tyreWearRear) * 100)}%` : 'OPONY';
     const ersEl = document.getElementById('tele-ers');
@@ -2426,7 +2391,7 @@ class App {
       if (teleBrakeAgg) {
         teleBrakeAgg.textContent = `(Styl: ${Math.round(activeCar.brakingAggression * 100)}%)`;
       }
-      this.renderer.renderGMeter(activeCar, this.gMeterCanvas);
+      this.hudCharts.renderGMeter(activeCar, this.gMeterCanvas);
       const totalG = Math.hypot(activeCar.lateralG, activeCar.longitudinalG);
       const teleGTotal = document.getElementById('tele-g-total')!;
       teleGTotal.textContent = `${totalG.toFixed(1)} G`;
@@ -2486,7 +2451,7 @@ class App {
       }
 
       if (activeCar.brain) {
-        this.renderer.renderBrain(activeCar.brain, this.brainCanvas);
+        this.hudCharts.renderBrain(activeCar.brain, this.brainCanvas);
       }
     }
 

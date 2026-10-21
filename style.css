@@ -1376,6 +1376,10 @@ input[type="checkbox"] {
 #camera-zoom-value { min-width: 48px; text-align: center; font: 600 13px var(--font-mono); }
 #camera-status { margin-top: 6px; font-size: 12px; color: #a9b5c5; }
 
+.camera-modes { display: flex; gap: 6px; margin-top: 6px; }
+.camera-modes .f1-btn { min-height: 28px; padding: 3px 10px; font-size: 12px; }
+
+[data-camera-mode][aria-pressed="true"],
 #btn-camera-follow[aria-pressed="true"],
 #btn-camera-follow.active {
   color: var(--f1-cyan);
@@ -1673,4 +1677,117 @@ input[type="checkbox"] {
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
   }
+}
+
+/* 3D view overlays: car badges, track labels, start lights, finish banner, map scale */
+.label-layer {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  z-index: 5;
+}
+
+.car-label,
+.track-label {
+  position: absolute;
+  top: 0;
+  left: 0;
+  white-space: nowrap;
+  font: 9px/14px var(--font-mono);
+  padding: 0 6px;
+  border-radius: 4px;
+  border: 1px solid var(--label-color, #fff);
+  background: rgba(12, 16, 20, 0.82);
+  color: var(--text-main);
+  will-change: transform;
+}
+
+.car-label.strong { font: 700 10px/16px var(--font-mono); }
+.car-label.leader { color: var(--f1-cyan); border-color: var(--f1-cyan); border-width: 1.5px; background: rgba(10, 16, 22, 0.92); }
+.car-label.player { color: #ff9e3b; border-color: var(--f1-papaya); border-width: 1.5px; background: rgba(24, 18, 10, 0.92); }
+.car-label.selected { color: var(--f1-green); border-color: var(--f1-green); border-width: 2px; background: rgba(10, 24, 30, 0.95); }
+.car-label.pitting { color: var(--f1-gold); border-color: var(--f1-gold); border-width: 2px; background: rgba(38, 28, 6, 0.95); }
+.car-label.pit { color: #ffb800; border-color: var(--f1-papaya); background: rgba(35, 18, 6, 0.92); }
+.car-label.yellow { color: var(--f1-gold); border-color: var(--f1-gold); }
+.car-label.dnf { color: #ff5252; border-color: rgba(255, 82, 82, 0.6); font-weight: 700; }
+
+.track-label {
+  translate: -50% -50%;
+  font-weight: 700;
+  color: var(--label-color, #fff);
+  background: rgba(9, 11, 14, 0.92);
+}
+.track-label.pit { font: 600 8px/12px var(--font-mono); border-color: transparent; background: rgba(9, 11, 14, 0.6); }
+.track-label.straight { font: 700 10px/18px var(--font-mono); }
+
+.start-lights,
+.finish-banner {
+  position: absolute;
+  top: 24px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 6;
+  pointer-events: none;
+  text-align: center;
+}
+.start-lights[hidden],
+.finish-banner[hidden],
+.map-scale[hidden] { display: none; }
+
+.start-gantry {
+  display: inline-flex;
+  gap: 12px;
+  padding: 12px 16px;
+  background: #0e1218;
+  border: 2px solid #273344;
+  border-radius: 8px;
+}
+.start-pod {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: #260808;
+  box-shadow: 0 0 0 4px #06080b, 0 0 0 5.5px #374151;
+}
+.start-pod.lit { background: #ff1801; box-shadow: 0 0 0 4px #06080b, 0 0 0 5.5px #374151, 0 0 16px 4px rgba(255, 24, 1, 0.7); }
+.start-pod.go { background: var(--f1-green); box-shadow: 0 0 0 4px #06080b, 0 0 0 5.5px #374151, 0 0 12px 3px rgba(0, 230, 118, 0.6); }
+.start-caption { margin-top: 10px; font: 700 11px var(--font-mono); text-shadow: 0 1px 3px #000; }
+.start-caption.go { color: var(--f1-green); }
+.start-caption.lit { color: #ff5252; }
+.start-caption.grid { color: var(--f1-gold); }
+
+.finish-banner {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: min(460px, calc(100% - 32px));
+  padding: 12px 16px;
+  background: rgba(10, 14, 20, 0.94);
+  border: 2.5px solid var(--f1-gold);
+  border-radius: 8px;
+}
+.finish-banner strong { font: 700 15px "Titillium Web", sans-serif; color: var(--f1-gold); }
+.finish-banner span { font: 700 13px var(--font-mono); color: #fff; }
+
+.map-scale {
+  position: absolute;
+  left: 16px;
+  bottom: 12px;
+  z-index: 5;
+  pointer-events: none;
+  padding-top: 8px;
+  font: 10px var(--font-mono);
+  color: rgba(255, 255, 255, 0.6);
+  text-shadow: 0 1px 2px #000;
+}
+.map-scale::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 50px;
+  height: 6px;
+  border: 2px solid rgba(0, 210, 190, 0.7);
+  border-top: none;
 }

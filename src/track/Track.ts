@@ -485,7 +485,15 @@ export class Track {
     const pos = center.add(from.normal.mul(side * lateralDist));
     const heading = from.tangent.heading();
 
-    return { pos, heading, checkpointIdx: t >= 1 ? ahead : behind };
+    // On a curve the lateral offset can put a slot past the next gate's line; that gate is then
+    // behind the car and could never be crossed, so count it as already passed.
+    let checkpointIdx = t >= 1 ? ahead : behind;
+    for (let guard = 0; guard < 3 && this.checkpoints.length === n; guard++) {
+      const next = this.checkpoints[(checkpointIdx + 1) % n];
+      if (pos.sub(next.center).dot(next.tangent) < 0) break;
+      checkpointIdx = (checkpointIdx + 1) % n;
+    }
+    return { pos, heading, checkpointIdx };
   }
 
   /**

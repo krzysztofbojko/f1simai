@@ -22,6 +22,15 @@ try {
   if (process.env.PACEJKA) Car.PACEJKA = true;
   if (process.env.RIDE) Car.RIDE_HEIGHT_AERO = true;
   if (process.env.HEAT) Car.TYRE_HEAT_SCALE = Number(process.env.HEAT);
+  if (process.env.NOLOADSENS) Car.LOAD_SENSITIVITY = false;
+  if (process.env.LSK) Car.LOAD_SENSITIVITY_EXP = Number(process.env.LSK);
+  if (process.env.NOSPIN) Car.CONTACT_SPIN = false;
+  if (process.env.WAKE) Car.WAKE_IN_TRAINING = true;
+  if (process.env.NOSUSP) Car.SUSPENSION_DYNAMIC = false;
+  if (process.env.NOSUSPLOADS) Car.SUSPENSION_LOADS = false;
+  if (process.env.NOROLL) Car.SUSPENSION_ROLL = false;
+  if (process.env.NOPLANK) Car.PLANK_CONTACT = false;
+  if (process.env.PORPOISE) Car.PORPOISING = true;
   const { Population } = await import(pathToFileURL(join(output, 'population.mjs')));
   const { Presets } = await import(pathToFileURL(join(output, 'presets.mjs')));
   const seconds = Number(process.argv[2] ?? 300);

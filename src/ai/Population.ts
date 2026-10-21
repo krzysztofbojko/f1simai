@@ -4,7 +4,7 @@ import { LineSearch } from './LineSearch';
 import { LineNet } from './LineNet';
 import { distillLineNetwork } from './Distill';
 import { updateRaceSafety, planRaceLine } from './RaceTraffic';
-import { captureMotion, avoidTraffic, resolveTraffic } from '../physics/Traffic';
+import { captureMotion, avoidTraffic, resolveTraffic, computeWake } from '../physics/Traffic';
 import { Car, LapFinishEvent, TrajectoryPoint, driverInputCount } from '../physics/Car';
 import { NeuralNetwork, TopologySpecifier } from './NeuralNetwork';
 import { Track } from '../track/Track';
@@ -404,6 +404,7 @@ export class Population {
     const traffic = [...this.cars, ...extraCars];
     if (this.isRaceMode) updateRaceSafety(traffic, track, dt);
     const motion = captureMotion(traffic);
+    computeWake(traffic, track);
     const laps: { car: Car; event: LapFinishEvent }[] = [];
     let maxFitness = -Infinity;
     let leader: Car | null = null;

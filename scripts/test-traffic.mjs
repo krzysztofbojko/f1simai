@@ -9,7 +9,7 @@ try {
  await build({configFile:false,logLevel:'silent',build:{outDir:dir,lib:{entry:{traffic:resolve('src/physics/Traffic.ts'),car:resolve('src/physics/Car.ts'),vector:resolve('src/math/Vector2.ts'),race:resolve('src/ai/RaceTraffic.ts'),presets:resolve('src/track/Presets.ts'),track:resolve('src/track/Track.ts'),network:resolve('src/ai/NeuralNetwork.ts'),population:resolve('src/ai/Population.ts')},formats:['es'],fileName:(_,name)=>name+'.mjs'}}});
  const {Car} = await import(pathToFileURL(join(dir,'car.mjs')));
  const {Vector2} = await import(pathToFileURL(join(dir,'vector.mjs')));
- const {captureMotion,resolveTraffic,avoidTraffic} = await import(pathToFileURL(join(dir,'traffic.mjs')));
+ const {captureMotion,resolveTraffic,avoidTraffic,computeWake} = await import(pathToFileURL(join(dir,'traffic.mjs')));
  const {planRaceLine,updateRaceSafety} = await import(pathToFileURL(join(dir,'race.mjs')));
  const {Population} = await import(pathToFileURL(join(dir,'population.mjs')));
  const {Track} = await import(pathToFileURL(join(dir,'track.mjs')));
@@ -25,6 +25,19 @@ try {
  // Parallel cars may pass without a collision; initial overlaps are separated.
  a=car(0,0,20);b=car(0,3,20);m=captureMotion([a,b]);a.pos.x=10;b.pos.x=10;resolveTraffic([a,b],m);assert.equal(a.recoveryTimer,0);
  a=car(0,0);b=car(0,0);m=captureMotion([a,b]);resolveTraffic([a,b],m);assert.ok(a.pos.dist(b.pos)>=1.8);
+ // An off-centre touch spins both cars without creating kinetic (linear + yaw) energy.
+ a=car(0,0,10);b=car(6,1.2,0);m=captureMotion([a,b]);a.pos.x=2;
+ const ke=c=>c.totalMass*(c.speed**2+Car.YAW_INERTIA_FACTOR*c.angularVelocity**2)/2, keBefore=ke(a)+ke(b);
+ resolveTraffic([a,b],m);assert.ok(a.isAlive&&b.isAlive);assert.ok(Math.abs(a.angularVelocity)>0.01&&Math.abs(b.angularVelocity)>0.01,'off-centre contact must spin the cars');
+ assert.ok(ke(a)+ke(b)<=keBefore+1e-6,'contact must not add energy');
+ // A centred rear-end touch does not spin either car.
+ a=car(0,0,10);b=car(6,0,0);m=captureMotion([a,b]);a.pos.x=2;resolveTraffic([a,b],m);assert.ok(Math.abs(a.angularVelocity)<1e-9&&Math.abs(b.angularVelocity)<1e-9);
+ // Wake: a tow and dirty air directly behind, clean air beside or alone, off in training by default.
+ a=car(0,0,60);b=car(15,0,60);const beside=car(0,6,60);computeWake([a,b,beside]);
+ assert.ok(a.wakeDrag<0.85&&a.wakeDownforce<0.95,'a car 9.5 m behind must get a tow and dirty air');
+ assert.equal(b.wakeDrag,1);assert.equal(b.wakeDownforce,1);assert.ok(beside.wakeDrag>0.99);
+ const alone=car(-60,0,60);computeWake([alone,b]);assert.equal(alone.wakeDownforce,1);assert.equal(alone.wakeDrag,1);
+ a.isRaceMode=false;computeWake([a,b]);assert.equal(a.wakeDrag,1);
  // Crossing trajectories collide even when neither endpoint overlaps.
  a=car(-10,0,30);b=car(0,-10);b.heading=Math.PI/2;b.vel=new Vector2(0,30);m=captureMotion([a,b]);a.pos=new Vector2(10,0);b.pos=new Vector2(0,10);resolveTraffic([a,b],m);assert.equal(a.eliminationReason,'car');
  // Lapped and stopped traffic are obstacles; manual input remains under user control.

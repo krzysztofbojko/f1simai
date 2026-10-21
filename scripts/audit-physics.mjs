@@ -60,7 +60,9 @@ try {
   }
   for (const steer of [-0.1, 0.1]) {
     const c = car(30); c.updatePhysics({ ...idle, steer }, 1 / 60, track);
-    results['turn' + steer] = { yawRate: c.angularVelocity, lateralG: c.lateralG, roll: c.rollAngle };
+    // The body rolls behind the lateral acceleration (suspension dynamics): read it after 0.25 s of steering.
+    const rolled = car(30); for (let i = 0; i < 15; i++) rolled.updatePhysics({ ...idle, steer }, 1 / 60, track);
+    results['turn' + steer] = { yawRate: c.angularVelocity, lateralG: c.lateralG, roll: rolled.rollAngle };
     c.updatePhysics({ ...idle, steer: 0 }, 1 / 60, track);
     results['release' + steer] = { yawRate: c.angularVelocity };
   }
