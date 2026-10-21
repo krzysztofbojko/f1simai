@@ -13,7 +13,7 @@
  "seasons": "2020",
  "grandsPrix": 1,
  "grandPrix": "Grand Prix Toskanii",
- "trackWidth": 14,
+ "trackWidth": 13,
  "source": {
   "geometry": "bacinger/f1-circuits it-1914 (MIT, https://github.com/bacinger/f1-circuits)",
   "data": "https://pl.wikipedia.org/wiki/Lista_torów_Formuły_1 (CC BY-SA 4.0)"

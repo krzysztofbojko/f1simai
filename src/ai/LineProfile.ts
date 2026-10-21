@@ -15,10 +15,13 @@ function menger(a: Vector2, b: Vector2, c: Vector2): number {
  * arc really permits, and a car that pinches the corner plans for the tighter arc it takes.
  */
 export class LineProfile {
-  static readonly RATE = 0.2;
-  /** Corner radius may grow to 1 / (0.5 κ) on a wide line; the planner never assumes more. */
-  static readonly MIN_RATIO = 0.5;
-  static readonly MAX_RATIO = 1.3;
+  /** Blend per pass over a point (one sample per lap): the profile averages the last few laps. */
+  static readonly RATE = 0.3;
+  /** Corner radius may grow to 1 / (0.7 κ) on a wide line; the planner never assumes more. */
+  static readonly MIN_RATIO = 0.7;
+  /** A wobbly line may tighten a corner by a share of its curvature, plus a small absolute slack for straights. */
+  static readonly MAX_RATIO = 1.15;
+  static readonly MAX_SLACK = 0.0005;
   readonly offsets: Float32Array;
   /** Curvature per point; NaN marks an entry whose neighbourhood changed since it was computed. */
   private readonly cache: Float32Array;
@@ -70,6 +73,6 @@ export class LineProfile {
     }
     const signed = track.points[((index % n) + n) % n].curvature;
     const effective = Math.abs(signed + delta);
-    return Math.max(centre * LineProfile.MIN_RATIO, Math.min(centre * LineProfile.MAX_RATIO + 0.003, effective));
+    return Math.max(centre * LineProfile.MIN_RATIO, Math.min(centre * LineProfile.MAX_RATIO + LineProfile.MAX_SLACK, effective));
   }
 }

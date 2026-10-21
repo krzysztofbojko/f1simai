@@ -76,8 +76,8 @@ try {
  trainingFront.pos=new Vector2(156.2,0);trainingRear.vel=new Vector2(60,0);trainingRear.speed=60;
  training.update(1/60,circuit);
  assert.equal(trainingRear.eliminationReason,'car');assert.equal(trainingFront.eliminationReason,'car');
- assert.equal(trainingRear.length,5.5);assert.equal(trainingRear.width,1.8);
- assert.deepEqual(Car.getDimensionsForTrackWidth(14),{length:5.5,width:1.8,effectiveTrackWidth:14});
+ assert.equal(trainingRear.length,5.5);assert.equal(trainingRear.width,1.9);
+ assert.deepEqual(Car.getDimensionsForTrackWidth(14),{length:5.5,width:1.9,effectiveTrackWidth:14});
  // An occupied start slot sends the respawn to the nearest free one, never onto another car.
  const slot=circuit.getGridSlot(0);
  trainingFront.isAlive=true;trainingFront.pos=slot.pos.clone();trainingFront.vel.set(0,0);trainingFront.speed=0;

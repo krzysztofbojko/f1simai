@@ -3,7 +3,7 @@ import { Car } from '../../physics/Car';
 import { ParticleSystem } from './Particles';
 
 /** Rear wheel contact points in the car frame (m): x behind the CoG, ±z to the sides. */
-const REAR_X = -1.98, REAR_Z = 0.72;
+const REAR_X = -1.98, REAR_Z = 0.77;
 const SKID_CAPACITY = 12000;
 const SKID_HALF_WIDTH = 0.18;
 /** Plank load (N) above which the skid block throws sparks. */

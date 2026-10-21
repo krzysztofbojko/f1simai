@@ -13,7 +13,7 @@
  "seasons": "1967–1980, 1982–1985, 1992–1993",
  "grandsPrix": 20,
  "grandPrix": "Grand Prix Południowej Afryki",
- "trackWidth": 14,
+ "trackWidth": 12,
  "note": "Geometria to dzisiejsza konfiguracja Kyalami (ok. 4,5 km), nie tor z lat F1 (4,261 km).",
  "source": {
   "geometry": "bacinger/f1-circuits za-1961 (MIT, https://github.com/bacinger/f1-circuits)",

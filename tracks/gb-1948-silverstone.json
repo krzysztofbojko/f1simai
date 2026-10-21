@@ -13,7 +13,7 @@
  "seasons": "1950–1954, 1956, 1958, 1960, 1963, 1965, 1967, 1969, 1971, 1973, 1975, 1977, 1979, 1981, 1983, 1985, od 1987",
  "grandsPrix": 58,
  "grandPrix": "Grand Prix Wielkiej Brytanii,Grand Prix 70-lecia",
- "trackWidth": 14,
+ "trackWidth": 15,
  "source": {
   "geometry": "bacinger/f1-circuits gb-1948 (MIT, https://github.com/bacinger/f1-circuits)",
   "data": "https://pl.wikipedia.org/wiki/Lista_torów_Formuły_1 (CC BY-SA 4.0)"

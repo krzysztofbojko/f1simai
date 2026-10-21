@@ -24,7 +24,7 @@ try {
   const speedRatio=profile=>{ const r=[]; for(let i=0;i<n;i++){ const k=Math.abs(gp.points[i].curvature); if(k>0.008) r.push(Math.sqrt(k/profile.curvature(gp,i))); } return r.reduce((a,b)=>a+b,0)/r.length; };
   assert.ok(speedRatio(wide)>1.015,`outside-apex-outside opens the corners: ${speedRatio(wide)}`);
   assert.ok(speedRatio(pinched)<0.99,`the mirrored line tightens them: ${speedRatio(pinched)}`);
-  for(let i=0;i<n;i++){ const c=wide.curvature(gp,i), a=Math.abs(gp.points[i].curvature); assert.ok(c>=a*LineProfile.MIN_RATIO-1e-12&&c<=a*LineProfile.MAX_RATIO+0.003+1e-12,'bounded'); }
+  for(let i=0;i<n;i++){ const c=wide.curvature(gp,i), a=Math.abs(gp.points[i].curvature); assert.ok(c>=a*LineProfile.MIN_RATIO-1e-12&&c<=a*LineProfile.MAX_RATIO+LineProfile.MAX_SLACK+1e-12,'bounded'); }
   const learner=new LineProfile(n); for(let lap=0;lap<30;lap++) learner.record(5,3); assert.ok(Math.abs(learner.offsets[5]-3)<0.01,'profile converges to the driven offset');
   learner.record(-1,3); learner.record(n,3); learner.record(6,NaN); assert.equal(learner.offsets[6],0,'invalid samples ignored');
  }

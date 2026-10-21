@@ -13,7 +13,7 @@
  "seasons": "1950, 1955–2019, od 2021",
  "grandsPrix": 69,
  "grandPrix": "Grand Prix Monako",
- "trackWidth": 12,
+ "trackWidth": 10,
  "source": {
   "geometry": "bacinger/f1-circuits mc-1929 (MIT, https://github.com/bacinger/f1-circuits)",
   "data": "https://pl.wikipedia.org/wiki/Lista_torów_Formuły_1 (CC BY-SA 4.0)"

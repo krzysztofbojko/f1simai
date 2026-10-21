@@ -105,6 +105,8 @@ export class Car {
   /** Fraction of the lateral force in use that drive/brake may not take from the friction circle. */
   public static readonly STABILITY_RESERVE: number = 1.1;
   public static readonly YAW_FEEDBACK: number = 0.1;
+  /** Slip demand above which the car counts as sliding rather than working the tyres at their limit. */
+  public static readonly SLIDE_SLIP: number = 0.38;
   public static readonly CORNERING_STIFFNESS: number = 22;
   /** Magic Formula (Pacejka) axle curve with a post-peak drop instead of the saturating tanh. */
   public static PACEJKA = false;
@@ -144,8 +146,18 @@ export class Car {
   public wakeDrag = 1;
   public wakeDownforce = 1;
 
-  /** Conservative planning deceleration: ~55% of low-speed tyre braking (0.9·μ·g) before downforce. */
-  public static readonly PLANNED_BRAKE_DECEL: number = 8.5;
+  /**
+   * Planner grip budget at driver pressure 0: shares of the tyre friction (with downforce) the
+   * expert plans to use in corners and under braking. Downforce is counted at the planned speed,
+   * derated for ride height and set-up losses.
+   */
+  public static PLAN_CORNER_GRIP = 0.55;
+  public static PLAN_BRAKE_GRIP = 0.40;
+  public static PLAN_AERO_SHARE = 0.90;
+  /** Corners the plan could take faster than this are treated as flat out. */
+  public static readonly PLAN_MAX_SPEED = 110;
+  /** Hairpins (radius under 20 m) are braked for at their entry rather than at the apex sample. */
+  public static readonly PLAN_HAIRPIN_CURVATURE = 0.05;
   /**
    * Pedal actuators (first-order lags, s): brake pressure builds and bleeds off, engine torque
    * follows the throttle. A demand that flickers between frames reaches the tyres as a smooth force.
@@ -165,12 +177,12 @@ export class Car {
 
   // Physical specifications (F1 Dimensions & Weights)
   public length: number = 5.5; // Physical and rendered length (m)
-  public width: number = 1.8; // Physical and rendered width (m)
+  public width: number = 1.9; // Physical and rendered width (m), 2026 regulations
 
   public static getDimensionsForTrackWidth(trackWidthMeters: number): { width: number; length: number; effectiveTrackWidth: number } {
     // The rendered body matches the collision body, including at high zoom.
     const effectiveTrackWidth = Math.max(5, Math.min(20, trackWidthMeters));
-    const width = 1.8;
+    const width = 1.9;
     const length = 5.5;
 
     return { width, length, effectiveTrackWidth };
@@ -581,9 +593,13 @@ export class Car {
   public lineSearch: LineSearch | null = null;
   /** The line this car really drives; the braking planner reads corner radii from it. Kept across resets. */
   public lineProfile: LineProfile | null = null;
+  /** Track point last blended into the line profile: one sample per pass, not per frame. */
+  private lineProfileIndex = -1;
   public pace = new PaceSearch();
   /** The car left the asphalt or touched a barrier by itself during the current lap. */
   public lapExcursion = false;
+  /** Touched another car this lap: an excursion may have been forced and says nothing about the pace. */
+  public lapContact = false;
   public lineSearchSeed = this.id % 5;
   public lineSearchByPressure = new Map<number, LineSearch>();
   /** Learned racing line (sensor-driven network); falls back to `lineSearch` when absent. */
@@ -639,6 +655,8 @@ export class Car {
   public checkpointsCleared: number = 0;
   public framesSinceLastCheckpoint: number = 0;
   public isSkidding: boolean = false;
+  /** Tyres well past their peak (or a real slide): only this cuts the throttle; working slip at the limit does not. */
+  public isSliding: boolean = false;
   public skidMarks: Vector2[] = [];
 
   // Brain & Livery
@@ -748,6 +766,7 @@ export class Car {
     this.offRoadStillTime = 0;
     this.offTrackTime = 0;
     this.lapExcursion = false;
+    this.lapContact = false;
     this.tireUtilization = 0;
     this.damage = 0;
     this.respawnTimer = 0;
@@ -771,6 +790,7 @@ export class Car {
     this.understeerSlip = 0;
     this.oversteerSlip = 0;
     this.isSkidding = false;
+    this.isSliding = false;
     this.skidMarks = [];
     this.currentLapTrajectory = [];
     this.currentLapSplits = [null, null, null, null];
@@ -857,7 +877,8 @@ export class Car {
     if (!this.lineProfile || !this.lineProfile.matches(track)) this.lineProfile = new LineProfile(track.points.length);
     const here = track.sampleSurface(this.pos);
     if (here.surface === 'asphalt' && !this.isPitting && this.recoveryTimer <= 0 && !this.incidentActive && this.speed > 15) {
-      this.lineProfile.record(here.index, here.lateral);
+      if (here.index !== this.lineProfileIndex) this.lineProfile.record(here.index, here.lateral);
+      this.lineProfileIndex = here.index;
     }
     // Project onto nearby centerline segments and aim a short physical distance
     // ahead. A whole checkpoint of lookahead cuts across narrow hairpins.
@@ -905,19 +926,29 @@ export class Car {
     let maxOverspeed = -1.0;
     let maxUpcomingCurvature = 0;
 
-    // Corner safe lateral grip uses base tire friction with margin (~1.5G usable before aero)
+    // Planned grip: friction coefficient (tyre state, pressure, learned pace) acting on weight plus downforce.
     const pressure = pressureProfile(this.yellowFlag || this.isPitting || this.recoveryTimer > 0 || this.surface !== 'asphalt'
       ? Math.min(0, this.effectiveDriverPressure) : this.effectiveDriverPressure);
     const paceMargin = this.pace.value(this.isRaceMode);
-    const safeLatGrip = this.baseTireGrip * Car.GRAVITY * pressure.cornerGrip * paceMargin * Math.min(this.tyreGripFront, this.tyreGripRear);
-    // Estimated braking for planning; physical brake forces are unchanged.
     const pushing = this.battlePush.remaining > 0;
-    const aBrake = Car.PLANNED_BRAKE_DECEL * this.brakingAggression * pressure.braking * (1 + (paceMargin - 1) * 0.5) * (pushing ? 1.08 : 1);
+    const tyreMu = this.baseTireGrip * Math.min(this.tyreGripFront, this.tyreGripRear);
+    const muCorner = tyreMu * (Car.PLAN_CORNER_GRIP + (pressure.cornerGrip - 0.45) * 0.25) * paceMargin;
+    const muBrake = tyreMu * Math.min(0.9, (Car.PLAN_BRAKE_GRIP + (pressure.braking - 1) * 0.15) * this.brakingAggression * (1 + (paceMargin - 1) * 0.5) * (pushing ? 1.08 : 1));
+    const aeroPerV2 = 0.5 * this.airDensity * this.downforceCoeff * this.wakeDownforce * (1 - 0.35 * this.damage) * Car.PLAN_AERO_SHARE / this.totalMass;
+    const dragPerV2 = 0.5 * this.airDensity * this.dragCoeff / this.totalMass;
+    // Braking from v to w (both squared) at a = muBrake·(g + aero·v²) + drag·v²: d(v²)/ds = 2(A + B·v²).
+    const brakeA = muBrake * Car.GRAVITY, brakeB = muBrake * aeroPerV2 + dragPerV2;
+    const brakingDistance = (v2: number, w2: number) => v2 <= w2 ? 0 : Math.log((v2 + brakeA / brakeB) / (w2 + brakeA / brakeB)) / (2 * brakeB);
+    const entrySpeedSq = (w2: number, d: number) => (w2 + brakeA / brakeB) * Math.exp(2 * brakeB * d) - brakeA / brakeB;
 
     let accumulatedDist = 0;
     let prevPos = this.pos;
-    // Deceleration still needed to reach the safe speed of the most demanding corner ahead.
+    // Deceleration still needed to reach the safe speed of the most demanding corner ahead,
+    // and the braking distance that takes relative to the distance left (1 = brake now).
     let requiredDecel = 0;
+    let brakingNeed = 0;
+    // Safe speed of the corner the car is in when that corner is the binding limit ahead.
+    let holdSpeed = Infinity;
 
     for (let k = 0; k <= lookaheadSteps; k++) {
       const cp = track.checkpoints[(this.currentCheckpointIdx + k) % n];
@@ -931,23 +962,27 @@ export class Car {
       }
 
       if (curK > 0.002) {
-        const cornerRadius = 1.0 / curK; // Physical corner radius in meters
-        // Conservative corner aero downforce estimated at expected corner speed rather than straightaway speed
-        const estimatedCornerSpeed = Math.sqrt(Math.max(25, cornerRadius * safeLatGrip));
-        const cornerAeroAcc = (0.5 * this.airDensity * this.downforceCoeff * this.wakeDownforce * estimatedCornerSpeed * estimatedCornerSpeed) / this.totalMass;
-        const effectiveCornerGrip = safeLatGrip + cornerAeroAcc * 0.65;
-        const safeV = Math.sqrt(Math.max(25, cornerRadius * effectiveCornerGrip)) * (pushing ? 1.04 : 1) * (this.lineDeviation > .8 ? .88 : 1);
+        // Steady-state limit v²·κ = μ(g + aero·v²); below the aero threshold the corner is flat out.
+        const room = curK - muCorner * aeroPerV2;
+        const gripV = room > 0 ? Math.min(Car.PLAN_MAX_SPEED, Math.sqrt(muCorner * Car.GRAVITY / room)) : Car.PLAN_MAX_SPEED;
+        const safeV = Math.max(5, gripV * (pushing ? 1.04 : 1) * (this.lineDeviation > .8 ? .88 : 1));
+        if (safeV >= Car.PLAN_MAX_SPEED) continue;
 
-        const maxAllowedV = Math.sqrt(safeV * safeV + 2.0 * aBrake * accumulatedDist);
+        // A hairpin sampled at its apex is entered well before it: reach the safe speed where
+        // the arc starts (about half of a hairpin's arc before the apex), while still braking straight.
+        const brakeDist = curK >= Car.PLAN_HAIRPIN_CURVATURE ? Math.max(0, accumulatedDist - Math.min(15, 1.2 / curK)) : accumulatedDist;
+        const maxAllowedV = Math.sqrt(entrySpeedSq(safeV * safeV, brakeDist));
 
-        // Signed margin to the braking envelope: negative below it, so the input (and the expert)
-        // see the braking point coming instead of a jump from -1 to 0 when the car reaches it.
         const overspeed = (this.speed - maxAllowedV) / Math.max(8.0, safeV * 0.35);
-        if (overspeed > maxOverspeed) maxOverspeed = overspeed;
+        if (overspeed > maxOverspeed) {
+          maxOverspeed = overspeed;
+          holdSpeed = accumulatedDist < Math.max(25, this.speed * 0.5) ? safeV : Infinity;
+        }
         if (this.speed > safeV) {
           // Over at least 0.4 s of travel: inside the corner a small overspeed must not read as a stop.
-          const horizon = Math.max(2, accumulatedDist, this.speed * 0.4);
+          const horizon = Math.max(2, brakeDist, this.speed * 0.4);
           requiredDecel = Math.max(requiredDecel, (this.speed * this.speed - safeV * safeV) / (2 * horizon));
+          brakingNeed = Math.max(brakingNeed, brakingDistance(this.speed * this.speed, safeV * safeV) / horizon);
         }
       }
     }
@@ -1004,8 +1039,6 @@ export class Car {
     let throttle: number;
     let brake: number;
 
-    // 1 at the planned braking point (the deceleration needed equals the planned one).
-    const brakingNeed = requiredDecel / aBrake;
     if (brakingNeed > Car.BRAKE_ONSET) {
       // Braking zone: one progressive application. The pedal asks for the deceleration still needed,
       // converted with the tyre grip (with downforce) and drag at this speed, so it eases off by
@@ -1016,6 +1049,12 @@ export class Car {
       const dragDecel = 0.5 * this.airDensity * this.dragCoeff * v2 / this.totalMass;
       const onset = Math.min(1, (brakingNeed - Car.BRAKE_ONSET) / (1 - Car.BRAKE_ONSET));
       brake = Math.min(1, Math.max(0, requiredDecel * onset - dragDecel) / Math.max(1, tyreDecel));
+    } else if (overspeedDelta > -pressure.coastMargin && holdSpeed < Infinity) {
+      // Inside the corner that limits the speed: hold it with partial throttle (drag compensation
+      // plus a proportional term) instead of coasting down and re-accelerating through the arc.
+      brake = 0.0;
+      const dragPower = 0.5 * this.airDensity * this.dragCoeff * this.speed * this.speed * this.speed;
+      throttle = Math.max(0, Math.min(0.7, dragPower / Car.ICE_POWER + 0.12 * (holdSpeed * 0.98 - this.speed)));
     } else if (overspeedDelta > -pressure.coastMargin) {
       // Transition / lift & coast zone: cut throttle, prevent violent bang-bang throttle spikes
       throttle = 0.0;
@@ -1052,7 +1091,7 @@ export class Car {
     }
 
     // 4. Traction & Stability Control:
-    if (this.isSkidding) {
+    if (this.isSliding) {
       throttle = Math.min(throttle, 0.20);
     }
     const currentCp = track.checkpoints[this.currentCheckpointIdx % n];
@@ -1118,7 +1157,7 @@ export class Car {
     } else if (plan.minCenterClearance < Car.CLEAR_CAP && throttle > 0.3) {
       throttle = 0.3; intervened = true;
     }
-    if (this.isSkidding) throttle = Math.min(throttle, 0.55);
+    if (this.isSliding) throttle = Math.min(throttle, 0.55);
     const control: CarControl = { steer, throttle, brake };
     this.currentControl = control;
 
@@ -1505,7 +1544,9 @@ export class Car {
       this.tyreWearFront = this.tyreWearRear = 0;
     }
     this.tireUtilization = Math.min(1, Math.hypot(frontFx + rearFx, lateralForce) / Math.max(1, frontLimit + rearLimit));
-    this.isSkidding = slipRatio > 0.01 || (Math.abs(lateralSpeed) > 4.5 && speedMag > 18);
+    const drifting = Math.abs(lateralSpeed) > 4.5 && speedMag > 18;
+    this.isSkidding = slipRatio > 0.01 || drifting;
+    this.isSliding = slipRatio > Car.SLIDE_SLIP || drifting;
     this.understeerSlip = frontSlip >= rearSlip ? slipRatio : 0;
     this.oversteerSlip = this.understeerSlip > 0 ? 0 : slipRatio;
 
@@ -1702,7 +1743,7 @@ export class Car {
 
   private footprint(halfLength: number): Vector2[] {
     const forward = Vector2.fromAngle(this.heading), side = forward.normal();
-    return [-1, 1].flatMap(front => [-1, 1].map(left => this.pos.add(forward.mul(front * halfLength)).add(side.mul(left * 0.9))));
+    return [-1, 1].flatMap(front => [-1, 1].map(left => this.pos.add(forward.mul(front * halfLength)).add(side.mul(left * this.width / 2))));
   }
 
   private readonly wheelPoints = [new Vector2(), new Vector2(), new Vector2(), new Vector2()];
@@ -1715,7 +1756,7 @@ export class Car {
       const fx = Math.cos(this.heading), fy = Math.sin(this.heading), half = this.wheelbase / 2;
       let k = 0;
       for (let front = -1; front <= 1; front += 2) for (let left = -1; left <= 1; left += 2) {
-        const wheel = this.wheelPoints[k++], along = front * half, across = left * 0.9;
+        const wheel = this.wheelPoints[k++], along = front * half, across = left * this.width / 2;
         wheel.x = this.pos.x + fx * along + -fy * across;
         wheel.y = this.pos.y + fy * along + fx * across;
         fractions[track.sampleSurface(wheel).surface] += 0.25;
@@ -1943,8 +1984,9 @@ export class Car {
           const lapTimeBonus = Math.round(150000 / Math.max(10, finishedLapTime));
           if (!this.lapCompromised) this.fitness += 30000 + lapTimeBonus;
           const compromised = this.lapCompromised || this.pressureLearningBlocked;
-          if (!this.isManual) this.pace.finishLap(finishedLapTime, !compromised, this.lapExcursion);
+          if (!this.isManual) this.pace.finishLap(finishedLapTime, !compromised, this.lapExcursion && !this.lapContact);
           this.lapExcursion = false;
+          this.lapContact = false;
           if (!compromised && (!this.bestLapTime || finishedLapTime < this.bestLapTime)) {
             this.bestLapTime = finishedLapTime;
             this.bestLapPressure = this.driverPressure;

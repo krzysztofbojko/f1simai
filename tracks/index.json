@@ -8,7 +8,7 @@
    "direction": "clockwise",
    "lengthMeters": 5278,
    "generatedLengthMeters": 5278,
-   "trackWidth": 14,
+   "trackWidth": 13,
    "circuitType": "uliczny",
    "grandsPrix": 27
   },
@@ -20,7 +20,7 @@
    "direction": "counterclockwise",
    "lengthMeters": 4909,
    "generatedLengthMeters": 4909,
-   "trackWidth": 14,
+   "trackWidth": 12,
    "circuitType": "stały",
    "grandsPrix": 30
   },
@@ -32,7 +32,7 @@
    "direction": "clockwise",
    "lengthMeters": 5793,
    "generatedLengthMeters": 5793,
-   "trackWidth": 14,
+   "trackWidth": 13,
    "circuitType": "stały",
    "grandsPrix": 73
   },
@@ -44,7 +44,7 @@
    "direction": "clockwise",
    "lengthMeters": 4360,
    "generatedLengthMeters": 4361,
-   "trackWidth": 14,
+   "trackWidth": 12,
    "circuitType": "stały",
    "grandsPrix": 13
   },
@@ -56,7 +56,7 @@
    "direction": "clockwise",
    "lengthMeters": 4304,
    "generatedLengthMeters": 4304,
-   "trackWidth": 14,
+   "trackWidth": 13,
    "circuitType": "stały",
    "grandsPrix": 23
   },
@@ -68,7 +68,7 @@
    "direction": "clockwise",
    "lengthMeters": 4653,
    "generatedLengthMeters": 4653,
-   "trackWidth": 14,
+   "trackWidth": 13,
    "circuitType": "stały",
    "grandsPrix": 2
   },
@@ -80,7 +80,7 @@
    "direction": "counterclockwise",
    "lengthMeters": 5031,
    "generatedLengthMeters": 5031,
-   "trackWidth": 14,
+   "trackWidth": 12,
    "circuitType": "stały",
    "grandsPrix": 10
   },
@@ -92,7 +92,7 @@
    "direction": "counterclockwise",
    "lengthMeters": 4309,
    "generatedLengthMeters": 4309,
-   "trackWidth": 14,
+   "trackWidth": 13,
    "circuitType": "stały",
    "grandsPrix": 40
   },
@@ -104,7 +104,7 @@
    "direction": "clockwise",
    "lengthMeters": 4259,
    "generatedLengthMeters": 4259,
-   "trackWidth": 14,
+   "trackWidth": 12,
    "circuitType": "mieszany",
    "grandsPrix": 20
   },
@@ -116,7 +116,7 @@
    "direction": "clockwise",
    "lengthMeters": 5412,
    "generatedLengthMeters": 5413,
-   "trackWidth": 14,
+   "trackWidth": 15,
    "circuitType": "stały",
    "grandsPrix": 21
   },
@@ -140,7 +140,7 @@
    "direction": "clockwise",
    "lengthMeters": 4657,
    "generatedLengthMeters": 4652,
-   "trackWidth": 14,
+   "trackWidth": 13,
    "circuitType": "stały",
    "grandsPrix": 33
   },
@@ -152,7 +152,7 @@
    "direction": "clockwise",
    "lengthMeters": 3337,
    "generatedLengthMeters": 3336,
-   "trackWidth": 12,
+   "trackWidth": 10,
    "circuitType": "uliczny",
    "grandsPrix": 69
   },
@@ -164,7 +164,7 @@
    "direction": "clockwise",
    "lengthMeters": 4411,
    "generatedLengthMeters": 4410,
-   "trackWidth": 14,
+   "trackWidth": 13,
    "circuitType": "stały",
    "grandsPrix": 18
   },
@@ -176,7 +176,7 @@
    "direction": "clockwise",
    "lengthMeters": 7004,
    "generatedLengthMeters": 7004,
-   "trackWidth": 14,
+   "trackWidth": 12,
    "circuitType": "mieszany",
    "grandsPrix": 56
   },
@@ -188,7 +188,7 @@
    "direction": "clockwise",
    "lengthMeters": 4361,
    "generatedLengthMeters": 4362,
-   "trackWidth": 14,
+   "trackWidth": 11,
    "circuitType": "mieszany",
    "grandsPrix": 42
   },
@@ -200,7 +200,7 @@
    "direction": "counterclockwise",
    "lengthMeters": 5513,
    "generatedLengthMeters": 5514,
-   "trackWidth": 14,
+   "trackWidth": 15,
    "circuitType": "stały",
    "grandsPrix": 11
   },
@@ -212,7 +212,7 @@
    "direction": "clockwise",
    "lengthMeters": 4259,
    "generatedLengthMeters": 4259,
-   "trackWidth": 14,
+   "trackWidth": 11,
    "circuitType": "stały",
    "grandsPrix": 33
   },
@@ -224,7 +224,7 @@
    "direction": "clockwise",
    "lengthMeters": 5842,
    "generatedLengthMeters": 5841,
-   "trackWidth": 14,
+   "trackWidth": 13,
    "circuitType": "stały",
    "grandsPrix": 18
   },
@@ -236,7 +236,7 @@
    "direction": "clockwise",
    "lengthMeters": 4574,
    "generatedLengthMeters": 4574,
-   "trackWidth": 14,
+   "trackWidth": 13,
    "circuitType": "stały",
    "grandsPrix": 37
   },
@@ -248,7 +248,7 @@
    "direction": "clockwise",
    "lengthMeters": 4381,
    "generatedLengthMeters": 4381,
-   "trackWidth": 14,
+   "trackWidth": 12,
    "circuitType": "stały",
    "grandsPrix": 38
   },
@@ -260,7 +260,7 @@
    "direction": "clockwise",
    "lengthMeters": 4192,
    "generatedLengthMeters": 4192,
-   "trackWidth": 14,
+   "trackWidth": 15,
    "circuitType": "stały",
    "grandsPrix": 19
   },
@@ -272,7 +272,7 @@
    "direction": "counterclockwise",
    "lengthMeters": 5338,
    "generatedLengthMeters": 5338,
-   "trackWidth": 14,
+   "trackWidth": 15,
    "circuitType": "stały",
    "grandsPrix": 9
   },
@@ -284,7 +284,7 @@
    "direction": "counterclockwise",
    "lengthMeters": 6174,
    "generatedLengthMeters": 6178,
-   "trackWidth": 14,
+   "trackWidth": 12,
    "circuitType": "uliczny",
    "grandsPrix": 4
   },
@@ -296,7 +296,7 @@
    "direction": "counterclockwise",
    "lengthMeters": 4261,
    "generatedLengthMeters": 4521,
-   "trackWidth": 14,
+   "trackWidth": 12,
    "circuitType": "stały",
    "grandsPrix": 20
   },
@@ -308,7 +308,7 @@
    "direction": "counterclockwise",
    "lengthMeters": 6201,
    "generatedLengthMeters": 6202,
-   "trackWidth": 14,
+   "trackWidth": 15,
    "circuitType": "uliczny",
    "grandsPrix": 1
   },
@@ -320,7 +320,7 @@
    "direction": "clockwise",
    "lengthMeters": 5419,
    "generatedLengthMeters": 5419,
-   "trackWidth": 14,
+   "trackWidth": 12,
    "circuitType": "uliczny",
    "grandsPrix": 2
   },
@@ -332,7 +332,7 @@
    "direction": "counterclockwise",
    "lengthMeters": 5063,
    "generatedLengthMeters": 4940,
-   "trackWidth": 14,
+   "trackWidth": 11,
    "circuitType": "uliczny",
    "grandsPrix": 14
   },
@@ -344,7 +344,7 @@
    "direction": "counterclockwise",
    "lengthMeters": 5410,
    "generatedLengthMeters": 5410,
-   "trackWidth": 14,
+   "trackWidth": 13,
    "circuitType": "uliczny",
    "grandsPrix": 2
   },
@@ -356,7 +356,7 @@
    "direction": "clockwise",
    "lengthMeters": 5245,
    "generatedLengthMeters": 5245,
-   "trackWidth": 14,
+   "trackWidth": 13,
    "circuitType": "stały",
    "grandsPrix": 1
   },
@@ -368,7 +368,7 @@
    "direction": "clockwise",
    "lengthMeters": 5148,
    "generatedLengthMeters": 5149,
-   "trackWidth": 14,
+   "trackWidth": 13,
    "circuitType": "mieszany",
    "grandsPrix": 41
   },
@@ -380,7 +380,7 @@
    "direction": "clockwise",
    "lengthMeters": 4318,
    "generatedLengthMeters": 4318,
-   "trackWidth": 14,
+   "trackWidth": 13,
    "circuitType": "stały",
    "grandsPrix": 37
   },
@@ -392,7 +392,7 @@
    "direction": "clockwise",
    "lengthMeters": 5543,
    "generatedLengthMeters": 5543,
-   "trackWidth": 14,
+   "trackWidth": 16,
    "circuitType": "stały",
    "grandsPrix": 19
   },
@@ -404,7 +404,7 @@
    "direction": "clockwise",
    "lengthMeters": 5451,
    "generatedLengthMeters": 5451,
-   "trackWidth": 14,
+   "trackWidth": 15,
    "circuitType": "stały",
    "grandsPrix": 16
   },
@@ -416,7 +416,7 @@
    "direction": "clockwise",
    "lengthMeters": 5891,
    "generatedLengthMeters": 5891,
-   "trackWidth": 14,
+   "trackWidth": 15,
    "circuitType": "stały",
    "grandsPrix": 58
   },
@@ -440,7 +440,7 @@
    "direction": "clockwise",
    "lengthMeters": 5435,
    "generatedLengthMeters": 5437,
-   "trackWidth": 14,
+   "trackWidth": 11,
    "circuitType": "mieszany",
    "grandsPrix": 20
   },
@@ -452,7 +452,7 @@
    "direction": "counterclockwise",
    "lengthMeters": 5281,
    "generatedLengthMeters": 5273,
-   "trackWidth": 14,
+   "trackWidth": 15,
    "circuitType": "stały",
    "grandsPrix": 15
   }

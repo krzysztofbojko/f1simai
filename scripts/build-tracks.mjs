@@ -15,7 +15,25 @@ const SPACING = 25;           // m between control points (the spline drops poin
 const SPACING_FALLBACK = [24, 23, 22, 21, 20, 26, 27, 28, 29, 30];
 /** Tightest centre-line radius allowed (m): the car turns no tighter than about 8.5 m at full lock. */
 const MIN_RADIUS = 9.5;
-const WIDTHS = [14, 12, 10, 8]; // m, widest that the track validation accepts
+/**
+ * Typical asphalt width of each circuit (m, averaged over the lap; approximate public figures).
+ * A track loads at its real width; where the simulator's validation rejects it (the asphalt of
+ * neighbouring sections would overlap), the next narrower whole metre is tried, down to 8 m.
+ */
+const REAL_WIDTH = {
+  'ae-2009': 15, 'ar-1952': 12, 'at-1969': 13, 'au-1953': 13, 'az-2016': 12, 'be-1925': 12,
+  'bh-2002': 15, 'br-1940': 13, 'br-1977': 12, 'ca-1978': 11, 'cn-2004': 15, 'de-1927': 13,
+  'de-1932': 13, 'es-1991': 13, 'fr-1960': 13, 'fr-1969': 13, 'gb-1948': 15, 'hu-1986': 12,
+  'it-1914': 13, 'it-1922': 13, 'it-1953': 12, 'jp-1962': 12, 'mc-1929': 10, 'mx-1962': 13,
+  'my-1999': 16, 'nl-1948': 11, 'pt-1972': 12, 'pt-2008': 13, 'qa-2004': 12, 'ru-2014': 14,
+  'sa-2021': 12, 'sg-2008': 11, 'tr-2005': 15, 'us-1909': 15, 'us-1956': 11, 'us-2012': 15,
+  'us-2022': 13, 'us-2023': 15, 'za-1961': 12,
+};
+const MIN_WIDTH = 8;
+const widthsFor = id => {
+  const real = REAL_WIDTH[id] ?? 14;
+  return Array.from({ length: Math.max(1, real - MIN_WIDTH + 1) }, (_, i) => real - i);
+};
 const LENGTH_TOLERANCE = 0.05;
 const SCALE_TOLERANCE = 0.002; // generated centre line within 0.2 % of the target length
 const EARTH_RADIUS = 6371008.8;
@@ -172,7 +190,7 @@ try {
         const minX = Math.min(...scaled.map(q => q.x)), minY = Math.min(...scaled.map(q => q.y));
         const raw = scaled.map(q => ({ x: Math.round((q.x - minX + 100) * 10) / 10, y: Math.round((q.y - minY + 100) * 10) / 10 }));
         let lastError = '';
-        for (const width of WIDTHS) {
+        for (const width of widthsFor(p.id)) {
           try {
             const effective = Car.getDimensionsForTrackWidth(width).effectiveTrackWidth;
             const spline = Spline.generateClosedTrack(raw.map(q => new Vector2(q.x, q.y)), effective, 18, true);
@@ -244,7 +262,7 @@ try {
 Pliki \`F1_AI_TRACK\` do wczytania w symulatorze: przycisk **Wczytaj tor** albo przeciągnięcie pliku na widok toru.
 Współrzędne są w metrach, pierwszy punkt leży na linii start/meta, a kolejność punktów to kierunek jazdy
 (pole \`direction\`; symulator jej nie odwraca). Pliki generuje \`npm run build:tracks\` (\`scripts/build-tracks.mjs\`),
-który sprawdza każdy tor tą samą walidacją co symulator; \`trackWidth\` to najszersza szerokość z 14/12/10/8 m, jaką tor przechodzi.
+który sprawdza każdy tor tą samą walidacją co symulator; \`trackWidth\` to typowa rzeczywista szerokość asfaltu (przybliżona), a gdy walidacja jej nie przyjmuje, najbliższa węższa (co 1 m, min. 8 m).
 
 | Plik | Tor | Kraj | Długość (plik / lista) | Kierunek | Szerokość |
 |---|---|---|---|---|---|

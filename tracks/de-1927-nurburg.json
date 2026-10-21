@@ -13,7 +13,7 @@
  "seasons": "1951–1954, 1956–1958, 1961–1969, 1971–1976, 1984–1985, 1995–2007, 2009, 2011, 2013, 2020",
  "grandsPrix": 41,
  "grandPrix": "Grand Prix Niemiec,Grand Prix Europy,Grand Prix Luksemburga,Grand Prix Eifelu",
- "trackWidth": 14,
+ "trackWidth": 13,
  "source": {
   "geometry": "bacinger/f1-circuits de-1927 (MIT, https://github.com/bacinger/f1-circuits)",
   "data": "https://pl.wikipedia.org/wiki/Lista_torów_Formuły_1 (CC BY-SA 4.0)"

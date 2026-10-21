@@ -8,7 +8,8 @@ const CAPACITY = 48;
 /** The model is built for this length (m) and scaled to `car.length`. */
 const MODEL_LENGTH = 5.5;
 const WHEEL_RADIUS = 0.36, WHEEL_WIDTH = 0.36;
-const WHEELS: [number, number, boolean][] = [[1.62, -0.72, true], [1.62, 0.72, true], [-1.98, -0.72, false], [-1.98, 0.72, false]];
+/** Wheel centres (m); the outer tyre walls give the 1.9 m body width. */
+const WHEELS: [number, number, boolean][] = [[1.62, -0.77, true], [1.62, 0.77, true], [-1.98, -0.77, false], [-1.98, 0.77, false]];
 /** Body pivot height for pitch and roll (near the CoG). */
 const PIVOT = 0.32;
 /**
@@ -70,7 +71,7 @@ function carbonGeometry(): THREE.BufferGeometry {
     parts.push(box(0.62, 0.58, 0.03, -2.48, 0.7, side * 0.48));
     parts.push(box(0.08, 0.06, 0.14, 0.7, 0.72, side * 0.42), box(0.02, 0.08, 0.02, 0.7, 0.66, side * 0.38));
     for (const [x, inner] of [[1.62, 0.28], [-1.98, 0.22]]) {
-      const len = 0.62 - inner, mid = side * (inner + len / 2);
+      const len = 0.67 - inner, mid = side * (inner + len / 2);
       parts.push(box(0.06, 0.03, len, x, 0.44, mid), box(0.06, 0.03, len, x, 0.27, mid));
     }
   }

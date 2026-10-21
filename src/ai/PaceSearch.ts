@@ -4,7 +4,8 @@
  */
 export class PaceSearch {
   static readonly MIN = 0.9;
-  static readonly MAX = 1.5;
+  /** The planner already budgets most of the grip including downforce: probing only trims it. */
+  static readonly MAX = 1.15;
   margin = 1;
   bestMargin = 1;
   ceiling = PaceSearch.MAX;
@@ -27,7 +28,7 @@ export class PaceSearch {
   /** Margin used for planning: the proven one when racing, the probing one while training. */
   value(racing: boolean): number { return racing ? this.bestMargin : this.margin; }
 
-  /** Called after every completed lap. `excursion` = the car left the asphalt or hit something by itself. */
+  /** Called after every completed lap. `excursion` = the car left the asphalt or hit something by itself (not after contact with another car). */
   finishLap(time: number, clean: boolean, excursion: boolean): void {
     if (excursion) { this.fail(); return; }
     if (!clean || !Number.isFinite(time) || time <= 0) return;

@@ -66,7 +66,7 @@ export function computeWake(cars: Car[], track?: Track): void {
   }
 }
 
-// Continuous separating-axis test for oriented 5.5 × 1.8 m physical bodies.
+// Continuous separating-axis test for oriented 5.5 × 1.9 m physical bodies.
 // Angular substeps bound rotational motion; translation is swept analytically.
 function contact(a: Car, b: Car, ma: Motion, mb: Motion): { time: number; normal: Vector2 } | null {
   const da = a.pos.sub(ma.pos), db = b.pos.sub(mb.pos);
@@ -80,7 +80,7 @@ function contact(a: Car, b: Car, ma: Motion, mb: Motion): { time: number; normal
     let enter = start, leave = end, normal = offset.normalize(), smallest = Infinity;
     let valid = true;
     for (const axis of [fa, ra, fb, rb]) {
-      const radius = 2.75 * (Math.abs(fa.dot(axis)) + Math.abs(fb.dot(axis))) + .9 * (Math.abs(ra.dot(axis)) + Math.abs(rb.dot(axis)))
+      const radius = 2.75 * (Math.abs(fa.dot(axis)) + Math.abs(fb.dot(axis))) + a.width / 2 * Math.abs(ra.dot(axis)) + b.width / 2 * Math.abs(rb.dot(axis))
         + 2.9 * (Math.abs(turnA) + Math.abs(turnB)) / (2 * steps);
       const d = offset.dot(axis), v = delta.dot(axis);
       const penetration = radius - Math.abs(d + v * start);
@@ -102,11 +102,11 @@ function contact(a: Car, b: Car, ma: Motion, mb: Motion): { time: number; normal
 /** Contact friction between two bodies (carbon on carbon / tyre on bodywork). */
 const CONTACT_FRICTION = 0.3;
 
-/** Corner (or face centre) of a 5.5 × 1.8 m body furthest along `dir`. */
+/** Corner (or face centre) of a 5.5 × 1.9 m body furthest along `dir`. */
 function support(car: Car, dir: Vector2): Vector2 {
   const f = Vector2.fromAngle(car.heading), r = f.normal();
   const side = (d: number) => Math.abs(d) < 0.05 ? 0 : Math.sign(d);
-  return car.pos.add(f.mul(2.75 * side(f.dot(dir)))).add(r.mul(0.9 * side(r.dot(dir))));
+  return car.pos.add(f.mul(2.75 * side(f.dot(dir)))).add(r.mul(car.width / 2 * side(r.dot(dir))));
 }
 
 /**
@@ -161,7 +161,7 @@ export function resolveTraffic(cars: Car[], motion: Map<Car, Motion>, onlyCar?: 
     b.heading = mb.heading + (b.heading - mb.heading) * hit.time;
     // Separate initial overlaps as well as newly touching bodies.
     const fa = Vector2.fromAngle(a.heading), fb = Vector2.fromAngle(b.heading);
-    const radius = 2.75 * (Math.abs(fa.dot(hit.normal)) + Math.abs(fb.dot(hit.normal))) + .9 * (Math.abs(fa.normal().dot(hit.normal)) + Math.abs(fb.normal().dot(hit.normal)));
+    const radius = 2.75 * (Math.abs(fa.dot(hit.normal)) + Math.abs(fb.dot(hit.normal))) + a.width / 2 * Math.abs(fa.normal().dot(hit.normal)) + b.width / 2 * Math.abs(fb.normal().dot(hit.normal));
     const overlap = Math.max(.02, radius - b.pos.sub(a.pos).dot(hit.normal) + .02);
     const ia = a.isAlive || a.speed > 0.5 ? 1 / a.totalMass : 0, ib = b.isAlive || b.speed > 0.5 ? 1 / b.totalMass : 0, inv = ia + ib;
     a.pos.subMut(hit.normal.mul(overlap * ia / inv));
@@ -169,6 +169,7 @@ export function resolveTraffic(cars: Car[], motion: Map<Car, Motion>, onlyCar?: 
     if (closing > 0) applyContactImpulse(a, b, hit.normal, ia, ib);
     for (const car of [a, b]) {
       car.lapCompromised = true;
+      car.lapContact = true;
       car.recoveryTimer = 2;
       car.incidentActive = false;
       car.replayBuffer = [];

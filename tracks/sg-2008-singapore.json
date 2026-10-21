@@ -13,7 +13,7 @@
  "seasons": "2008–2019, od 2022",
  "grandsPrix": 14,
  "grandPrix": "Grand Prix Singapuru",
- "trackWidth": 14,
+ "trackWidth": 11,
  "note": "Geometria to konfiguracja od 2023 r. (4,94 km); długość z listy dotyczy wcześniejszej wersji.",
  "source": {
   "geometry": "bacinger/f1-circuits sg-2008 (MIT, https://github.com/bacinger/f1-circuits)",

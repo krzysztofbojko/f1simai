@@ -13,7 +13,7 @@
  "seasons": "1950–1979, od 1981",
  "grandsPrix": 73,
  "grandPrix": "Grand Prix Włoch",
- "trackWidth": 14,
+ "trackWidth": 13,
  "source": {
   "geometry": "bacinger/f1-circuits it-1922 (MIT, https://github.com/bacinger/f1-circuits)",
   "data": "https://pl.wikipedia.org/wiki/Lista_torów_Formuły_1 (CC BY-SA 4.0)"
