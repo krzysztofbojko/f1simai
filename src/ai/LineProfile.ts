@@ -17,7 +17,7 @@ function menger(a: Vector2, b: Vector2, c: Vector2): number {
 export class LineProfile {
   /** Blend per pass over a point (one sample per lap): the profile averages the last few laps. */
   static readonly RATE = 0.3;
-  /** Corner radius may grow to 1 / (0.7 κ) on a wide line; the planner never assumes more. */
+  /** Corner radius may grow to 1 / (0.7 κ) on a wide line, or to the racing line's radius when that is wider. */
   static readonly MIN_RATIO = 0.7;
   /** A wobbly line may tighten a corner by a share of its curvature, plus a small absolute slack for straights. */
   static readonly MAX_RATIO = 1.15;
@@ -25,10 +25,22 @@ export class LineProfile {
   readonly offsets: Float32Array;
   /** Curvature per point; NaN marks an entry whose neighbourhood changed since it was computed. */
   private readonly cache: Float32Array;
+  /** Curvature of the precomputed racing line: a car on that line may plan for its wider arcs. */
+  private floor: Float32Array | null = null;
 
   constructor(pointCount: number) {
     this.offsets = new Float32Array(pointCount);
     this.cache = new Float32Array(pointCount).fill(NaN);
+  }
+
+  /** A profile that starts on the racing line `offsets` and may open the corners as far as that line does. */
+  static fromLine(track: Track, offsets: ArrayLike<number>): LineProfile {
+    const profile = new LineProfile(track.points.length);
+    profile.offsets.set(offsets);
+    const floor = new Float32Array(track.points.length);
+    for (let i = 0; i < floor.length; i++) floor[i] = profile.effective(track, i);
+    profile.floor = floor;
+    return profile;
   }
 
   matches(track: Track): boolean { return this.offsets.length === track.points.length; }
@@ -63,6 +75,12 @@ export class LineProfile {
   private compute(track: Track, index: number): number {
     const n = track.points.length;
     const centre = Math.abs(track.points[((index % n) + n) % n].curvature);
+    const lower = Math.min(centre * LineProfile.MIN_RATIO, this.floor?.[((index % n) + n) % n] ?? Infinity);
+    return Math.max(lower, Math.min(centre * LineProfile.MAX_RATIO + LineProfile.MAX_SLACK, this.effective(track, index)));
+  }
+
+  private effective(track: Track, index: number): number {
+    const n = track.points.length;
     let delta = 0;
     // Smooth over three neighbouring arcs; the difference to the centreline arc removes discretisation bias.
     for (let d = -1; d <= 1; d++) {
@@ -71,8 +89,6 @@ export class LineProfile {
       const axis = menger(track.points[((i - 1) % n + n) % n].center, track.points[((i % n) + n) % n].center, track.points[((i + 1) % n + n) % n].center);
       delta += weight * (line - axis);
     }
-    const signed = track.points[((index % n) + n) % n].curvature;
-    const effective = Math.abs(signed + delta);
-    return Math.max(centre * LineProfile.MIN_RATIO, Math.min(centre * LineProfile.MAX_RATIO + LineProfile.MAX_SLACK, effective));
+    return Math.abs(track.points[((index % n) + n) % n].curvature + delta);
   }
 }

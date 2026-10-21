@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { Car, TrajectoryPoint } from '../../physics/Car';
 import { Track } from '../../track/Track';
+import type { RacingLine } from '../../track/RacingLine';
 import { Vector2 } from '../../math/Vector2';
 import { TrackMesh } from './TrackMesh';
 import { CarFleet, CarView } from './CarFleet';
@@ -19,6 +20,8 @@ export interface FrameState {
   leader: Car | null;
   selected: Car | null;
   racingLine: TrajectoryPoint[] | null;
+  /** The precomputed line the drivers aim for (see RacingLine). */
+  plannedLine: RacingLine | null;
   drawMode: boolean;
   /** Simulation not advancing (paused, finished session): wheels stop and no new smoke or marks. */
   frozen: boolean;
@@ -156,6 +159,7 @@ export class SceneRenderer {
     this.effects.setProjection(rig.spriteScale(this.renderer.getPixelRatio()), rig.isPerspective);
 
     this.overlays.setRacingLine(this.showRacingLine && !f.drawMode ? f.racingLine : null);
+    this.overlays.setPlannedLine(this.showRacingLine && !f.drawMode ? f.track : null, f.plannedLine);
     const sensorCar = this.showSensors && !f.drawMode ? (f.selected ?? f.leader) : null;
     this.overlays.setSensors(sensorCar && sensorCar.isAlive ? sensorCar : null);
     const badge = this.overlays.setDrawing(f.drawMode && f.drawing ? f.drawing.points : null, f.drawing?.mouse ?? null, f.drawing?.anchor ?? null);

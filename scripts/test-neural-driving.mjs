@@ -20,7 +20,7 @@ try {
   const { captureMotion, resolveTraffic } = await load('traffic');
   const { PaceSearch } = await load('pace');
   const { LineSearch } = await load('lines');
-  const { LineNet, lineInputs, seedLineTarget } = await load('linenet');
+  const { LineNet, lineInputs } = await load('linenet');
   let state = 99;
   Math.random = () => { state = (Math.imul(state, 1664525) + 1013904223) >>> 0; return state / 4294967296; };
   const gp = Presets.createGrandPrixTrack(14);
@@ -213,7 +213,7 @@ try {
   assert.equal(lapWith(lineNet, () => 3.8), false);
   assert.equal(lapWith(lineNet, () => 3.8), true, 'faster network candidate becomes champion');
   assert.notEqual(lineNet.best, champion);
-  assert.ok(lineNet.bestTime < 62, 'champion time follows the candidate mean: ' + lineNet.bestTime);
+  assert.ok(lineNet.bestTime < S * 3.9, 'champion time follows the candidate mean: ' + lineNet.bestTime);
   // A team-mate's faster line is evaluated next and adopted only if it is faster for this car too.
   const mate = new LineNet(new NeuralNetwork([25 + 7, 6, 1]));
   mate.bestTrim.fill(1.5);
@@ -231,14 +231,14 @@ try {
   const resetMoved = [...reset.mutated];
   for (let p = 0; p < points / 2; p++) reset.passPoint(p, points, p);
   reset.resetTiming();
-  assert.equal(reset.finish(80, true), false);
+  assert.equal(reset.finish(S * 5, true), false);
   reset.resetTiming();
-  assert.equal(reset.finish(80, true), false, 'slower whole laps reject the move');
+  assert.equal(reset.finish(S * 5, true), false, 'slower whole laps reject the move');
   assert.ok(resetMoved.every(k => reset.bestTrim[k] === 0));
   // Sections are bounded and interpolated; racing uses the champion.
   const racingTarget = lineNet.target(gp, { pos: gp.startPosition, heading: gp.startAngle, speed: 50, rayDistances: new Array(25).fill(1) }, true);
-  assert.ok(Number.isFinite(racingTarget) && Math.abs(racingTarget) <= gp.width / 2 - 2.3 + LineNet.MAX_TRIM);
-  assert.ok(Math.abs(seedLineTarget(gp, 40)) <= 0.95 && lineInputs(gp, { pos: gp.startPosition, heading: gp.startAngle, speed: 20, rayDistances: new Array(25).fill(1) }).length === 32);
+  assert.ok(Number.isFinite(racingTarget) && Math.abs(racingTarget) <= LineNet.MAX_DELTA + LineNet.MAX_TRIM);
+  assert.ok(lineInputs(gp, { pos: gp.startPosition, heading: gp.startAngle, speed: 20, rayDistances: new Array(25).fill(1) }).length === 32);
   // Pace margin and learned line survive a save/restore round trip (browser autosave).
   const savedPace = new PaceSearch(); [60, 59].forEach(t => savedPace.finishLap(t, true, false)); savedPace.fail();
   const restoredPace = new PaceSearch(); restoredPace.fromJSON(JSON.parse(JSON.stringify(savedPace.toJSON())));
@@ -249,9 +249,9 @@ try {
   const probeIn = new Array(32).fill(0.3);
   assert.equal(restoredLine.best.forward(probeIn)[0], savedLine.best.forward(probeIn)[0]);
   assert.equal(restoredLine.bestTime, savedLine.bestTime);
-  savedLine.bestTrim[3] = -2; const trimmed = new LineNet(new NeuralNetwork([32, 6, 1]));
+  savedLine.bestTrim[3] = -1.25; const trimmed = new LineNet(new NeuralNetwork([32, 6, 1]));
   assert.ok(trimmed.fromJSON(JSON.parse(JSON.stringify(savedLine.toJSON()))));
-  assert.equal(trimmed.bestTrim[3], -2, 'section trims survive save/restore');
+  assert.equal(trimmed.bestTrim[3], -1.25, 'section trims survive save/restore');
   assert.ok(new LineNet(new NeuralNetwork([32, 6, 1])).fromJSON({ ...savedLine.toJSON(), bestTrim: undefined }), 'older saves without trims still load');
   assert.equal(new LineNet(new NeuralNetwork([20, 6, 1])).fromJSON(savedLine.toJSON()), false, 'different sensor layout is ignored');
   // Track limits: only an excursion with all four wheels off the asphalt counts, once per exit.

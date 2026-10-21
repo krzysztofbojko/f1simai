@@ -4,6 +4,7 @@ import { Vector2 } from './math/Vector2';
 import { Spline } from './math/Spline';
 import { Track } from './track/Track';
 import { Presets } from './track/Presets';
+import { getRacingLine } from './track/RacingLine';
 import { Population, LapLeaderboardEntry } from './ai/Population';
 import { Car, CarControl, driverInputCount, clampStressShare, DEFAULT_STRESS_LAP_SHARE } from './physics/Car';
 import { SceneRenderer } from './rendering/three/SceneRenderer';
@@ -1986,6 +1987,7 @@ class App {
       leader: this.population.currentLeader,
       selected: this.selectedCar,
       racingLine: this.population.bestRacingLine,
+      plannedLine: this.isDrawMode ? null : getRacingLine(this.track),
       drawMode: this.isDrawMode,
       frozen: this.isPaused || this.latestRaceState === 'FINISHED' || this.latestRaceState === 'QUALI_FINISHED',
       drawing: this.isDrawMode ? { points: this.rawDrawnPoints, mouse: this.mousePos, anchor: this.straightAnchor } : null,

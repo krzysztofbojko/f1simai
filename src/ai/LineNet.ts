@@ -36,19 +36,14 @@ export function lineInputs(track: Track, car: LineSensors, sample: SurfaceSample
   ];
 }
 
-/** Outside before the bend, deep to the inside at the apex, outside again on exit: uses the whole road. */
-export function seedLineTarget(track: Track, index: number): number {
-  const shape = 1.6 * signedCurvature(track, index, 0) - 0.9 * signedCurvature(track, index, 30) - 0.6 * signedCurvature(track, index, -25);
-  return Math.max(-0.95, Math.min(0.95, shape * 0.9));
-}
-
 type Mode = 'champion' | 'trim' | 'network';
 
 /**
- * Racing-line network plus a per-section trim. The network output is the desired lateral position
- * as a fraction of the usable road width; each of the SECTIONS parts of the lap adds its own
- * shift in metres (earlier/later apex, wider entry...). Both start from a distilled seed line and
- * improve by (1+1) evolution with lap timing as the only judge:
+ * The driver's own take on the racing line: a network plus a per-section trim, both a bounded shift
+ * (metres) away from the track's precomputed minimum-curvature line (see RacingLine). The network
+ * output is a fraction of MAX_DELTA; each of the SECTIONS parts of the lap adds its own shift
+ * (earlier/later apex, wider entry...). Both start on the line itself and improve by (1+1)
+ * evolution with lap timing as the only judge:
  * - trim candidates move one or two sections for two laps; a move is kept when the sections it
  *   shapes plus the following one (the exit) got faster, so every corner is optimised on its own clock;
  * - network laps evaluate a mutated network over two laps and keep it when the mean beats the champion;
@@ -56,8 +51,9 @@ type Mode = 'champion' | 'trim' | 'network';
  * - a team-mate's better line can be proposed and is then evaluated like a network candidate.
  */
 export class LineNet {
-  static readonly SECTIONS = 16;
-  static readonly MAX_TRIM = 3;
+  static readonly SECTIONS = 32;
+  static readonly MAX_DELTA = 1.5;
+  static readonly MAX_TRIM = 1.5;
   static readonly CANDIDATE_LAPS = 2;
   /** A section move must win this much (s) over its three sections, averaged over the candidate laps. */
   static readonly TRIM_GAIN = 0.04;
@@ -136,11 +132,11 @@ export class LineNet {
     return trim[section] * (1 - blend) + trim[(section + 1) % s] * blend;
   }
 
-  /** Desired lateral position in metres. */
+  /** Desired shift from the racing line in metres (positive toward the track normal). */
   target(track: Track, car: LineSensors, racing: boolean): number {
     const sample = track.sampleSurface(car.pos);
     const out = (racing ? this.best : this.current).forward(lineInputs(track, car, sample))[0] ?? 0;
-    return out * Math.max(0, track.width / 2 - 2.3) + this.trimAt(track, sample.index, racing ? this.bestTrim : this.currentTrim);
+    return out * LineNet.MAX_DELTA + this.trimAt(track, sample.index, racing ? this.bestTrim : this.currentTrim);
   }
 
   /** The car was reset (respawn, grid): the lap in progress has no comparable section times. */

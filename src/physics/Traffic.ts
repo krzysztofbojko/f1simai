@@ -1,4 +1,4 @@
-import { gap as trackGap } from '../ai/RaceTraffic';
+import { gap as trackGap, laneChangePerMetre } from '../ai/RaceTraffic';
 import { Track } from '../track/Track';
 import { Car, type CarControl } from './Car';
 import { Vector2 } from '../math/Vector2';
@@ -19,7 +19,18 @@ export function avoidTraffic(car: Car, cars: Car[], control: CarControl, track?:
   for (const other of cars) {
     if (other === car || other.wreckRemoved || other.isPitting || other.isFinishedRace) continue;
     const offset = other.pos.sub(car.pos), ahead = track ? trackGap(track, car.pos, other.pos) : offset.dot(forward);
-    const lateral = track && road ? track.sampleSurface(other.pos).lateral - road.lateral : offset.cross(forward);
+    let lateral = offset.cross(forward);
+    if (track && road && ahead > 0) {
+      // In the corridor where the car is now, or where it will be when it gets there: its line (and
+      // planned shift) at the other car, reached by a lane change spread over distance, so a line
+      // converging on a car ahead counts too.
+      const there = track.sampleSurface(other.pos), line = car.racingLine(track);
+      const planned = line.offsetAt(there.index, there.fraction) + car.raceLineOffset - car.raceLineBaseline;
+      const spread = Math.max(10, Math.abs(planned - road.lateral) / laneChangePerMetre(car.speed));
+      const now = there.lateral - road.lateral;
+      const then = there.lateral - (road.lateral + (planned - road.lateral) * Math.min(1, ahead / spread));
+      lateral = Math.abs(now) < Math.abs(then) ? now : then;
+    }
     if (ahead <= 0 || Math.abs(lateral) > (car.yellowFlag && other.isAlive ? 16 : 2.2)) continue;
     const closing = Math.max(0, track ? car.speed - (other.isAlive ? other.speed : 0) : car.vel.sub(other.vel).dot(forward));
     const gap = ahead - 5.5;

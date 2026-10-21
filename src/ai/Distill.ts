@@ -2,7 +2,7 @@ import { Car, driverInputCount, encodeDriverTargets } from '../physics/Car';
 import { Presets } from '../track/Presets';
 import { Track } from '../track/Track';
 import { NeuralNetwork, type TopologySpecifier } from './NeuralNetwork';
-import { LINE_EXTRA_INPUTS, lineInputs, seedLineTarget } from './LineNet';
+import { LINE_EXTRA_INPUTS, lineInputs } from './LineNet';
 
 interface Sample { inputs: number[]; targets: number[] }
 
@@ -42,7 +42,9 @@ export function collectExpertSamples(track: Track, rayCount: number, seconds: nu
   car.updateDimensionsForTrackWidth(track.width);
   const dt = 1 / 60;
   let disturbance = 0, disturbanceLeft = 0, nextCheck = 0, offsetTarget = 0, nextOffset = 0;
-  const offsetLimit = Math.max(0, track.width / 2 - 2);
+  // The teacher also drives off the racing line (as in traffic), so the network sees those states.
+  const offsetLimit = Math.min(2.5, Math.max(0, track.width / 2 - 2));
+  const line = car.racingLine(track);
   const respawn = () => {
     const slot = Math.floor(random() * n);
     const cp = track.checkpoints[slot];
@@ -63,11 +65,15 @@ export function collectExpertSamples(track: Track, rayCount: number, seconds: nu
       nextOffset = step + 120 + Math.floor(random() * 360);
       offsetTarget = random() < .3 ? 0 : (random() * 2 - 1) * offsetLimit;
     }
-    car.raceLineOffset += Math.max(-1.8 * dt, Math.min(1.8 * dt, offsetTarget - car.raceLineOffset));
-    car.lineDeviation = Math.abs(car.raceLineOffset);
+    const here = track.sampleSurface(car.pos), shift = car.raceLineOffset - car.raceLineBaseline;
+    const lane = 0.06 * Math.max(5, car.speed) * dt;
+    car.raceLineBaseline = line.offsetAt(here.index, here.fraction);
+    car.raceLineOffset = car.raceLineBaseline + shift + Math.max(-lane, Math.min(lane, offsetTarget - shift));
+    car.lineDeviation = Math.abs(car.raceLineOffset - car.raceLineBaseline);
     car.updateSensors(track);
     const plan = car.planDrive(track);
-    if (lineSamples && step % 6 === 0) lineSamples.push({ inputs: lineInputs(track, car), targets: [seedLineTarget(track, track.sampleSurface(car.pos).index)] });
+    // The line network starts on the racing line: no shift anywhere until evolution finds a faster one.
+    if (lineSamples && step % 6 === 0) lineSamples.push({ inputs: lineInputs(track, car), targets: [0] });
     if (step % 3 === 0) {
       samples.push({ inputs: plan.inputs, targets: [...encodeDriverTargets([plan.idealSteer, plan.expert.throttle, plan.expert.brake])] });
     }

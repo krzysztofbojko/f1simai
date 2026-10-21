@@ -8,6 +8,7 @@ import { Vector2, IntersectionResult, segmentsIntersect } from '../math/Vector2'
 import { BattlePush } from '../ai/BattlePush';
 import { DriverMistakes } from '../ai/DriverMistakes';
 import { Track, type SurfaceType } from '../track/Track';
+import { getRacingLine, RacingLine } from '../track/RacingLine';
 
 export const DEFAULT_STRESS_LAP_SHARE = 0.25;
 /** Stress-lap share from a setting: 0..0.6, anything invalid falls back to the default. */
@@ -154,6 +155,16 @@ export class Car {
   public static PLAN_CORNER_GRIP = 0.55;
   public static PLAN_BRAKE_GRIP = 0.40;
   public static PLAN_AERO_SHARE = 0.90;
+  /**
+   * Live push: while the tyres have grip to spare (low utilisation, no slide, cool enough, room to
+   * the outside edge) the corner the car is in may be taken up to this share faster than planned.
+   */
+  public static PLAN_PUSH_MAX = 0.12;
+  public static readonly PUSH_UTILISATION_FREE = 0.55;
+  public static readonly PUSH_UTILISATION_FULL = 0.85;
+  public static PUSH_TYRE_MAX_TEMP = 125;
+  public static readonly PUSH_EDGE_ROOM = 2;
+  public static readonly PUSH_RISE_TIME = 0.6;
   /** Corners the plan could take faster than this are treated as flat out. */
   public static readonly PLAN_MAX_SPEED = 110;
   /** Hairpins (radius under 20 m) are braked for at their entry rather than at the apex sample. */
@@ -552,6 +563,10 @@ export class Car {
   public static readonly CLEAR_LIFT = 0.12;   // above: lift to 20%; below: emergency, guarded
   public static readonly CLEAR_COACH = 0.25;  // leader-speed coaching only with this much room
   public static readonly CLEAR_CAP = 0.2;     // guardian caps network throttle at 30% below this
+  /** Lateral acceleration (g) the network may add to or take from the expert's steering. */
+  public static readonly BRAIN_STEER_G = 2;
+  /** Lateral room (m) beyond the car's half width in which a side ray's hit still blocks the path ahead. */
+  public static readonly CORRIDOR_MARGIN = 0.15;
   public rayAngles: number[] = [];
   public rayDistances: number[] = [];
   public rayHits: IntersectionResult[] = [];
@@ -580,6 +595,11 @@ export class Car {
 
   public surface: SurfaceType = 'asphalt';
   public surfaceFractions = { asphalt: 1, grass: 0, gravel: 0 };
+  /**
+   * Track limits as raced: the wheels of one side may run over the kerb beyond the white line
+   * (the grass then costs them grip); the whole car off, or any wheel in the gravel, is an excursion.
+   */
+  get withinTrackLimits(): boolean { return this.surfaceFractions.asphalt >= 0.5 && this.surfaceFractions.gravel === 0; }
   public eliminationReason: 'barrier' | 'car' | 'fuel' | 'stuck' | 'wrong-way' | null = null;
   public barrierImpactSpeed = 0;
   public incidentActive = false;
@@ -587,9 +607,20 @@ export class Car {
   public lapCompromised = false;
   public battlePush = new BattlePush();
   public battleOpponent = '';
+  /** Planned lateral position (m from the centreline) at the car; see `raceLineBaseline`. */
   public raceLineOffset = 0;
+  /**
+   * The racing line (plus the learned style) at the car when `raceLineOffset` was planned. Their
+   * difference is the deliberate move off the line (overtaking, defending, tow); steering applies it
+   * to the line further ahead, so the car follows the line's shape instead of a fixed lane.
+   */
+  public raceLineBaseline = 0;
+  /** Set by a reset (grid, respawn): the next lateral plan starts from where the car stands. */
+  public raceLineFresh = true;
   /** Distance (m) from the learned racing line while overtaking/avoiding; the line itself costs no speed. */
   public lineDeviation = 0;
+  /** Driver taste for late apexes, see RacingLine.STYLES. */
+  public apexStyle: number = RacingLine.STYLES[this.id % RacingLine.STYLES.length];
   public lineSearch: LineSearch | null = null;
   /** The line this car really drives; the braking planner reads corner radii from it. Kept across resets. */
   public lineProfile: LineProfile | null = null;
@@ -600,6 +631,9 @@ export class Car {
   public lapExcursion = false;
   /** Touched another car this lap: an excursion may have been forced and says nothing about the pace. */
   public lapContact = false;
+  /** Smoothed spare grip in the current corner (0..1), see PLAN_PUSH_MAX. */
+  public cornerPush = 0;
+  private lastStepDt = 1 / 60;
   public lineSearchSeed = this.id % 5;
   public lineSearchByPressure = new Map<number, LineSearch>();
   /** Learned racing line (sensor-driven network); falls back to `lineSearch` when absent. */
@@ -758,6 +792,8 @@ export class Car {
     this.battlePush.reset();
     this.battleOpponent = '';
     this.raceLineOffset = 0;
+    this.raceLineBaseline = 0;
+    this.raceLineFresh = true;
     this.overtakingTargetName = '';
     this.yellowFlag = false;
     this.trafficWaiting = false;
@@ -767,6 +803,7 @@ export class Car {
     this.offTrackTime = 0;
     this.lapExcursion = false;
     this.lapContact = false;
+    this.cornerPush = 0;
     this.tireUtilization = 0;
     this.damage = 0;
     this.respawnTimer = 0;
@@ -867,6 +904,9 @@ export class Car {
    * the teacher used to pre-train networks and the guardian that takes over in
    * emergencies; ordinary driving is decided by the neural network.
    */
+  /** This driver's racing line on `track` (shared by every car with the same apex style). */
+  racingLine(track: Track): RacingLine { return getRacingLine(track, this.apexStyle); }
+
   planDrive(track: Track, leaderSpeeds?: number[]): DrivePlan {
     // AI pit strategy: request pit stop if fuel reserve is low
     if ((this.fuelKg < 12.0 || (this.tyresActive && Math.max(this.tyreWearFront, this.tyreWearRear) > 0.7)) && !this.isPitting) {
@@ -874,7 +914,8 @@ export class Car {
     }
 
     const n = track.checkpoints.length;
-    if (!this.lineProfile || !this.lineProfile.matches(track)) this.lineProfile = new LineProfile(track.points.length);
+    const racingLine = this.racingLine(track);
+    if (!this.lineProfile || !this.lineProfile.matches(track)) this.lineProfile = LineProfile.fromLine(track, racingLine.offsets);
     const here = track.sampleSurface(this.pos);
     if (here.surface === 'asphalt' && !this.isPitting && this.recoveryTimer <= 0 && !this.incidentActive && this.speed > 15) {
       if (here.index !== this.lineProfileIndex) this.lineProfile.record(here.index, here.lateral);
@@ -910,9 +951,11 @@ export class Car {
       segmentFraction = 0;
       targetPosition = end;
     }
-    if (this.raceLineOffset !== 0) {
-      const road = track.sampleSurface(targetPosition);
-      targetPosition = targetPosition.add(road.tangent.normal().mul(this.raceLineOffset));
+    {
+      // The racing line where the car will be, shifted by the deliberate move off it.
+      const road = track.sampleSurface(targetPosition), bounds = racingLine.limits(road.index);
+      const lateral = racingLine.offsetAt(road.index, road.fraction) + this.raceLineOffset - this.raceLineBaseline;
+      targetPosition = targetPosition.add(road.tangent.normal().mul(Math.max(bounds.lower, Math.min(bounds.upper, lateral))));
     }
     const toTarget = targetPosition.sub(this.pos).normalize();
     const headingVec = Vector2.fromAngle(this.heading);
@@ -927,7 +970,7 @@ export class Car {
     let maxUpcomingCurvature = 0;
 
     // Planned grip: friction coefficient (tyre state, pressure, learned pace) acting on weight plus downforce.
-    const pressure = pressureProfile(this.yellowFlag || this.isPitting || this.recoveryTimer > 0 || this.surface !== 'asphalt'
+    const pressure = pressureProfile(this.yellowFlag || this.isPitting || this.recoveryTimer > 0 || !this.withinTrackLimits
       ? Math.min(0, this.effectiveDriverPressure) : this.effectiveDriverPressure);
     const paceMargin = this.pace.value(this.isRaceMode);
     const pushing = this.battlePush.remaining > 0;
@@ -941,6 +984,16 @@ export class Car {
     const brakingDistance = (v2: number, w2: number) => v2 <= w2 ? 0 : Math.log((v2 + brakeA / brakeB) / (w2 + brakeA / brakeB)) / (2 * brakeB);
     const entrySpeedSq = (w2: number, d: number) => (w2 + brakeA / brakeB) * Math.exp(2 * brakeB * d) - brakeA / brakeB;
 
+    // Spare grip felt right now: rises slowly while every condition holds, drops at once otherwise.
+    const turnSign = Math.sign(track.points[here.index]?.curvature ?? 0);
+    const outsideRoom = track.width / 2 + turnSign * here.lateral - this.width / 2;
+    const free = (Car.PUSH_UTILISATION_FULL - this.tireUtilization) / (Car.PUSH_UTILISATION_FULL - Car.PUSH_UTILISATION_FREE);
+    const canPush = !this.isSliding && here.surface === 'asphalt' && !this.yellowFlag && !this.isPitting && this.recoveryTimer <= 0
+      && Math.max(this.tyreTempFront, this.tyreTempRear) < Car.PUSH_TYRE_MAX_TEMP && outsideRoom > Car.PUSH_EDGE_ROOM;
+    const pushTarget = canPush ? Math.max(0, Math.min(1, free)) : 0;
+    this.cornerPush = pushTarget < this.cornerPush ? pushTarget
+      : this.cornerPush + (pushTarget - this.cornerPush) * Math.min(1, this.lastStepDt / Car.PUSH_RISE_TIME);
+
     let accumulatedDist = 0;
     let prevPos = this.pos;
     // Deceleration still needed to reach the safe speed of the most demanding corner ahead,
@@ -952,8 +1005,10 @@ export class Car {
 
     for (let k = 0; k <= lookaheadSteps; k++) {
       const cp = track.checkpoints[(this.currentCheckpointIdx + k) % n];
-      accumulatedDist += prevPos.dist(cp.center);
-      prevPos = cp.center;
+      // Distances along the racing line: shorter on the inside, longer around the outside.
+      const linePoint = racingLine.point(cp.index);
+      accumulatedDist += prevPos.dist(linePoint);
+      prevPos = linePoint;
 
       // Radius of the line actually driven through this point, not of the centreline.
       const curK = this.lineProfile.curvature(track, cp.index);
@@ -965,7 +1020,10 @@ export class Car {
         // Steady-state limit v²·κ = μ(g + aero·v²); below the aero threshold the corner is flat out.
         const room = curK - muCorner * aeroPerV2;
         const gripV = room > 0 ? Math.min(Car.PLAN_MAX_SPEED, Math.sqrt(muCorner * Car.GRAVITY / room)) : Car.PLAN_MAX_SPEED;
-        const safeV = Math.max(5, gripV * (pushing ? 1.04 : 1) * (this.lineDeviation > .8 ? .88 : 1));
+        // Only the corner under the car is pushed: corners ahead are still braked for as planned.
+        const underCar = accumulatedDist < Math.max(25, this.speed * 0.5);
+        const push = underCar ? 1 + Car.PLAN_PUSH_MAX * this.cornerPush : 1;
+        const safeV = Math.max(5, gripV * push * (pushing ? 1.04 : 1) * (this.lineDeviation > .8 ? .88 : 1));
         if (safeV >= Car.PLAN_MAX_SPEED) continue;
 
         // A hairpin sampled at its apex is entered well before it: reach the safe speed where
@@ -1029,10 +1087,16 @@ export class Car {
     const idealSteer = Math.max(-gripSteer, Math.min(gripSteer, pursuitAngle / this.maxSteerAngle + wallRepulsion * 0.1 + yawFeedback));
     let steer = idealSteer;
 
-    // Check forward clearance using central LiDAR rays
+    // Check forward clearance using central LiDAR rays. A neighbouring ray that meets the white line
+    // beside the car's path (the racing line runs close to it) is no wall ahead: it only counts
+    // when its hit lies inside the corridor the car sweeps going straight on.
     const forwardDistNorm = this.rayDistances[midRay] ?? 1.0;
-    const leftForwardNorm = this.rayDistances[Math.max(0, midRay - 1)] ?? 1.0;
-    const rightForwardNorm = this.rayDistances[Math.min(this.rayDistances.length - 1, midRay + 1)] ?? 1.0;
+    const inCorridor = (i: number) => {
+      const d = this.rayDistances[i] ?? 1.0;
+      return d * Car.RAY_MAX_DIST * Math.abs(Math.sin(this.rayAngles[i] ?? 0)) <= this.width / 2 + Car.CORRIDOR_MARGIN ? d : 1.0;
+    };
+    const leftForwardNorm = inCorridor(Math.max(0, midRay - 1));
+    const rightForwardNorm = inCorridor(Math.min(this.rayDistances.length - 1, midRay + 1));
     const minCenterClearance = Math.min(forwardDistNorm, leftForwardNorm, rightForwardNorm) * (Car.CLEARANCE_REF_WIDTH / Math.max(5, track.width));
 
     // 3. F1 Racing Throttle & Braking Policy:
@@ -1135,8 +1199,9 @@ export class Car {
     let { steer, throttle, brake } = driven;
     let intervened = false;
 
-    // Steering stays within a corridor around a geometrically valid path.
-    const steerLimit = 0.3;
+    // Steering stays within a corridor around a geometrically valid path. The corridor is a lateral
+    // acceleration: wide at low speed, a few degrees at most on a straight at 300 km/h.
+    const steerLimit = Math.min(0.3, Math.atan(Car.BRAIN_STEER_G * Car.GRAVITY * this.wheelbase / Math.max(1, this.speed * this.speed)) / this.maxSteerAngle);
     const clampedSteer = Math.max(plan.idealSteer - steerLimit, Math.min(plan.idealSteer + steerLimit, steer));
     if (clampedSteer !== steer) { steer = clampedSteer; intervened = true; }
     // Pedals are mutually exclusive as on a drive-by-wire car.
@@ -1216,6 +1281,7 @@ export class Car {
    * signed telemetry and a finite kinematic steering response.
    */
   updatePhysics(control: CarControl, dt: number, track: Track): LapFinishEvent | null {
+    this.lastStepDt = dt;
     if (!this.isAlive) {
       this.effectiveThrottle = 0;
       this.lateralG = 0;
@@ -1257,7 +1323,7 @@ export class Car {
     actuated.steer = control.steer; actuated.throttle = this.throttleResponse; actuated.brake = this.brakePressure;
     control = actuated;
     this.updateSurface(track);
-    if (this.surfaceFractions.asphalt < 1) {
+    if (!this.withinTrackLimits) {
       this.lapCompromised = true;
       this.lapExcursion = true;
       this.recoveryTimer = 2;
@@ -1621,7 +1687,7 @@ export class Car {
     if (fullyOff && !this.fullyOffTrack) this.trackLimitExits++;
     this.fullyOffTrack = fullyOff;
     this.offTrackTime = this.surface !== 'asphalt' ? this.offTrackTime + dt : 0;
-    if (this.surfaceFractions.asphalt < 1) { this.lapCompromised = true; this.lapExcursion = true; this.recoveryTimer = 2; }
+    if (!this.withinTrackLimits) { this.lapCompromised = true; this.lapExcursion = true; this.recoveryTimer = 2; }
     this.speed = this.vel.mag();
     this.speedKmh = this.speed * 3.6;
     this.maxSpeedInLap = Math.max(this.maxSpeedInLap, this.speed);
@@ -1648,7 +1714,7 @@ export class Car {
       const effectiveSpeed = isHighCurvature ? Math.max(directionalSpeed, approachSpeed) : directionalSpeed;
 
       // Positive directional progress along track
-      if (this.surface === 'asphalt' && effectiveSpeed > 0 && effectiveAlignment > 0) {
+      if (this.withinTrackLimits && effectiveSpeed > 0 && effectiveAlignment > 0) {
         const alignBonus = Math.max(0.15, effectiveAlignment);
         this.fitness += effectiveSpeed * alignBonus * 0.15 * dt;
       } else if (effectiveSpeed < 0 && !isHighCurvature) {
@@ -1686,8 +1752,8 @@ export class Car {
       }
     }
 
-    // Leaving the asphalt is never rewarded: it costs fitness for as long as any wheel is outside.
-    if (this.surfaceFractions.asphalt < 1) {
+    // Leaving the track is never rewarded: it costs fitness for as long as the car is beyond the limits.
+    if (!this.withinTrackLimits) {
       this.fitness = Math.max(0, this.fitness - (80 + this.speed * 5) * (1 - this.surfaceFractions.asphalt * 0.5) * dt);
     }
 
@@ -1873,17 +1939,20 @@ export class Car {
       crossedGate = segmentsIntersect(this.prevPos, this.pos, nextCp.p1, nextCp.p2);
     }
 
-    const isNearCp = clearedCpIdx !== 0 && distToCp < Math.min(3, track.width * 0.2) && this.surface === 'asphalt';
+    const isNearCp = clearedCpIdx !== 0 && distToCp < Math.min(3, track.width * 0.2) && this.withinTrackLimits;
     // (1) Checkpoint zaliczaj tylko przy ruchu zgodnym z tangentem toru
     const isMovingForwardAlongTrack = this.vel.dot(nextCp.tangent) > 0.5;
 
     // A car that rejoins the asphalt beyond gates it passed off the road resumes at the gate ahead.
     // The skipped gates earn nothing and spoil the lap; without this the car could never clear
     // them and would be retired as stuck while driving, leaving a wreck on the racing line.
-    if (this.framesSinceLastCheckpoint > 30 && this.surface === 'asphalt' && isMovingForwardAlongTrack && !crossedGate && !isNearCp) {
+    if (this.framesSinceLastCheckpoint > 30 && this.withinTrackLimits && isMovingForwardAlongTrack && !crossedGate && !isNearCp) {
       const missed = (track.sampleSurface(this.pos).index - clearedCpIdx + cpCount) % cpCount + 1;
+      // On the inside of a hairpin the nearest centreline segment is already the next one before
+      // the car reaches the gate: one gate counts as missed only once the car is beyond its line.
+      const beyondGate = missed > 1 || this.pos.sub(nextCp.center).dot(nextCp.tangent) > 0;
       // Never past the start/finish gate (index 0), which counts the lap.
-      if (missed <= Car.MAX_REJOIN_SKIPPED_GATES && clearedCpIdx !== 0 && clearedCpIdx + missed <= cpCount) {
+      if (beyondGate && missed <= Car.MAX_REJOIN_SKIPPED_GATES && clearedCpIdx !== 0 && clearedCpIdx + missed <= cpCount) {
         this.currentCheckpointIdx = (clearedCpIdx + missed) % cpCount;
         this.framesSinceLastCheckpoint = 0;
         this.lapCompromised = true;
@@ -1892,7 +1961,7 @@ export class Car {
       }
     }
 
-    if (this.surface === 'asphalt' && isMovingForwardAlongTrack && (crossedGate || isNearCp)) {
+    if (this.withinTrackLimits && isMovingForwardAlongTrack && (crossedGate || isNearCp)) {
       this.checkpointsCleared++;
 
       const forwardDir = Vector2.fromAngle(this.heading);
@@ -1900,7 +1969,7 @@ export class Car {
       const isClean = !this.isSkidding && trackAlignment > 0.45 && Math.abs(this.angularVelocity) < 2.0;
 
       // Base checkpoint reward; a gate taken with a wheel off the asphalt earns nothing and costs fitness
-      const onAsphalt = this.surfaceFractions.asphalt >= 1;
+      const onAsphalt = this.withinTrackLimits;
       if (onAsphalt) this.fitness += 1200;
       else this.fitness = Math.max(0, this.fitness - 600);
 
@@ -1913,12 +1982,11 @@ export class Car {
         this.fitness = Math.max(0, this.fitness - 200);
       }
 
-      // Point 2: Apex Clipping and Exit Speed Rewards
+      // Point 2: Racing-line and exit speed rewards
       if (Math.abs(nextCp.curvature) > 0.003) {
-        const innerCurb = nextCp.curvature > 0 ? nextCp.p1 : nextCp.p2;
-        const distToInner = this.pos.dist(innerCurb);
-        if (distToInner < track.width * 0.35 && isClean && onAsphalt) {
-          // Apex clipped cleanly!
+        // On the racing line through the corner: wide on entry, at the kerb on the apex, wide on exit.
+        const offLine = Math.abs(track.sampleSurface(this.pos).lateral - this.racingLine(track).offsetAt(nextCp.index));
+        if (offLine < 1.2 && isClean && onAsphalt) {
           this.fitness += 800;
         }
       } else if (clearedCpIdx > 0) {

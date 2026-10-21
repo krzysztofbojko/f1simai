@@ -2,6 +2,8 @@ import * as THREE from 'three';
 import { Car, TrajectoryPoint } from '../../physics/Car';
 import { Vector2 } from '../../math/Vector2';
 import { DynamicRibbon, Point2 } from './Geometry';
+import type { RacingLine } from '../../track/RacingLine';
+import type { Track } from '../../track/Track';
 
 const LINE_HEIGHT = 0.03;
 const MAX_RAYS = 64;
@@ -16,9 +18,13 @@ function overlay(m: THREE.Material, layer = 6): THREE.Material {
   return m;
 }
 
+/** Catmull-Rom subdivisions per track point of the planned line (the points are ~18 m apart). */
+const PLANNED_STEPS = 3;
+
 /**
- * Analysis overlays drawn on the asphalt: the optimal racing line coloured by brake/throttle,
- * the selected car's sensor rays, and the track being drawn in the editor.
+ * Analysis overlays drawn on the asphalt: the planned racing line coloured by the speed it allows,
+ * the fastest driven lap coloured by brake/throttle, the selected car's sensor rays, and the track
+ * being drawn in the editor.
  */
 export class Overlays {
   readonly group = new THREE.Group();
@@ -27,6 +33,10 @@ export class Overlays {
   private readonly apexes: THREE.InstancedMesh;
   private readonly lineGroup = new THREE.Group();
   private lastLine: TrajectoryPoint[] | null = null;
+  private readonly plannedCore = new DynamicRibbon(1024);
+  private readonly plannedGroup = new THREE.Group();
+  private lastPlanned: RacingLine | null = null;
+  private reference: Car | null = null;
 
   private readonly rays: THREE.LineSegments;
   private readonly hits: THREE.Points;
@@ -41,7 +51,7 @@ export class Overlays {
   private readonly drawStart: THREE.Mesh;
   private readonly drawSnap: THREE.Mesh;
 
-  private readonly colors = { brake: new THREE.Color('#FF3333'), throttle: new THREE.Color('#00E676'), neutral: new THREE.Color('#00D2BE') };
+  private readonly colors = { brake: new THREE.Color('#FF3333'), throttle: new THREE.Color('#00E676'), neutral: new THREE.Color('#00D2BE'), slow: new THREE.Color('#FF6A3D'), fast: new THREE.Color('#4FC3F7') };
   private readonly m = new THREE.Matrix4();
 
   constructor() {
@@ -54,6 +64,8 @@ export class Overlays {
     this.apexes.frustumCulled = false;
     this.lineGroup.add(this.apexes);
     for (const o of this.lineGroup.children) o.frustumCulled = false;
+    this.plannedGroup.add(new THREE.Mesh(this.plannedCore.geometry, overlay(new THREE.MeshBasicMaterial({ vertexColors: true, opacity: 0.8 }), 5)));
+    for (const o of this.plannedGroup.children) o.frustumCulled = false;
 
     const rayGeo = new THREE.BufferGeometry();
     rayGeo.setAttribute('position', new THREE.BufferAttribute(this.rayPos, 3).setUsage(THREE.DynamicDrawUsage));
@@ -75,7 +87,31 @@ export class Overlays {
     this.drawGroup.add(this.drawStart, this.drawSnap);
     for (const o of this.drawGroup.children) o.frustumCulled = false;
 
-    this.group.add(this.lineGroup, this.rays, this.hits, this.drawGroup);
+    this.group.add(this.plannedGroup, this.lineGroup, this.rays, this.hits, this.drawGroup);
+  }
+
+  /** The precomputed racing line the drivers aim for, from orange (slow) to blue (fast) by the speed it allows. */
+  setPlannedLine(track: Track | null, line: RacingLine | null): void {
+    this.plannedGroup.visible = !!track && !!line;
+    if (!track || !line || line === this.lastPlanned) return;
+    this.lastPlanned = line;
+    // A nominal car on fresh tyres, planned the way the AI plans its corners.
+    const car = this.reference ??= new Car(new Vector2(), 0);
+    const speeds = line.speedProfile(car.baseTireGrip * Car.PLAN_CORNER_GRIP,
+      0.5 * car.airDensity * car.downforceCoeff * Car.PLAN_AERO_SHARE / car.totalMass, car.baseTireGrip * Car.PLAN_BRAKE_GRIP);
+    const n = track.points.length, low = Math.min(...speeds), high = Math.max(...speeds);
+    const points: Point2[] = [], shade: THREE.Color[] = [];
+    for (let i = 0; i < n; i++) {
+      const p0 = line.point(i - 1), p1 = line.point(i), p2 = line.point(i + 1), p3 = line.point(i + 2);
+      for (let s = 0; s < PLANNED_STEPS; s++) {
+        const t = s / PLANNED_STEPS, t2 = t * t, t3 = t2 * t;
+        const at = (a: number, b: number, c: number, d: number) => 0.5 * (2 * b + (c - a) * t + (2 * a - 5 * b + 4 * c - d) * t2 + (3 * b - a - 3 * c + d) * t3);
+        points.push({ x: at(p0.x, p1.x, p2.x, p3.x), y: at(p0.y, p1.y, p2.y, p3.y) });
+        const v = speeds[i] * (1 - t) + speeds[(i + 1) % n] * t;
+        shade.push(this.colors.slow.clone().lerp(this.colors.fast, high > low ? (v - low) / (high - low) : 1));
+      }
+    }
+    this.plannedCore.set(points, 0.45, LINE_HEIGHT - 0.004, true, i => shade[i % shade.length]);
   }
 
   setRacingLine(line: TrajectoryPoint[] | null): void {
