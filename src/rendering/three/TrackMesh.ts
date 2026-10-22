@@ -47,23 +47,24 @@ export class TrackMesh {
 
   constructor() {
     const asphalt = Textures.asphalt();
-    asphalt.map.repeat.set(1 / 14, 1 / 14);
+    // Repeats are metres per tile, sized for the generated images in public/textures.
+    asphalt.map.repeat.set(1 / 8, 1 / 8);
     asphalt.roughnessMap.repeat.copy(asphalt.map.repeat);
     this.asphalt = decal(new THREE.MeshStandardMaterial({ map: asphalt.map, roughnessMap: asphalt.roughnessMap, roughness: 1, metalness: 0 }), 2);
 
     const grass = Textures.grass();
-    grass.repeat.set(1 / 6, 1 / 6);
+    grass.repeat.set(1 / 6, 1 / 3); // the image is 2:1
     this.grass = decal(new THREE.MeshStandardMaterial({ map: grass, roughness: 0.95 }), 1);
-    const ground = grass.clone();
-    ground.repeat.set(1 / 9, 1 / 9);
-    this.ground = new THREE.MeshStandardMaterial({ map: ground, color: 0x9aa892, roughness: 1, polygonOffset: true, polygonOffsetFactor: 2, polygonOffsetUnits: 8 });
+    const ground = Textures.ground();
+    ground.repeat.set(1 / 24, 1 / 24);
+    this.ground = new THREE.MeshStandardMaterial({ map: ground, roughness: 1, polygonOffset: true, polygonOffsetFactor: 2, polygonOffsetUnits: 8 });
 
     const gravel = Textures.gravel();
-    gravel.repeat.set(1 / 5, 1 / 5);
+    gravel.repeat.set(1 / 4, 1 / 4);
     this.gravel = new THREE.MeshStandardMaterial({ map: gravel, roughness: 1, side: THREE.DoubleSide });
 
     const kerb = Textures.kerb();
-    kerb.repeat.set(1 / 2, 1);
+    kerb.repeat.set(1 / 4, 1); // two red/white pairs of 1 m blocks
     this.kerb = decal(new THREE.MeshStandardMaterial({ map: kerb, roughness: 0.55 }), 4);
     this.paint = decal(new THREE.MeshStandardMaterial({ color: 0xf2f2f2, roughness: 0.6 }), 3);
 

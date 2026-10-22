@@ -37,8 +37,8 @@ const SHADOW_MAP = 2048;
 
 /**
  * The 3D view of the circuit: Three.js scene with PBR materials, a shadow-casting sun that
- * follows the camera, an image-free environment for reflections, the instanced car fleet,
- * particles and the HTML label/HUD layers. Everything is generated procedurally.
+ * follows the camera, a sky panorama for the backdrop and reflections, the instanced car fleet,
+ * particles and the HTML label/HUD layers. Geometry is procedural; see Textures for the maps.
  */
 export class SceneRenderer {
   showSensors = true;
@@ -56,9 +56,9 @@ export class SceneRenderer {
   private readonly overlays = new Overlays();
   private readonly labels: Labels;
   private readonly hud: RaceHud;
-  private readonly sky = Textures.sky();
+  private sky: THREE.Texture = Textures.sky();
   private readonly groundColor = new THREE.Color(0x26331f);
-  private readonly fog = new THREE.Fog(0xc8d6e0, 300, 2600);
+  private readonly fog = new THREE.Fog(0xc4d0d7, 300, 2600);
   private readonly views: CarView[] = [];
   private readonly effectCars: Car[] = [];
   private readonly focusPoint = new THREE.Vector3();
@@ -82,6 +82,14 @@ export class SceneRenderer {
     room.dispose();
     pmrem.dispose();
     this.scene.background = this.groundColor;
+    // The sky panorama replaces both the gradient backdrop and the studio reflections.
+    Textures.skyPanorama(sky => {
+      const env = new THREE.PMREMGenerator(this.renderer);
+      this.scene.environment?.dispose();
+      this.scene.environment = env.fromEquirectangular(sky).texture;
+      env.dispose();
+      this.sky = sky;
+    });
 
     this.scene.add(new THREE.HemisphereLight(0xdde8ff, 0x3b4a2c, 0.9));
     this.sun.castShadow = true;

@@ -1,8 +1,10 @@
 import * as THREE from 'three';
 
 /**
- * Procedural textures: every map is painted with the Canvas 2D API at start-up, so the scene
- * needs no image files. A fixed-seed generator keeps the surfaces identical between reloads.
+ * Textures: every map is first painted with the Canvas 2D API, so the scene renders at once and
+ * without any files. Surfaces with a generated image in public/textures (see
+ * scripts/prep-textures.py) swap it in when it loads; the procedural map stays as the fallback.
+ * A fixed-seed generator keeps the procedural surfaces identical between reloads.
  */
 
 function seeded(seed: number): () => number {
@@ -28,6 +30,18 @@ function texture(c: HTMLCanvasElement, color: boolean, repeat = true): THREE.Can
   if (color) t.colorSpace = THREE.SRGBColorSpace;
   if (repeat) t.wrapS = t.wrapT = THREE.RepeatWrapping;
   t.anisotropy = 8;
+  return t;
+}
+
+const imageLoader = new THREE.ImageLoader();
+const textureUrl = (file: string) => `${import.meta.env.BASE_URL}textures/${file}`;
+
+/**
+ * Replaces the texture's image once `file` loads; clones share the source, so they follow too.
+ * The GPU copy is released first: an uploaded texture has fixed storage and cannot change size.
+ */
+function upgrade<T extends THREE.Texture>(t: T, file: string): T {
+  imageLoader.load(textureUrl(file), image => { t.dispose(); t.image = image; t.needsUpdate = true; });
   return t;
 }
 
@@ -68,11 +82,11 @@ export class Textures {
       dst.data[i] = dst.data[i + 1] = dst.data[i + 2] = v; dst.data[i + 3] = 255;
     }
     rctx.putImageData(dst, 0, 0);
-    return { map: texture(c, true), roughnessMap: texture(r, false) };
+    return { map: upgrade(texture(c, true), 'asphalt.webp'), roughnessMap: upgrade(texture(r, false), 'asphalt_rough.webp') };
   }
 
   /** Mown grass: alternating bands with blade noise. */
-  static grass(): THREE.CanvasTexture {
+  static grass(file = 'grass.webp'): THREE.CanvasTexture {
     const size = 256, rand = seeded(23);
     const [c, ctx] = canvas(size, size);
     for (let band = 0; band < 4; band++) {
@@ -80,7 +94,12 @@ export class Textures {
       ctx.fillRect(0, band * size / 4, size, size / 4);
     }
     speckle(ctx, size, size, rand, 9000, [64, 92, 46], 34, 1.4);
-    return texture(c, true);
+    return upgrade(texture(c, true), file);
+  }
+
+  /** Rough ground beyond the circuit: patchy grass and dirt (the procedural fallback is the grass). */
+  static ground(): THREE.CanvasTexture {
+    return Textures.grass('ground.webp');
   }
 
   /** Gravel trap: sandy base with pebbles. */
@@ -97,7 +116,7 @@ export class Textures {
       ctx.ellipse(rand() * size, rand() * size, 1 + rand() * 2.4, 0.8 + rand() * 1.8, rand() * Math.PI, 0, Math.PI * 2);
       ctx.fill();
     }
-    return texture(c, true);
+    return upgrade(texture(c, true), 'gravel.webp');
   }
 
   /** Kerb: one red and one white block along u, with worn paint at the block edges. */
@@ -108,7 +127,7 @@ export class Textures {
     ctx.fillStyle = 'rgba(0,0,0,0.18)';
     ctx.fillRect(0, 0, 128, 3); ctx.fillRect(0, 29, 128, 3);
     ctx.fillRect(62, 0, 4, 32); ctx.fillRect(126, 0, 2, 32);
-    return texture(c, true);
+    return upgrade(texture(c, true), 'kerb.webp');
   }
 
   /** Energy-absorbing barrier blocks: blue and white panels with a red top band. */
@@ -119,7 +138,7 @@ export class Textures {
     ctx.fillStyle = '#c4161c'; ctx.fillRect(0, 0, 256, 10);
     ctx.fillStyle = 'rgba(0,0,0,0.25)';
     ctx.fillRect(126, 0, 4, 64); ctx.fillRect(0, 60, 256, 4);
-    return texture(c, true);
+    return upgrade(texture(c, true), 'barrier.webp');
   }
 
   /** Chequered start/finish strip: two rows of squares along u. */
@@ -207,7 +226,16 @@ export class Textures {
     return texture(c, true, false);
   }
 
-  /** Sky dome gradient for the low cameras. */
+  /** Equirectangular sky panorama for the background and reflections, delivered once it loads. */
+  static skyPanorama(onLoad: (sky: THREE.Texture) => void): void {
+    new THREE.TextureLoader().load(textureUrl('sky_day.webp'), sky => {
+      sky.mapping = THREE.EquirectangularReflectionMapping;
+      sky.colorSpace = THREE.SRGBColorSpace;
+      onLoad(sky);
+    });
+  }
+
+  /** Sky dome gradient for the low cameras until the panorama loads. */
   static sky(): THREE.CanvasTexture {
     const [c, ctx] = canvas(4, 256);
     const g = ctx.createLinearGradient(0, 0, 0, 256);
