@@ -179,7 +179,7 @@ class App {
         car.ersEnergy = (sc.ersSoc ?? 0.85) * Car.ERS_CAPACITY;
         car.gear = sc.gear ?? 1; car.engineRpm = sc.engineRpm ?? Car.IDLE_RPM;
         car.rideHeightFront = (sc.rideHeightFront ?? 30) / 1000; car.rideHeightRear = (sc.rideHeightRear ?? 55) / 1000; car.aeroStall = !!sc.aeroStall;
-        car.heave = sc.heave ?? 0; car.pitch = sc.pitch ?? 0; car.roll = sc.roll ?? 0;
+        car.heave = sc.heave ?? 0; car.pitch = sc.pitch ?? 0; car.roll = sc.roll ?? 0; car.wheelAngle = sc.wheelAngle ?? 0;
         car.wakeDrag = sc.wakeDrag ?? 1; car.wakeDownforce = sc.wakeDownforce ?? 1; car.plankForce = sc.plankForce ?? 0; car.porpoisingHz = sc.porpoisingHz ?? 0;
         car.tyreTempFront = sc.tyreTempFront ?? 100; car.tyreTempRear = sc.tyreTempRear ?? 100;
         car.tyreWearFront = sc.tyreWearFront ?? 0; car.tyreWearRear = sc.tyreWearRear ?? 0;
@@ -349,7 +349,7 @@ class App {
         this.playerCar.ersEnergy = (sp.ersSoc ?? 0.85) * Car.ERS_CAPACITY;
         this.playerCar.gear = sp.gear ?? 1; this.playerCar.engineRpm = sp.engineRpm ?? Car.IDLE_RPM;
         this.playerCar.rideHeightFront = (sp.rideHeightFront ?? 30) / 1000; this.playerCar.rideHeightRear = (sp.rideHeightRear ?? 55) / 1000; this.playerCar.aeroStall = !!sp.aeroStall;
-        this.playerCar.heave = sp.heave ?? 0; this.playerCar.pitch = sp.pitch ?? 0; this.playerCar.roll = sp.roll ?? 0;
+        this.playerCar.heave = sp.heave ?? 0; this.playerCar.pitch = sp.pitch ?? 0; this.playerCar.roll = sp.roll ?? 0; this.playerCar.wheelAngle = sp.wheelAngle ?? 0;
         this.playerCar.wakeDrag = sp.wakeDrag ?? 1; this.playerCar.wakeDownforce = sp.wakeDownforce ?? 1; this.playerCar.plankForce = sp.plankForce ?? 0; this.playerCar.porpoisingHz = sp.porpoisingHz ?? 0;
         this.playerCar.tyreTempFront = sp.tyreTempFront ?? 100; this.playerCar.tyreTempRear = sp.tyreTempRear ?? 100;
         this.playerCar.tyreWearFront = sp.tyreWearFront ?? 0; this.playerCar.tyreWearRear = sp.tyreWearRear ?? 0;

@@ -97,7 +97,7 @@ export class Car {
   public static readonly GRAVITY: number = 9.81; // m/s^2
   /** Closing speed (m/s) at which a single contact wrecks a car; smaller hits accumulate as damage ∝ v². */
   public static readonly CRASH_CLOSING_SPEED: number = 12;
-  /** Tyre cornering stiffness in N per N of vertical load per radian of slip angle. */
+  /** Steering actuator (driver's hands and rack): first-order lag of the road wheels behind the command. */
   public static readonly STEERING_LAG: number = 0.09; // s
   /** The front axle saturates slightly before the rear: a stable, understeer-biased balance at the limit. */
   public static readonly FRONT_GRIP_BIAS: number = 1.0;
@@ -108,6 +108,7 @@ export class Car {
   public static readonly YAW_FEEDBACK: number = 0.1;
   /** Slip demand above which the car counts as sliding rather than working the tyres at their limit. */
   public static readonly SLIDE_SLIP: number = 0.38;
+  /** Tyre cornering stiffness in N per N of vertical load per radian of slip angle. */
   public static readonly CORNERING_STIFFNESS: number = 22;
   /** Magic Formula (Pacejka) axle curve with a post-peak drop instead of the saturating tanh. */
   public static PACEJKA = false;
@@ -494,6 +495,12 @@ export class Car {
    * a record or evaluate a model, so luckier conditions cannot win selection.
    */
   public static STRESS_LAP_SHARE = DEFAULT_STRESS_LAP_SHARE;
+  /**
+   * Correlation time (s) of each of the two filter stages that shape the stress-lap LiDAR error.
+   * A misjudged distance drifts instead of flickering every physics step: white per-step noise
+   * made the steering chatter at the step rate and its effect depended on the step rate.
+   */
+  public static readonly SENSOR_NOISE_TAU = 0.05;
   public static readonly TYRE_OPTIMUM = 100;     // deg C
   public static readonly TYRE_AMBIENT = 25;
   public static readonly TYRE_TRACK = 38;
@@ -527,6 +534,9 @@ export class Car {
   /** Stress-lap LiDAR error seen by the network: per-reading noise and a per-lap calibration bias. */
   private sensorNoise = 0;
   private sensorBias = 0;
+  /** Per-ray noise state: a Gauss-Markov drift and the error that follows it (see `SENSOR_NOISE_TAU`). */
+  private sensorDrift: number[] = [];
+  private sensorError: number[] = [];
 
   // Kinematics (in SI units: meters, m/s, radians)
   public pos: Vector2;
@@ -753,6 +763,7 @@ export class Car {
       this.lapGripFactor = 1.0 + (random() * 0.11 - 0.08); // -8% .. +3%
       this.sensorNoise = 0.01 + random() * 0.03;
       this.sensorBias = random() * 0.04 - 0.02;
+      this.sensorDrift = []; this.sensorError = [];
       this.lapCompromised = true;
     }
 
@@ -856,11 +867,25 @@ export class Car {
     this.rollLapPerformanceVariation();
   }
 
-  /** LiDAR as the network sees it on a stress lap; the guardian keeps the true readings. */
+  /**
+   * LiDAR as the network sees it on a stress lap; the guardian keeps the true readings. Each
+   * reading's error has the standard deviation `sensorNoise` and is band-limited: Gauss-Markov
+   * drift (exact in dt) smoothed once more, so it varies over tenths of a second at any step rate.
+   */
   private noisyRayDistances(): number[] {
-    return this.rayDistances.map(d => {
-      const gauss = (random() + random() + random() - 1.5) * 2; // ~N(0, 1)
-      return Math.max(0, Math.min(1, d + this.sensorBias + gauss * this.sensorNoise));
+    const gauss = () => (random() + random() + random() - 1.5) * 2; // ~N(0, 1)
+    const n = this.rayDistances.length;
+    if (this.sensorError.length !== n) {
+      // Start from the stationary spread (the second stage halves the drift's variance).
+      this.sensorDrift = Array.from({ length: n }, () => gauss() * this.sensorNoise * Math.SQRT2);
+      this.sensorError = Array.from({ length: n }, () => gauss() * this.sensorNoise);
+    }
+    const k = Math.exp(-this.lastStepDt / Car.SENSOR_NOISE_TAU);
+    const kick = this.sensorNoise * Math.SQRT2 * Math.sqrt(1 - k * k);
+    return this.rayDistances.map((d, i) => {
+      this.sensorDrift[i] = this.sensorDrift[i] * k + gauss() * kick;
+      this.sensorError[i] += (this.sensorDrift[i] - this.sensorError[i]) * (1 - k);
+      return Math.max(0, Math.min(1, d + this.sensorBias + this.sensorError[i]));
     });
   }
 
@@ -1544,10 +1569,12 @@ export class Car {
     const rearLateral = Math.sqrt(Math.max(0, rearLimit * rearLimit - rearFx * rearFx));
     const lateralLimit = frontLateral + rearLateral;
     const nextForwardSpeed = forwardSpeed + longitudinalForce / currentMass * dt;
-    const targetYaw = nextForwardSpeed / this.wheelbase * Math.tan(control.steer * this.maxSteerAngle);
-    // Finite steering response; this remains a bounded hybrid, not a yaw-inertia solver.
     // Steering actuator: the road wheels follow the command with a short lag.
     this.wheelAngle += (control.steer * this.maxSteerAngle - this.wheelAngle) * (1 - Math.exp(-dt / Car.STEERING_LAG));
+    // The kinematic yaw follows the road wheels, as the slip-angle model below does: a jump or
+    // chatter in the command reaches the body only through the steering lag, at every speed.
+    const targetYaw = nextForwardSpeed / this.wheelbase * Math.tan(this.wheelAngle);
+    // Finite steering response; this remains a bounded hybrid, not a yaw-inertia solver.
     const yawPrevious = this.angularVelocity;
     const requestedYaw = this.angularVelocity + (targetYaw - this.angularVelocity) * (1 - Math.exp(-dt / 0.05));
     const turnForce = currentMass * nextForwardSpeed * requestedYaw;

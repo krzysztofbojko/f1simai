@@ -1,6 +1,6 @@
 import type { Car } from '../physics/Car';
 
-interface Pose { x: number; y: number; heading: number; pitch: number; roll: number; heave: number }
+interface Pose { x: number; y: number; heading: number; pitch: number; roll: number; heave: number; wheelAngle: number }
 interface Frame { t: number; poses: Map<Car, Pose> }
 
 /** Faster than any car can move: a larger jump between snapshots is a respawn or reset, not motion. */
@@ -19,7 +19,8 @@ function lerpAngle(a: number, b: number, k: number): number {
  * irregularly (a worker tick can hold zero, one or two physics steps), so drawing the latest
  * one makes cars stutter. The display clock runs slightly behind the newest snapshot at the
  * measured simulation rate and every car is drawn interpolated between the two snapshots
- * around it.
+ * around it. The road-wheel angle is interpolated with the pose: drawn from the latest snapshot
+ * the front wheels would jump at the snapshot rate.
  */
 export class MotionInterpolator {
   private frames: Frame[] = [];
@@ -43,7 +44,7 @@ export class MotionInterpolator {
 
     const poses = new Map<Car, Pose>();
     for (const car of cars) {
-      poses.set(car, { x: car.pos.x, y: car.pos.y, heading: car.heading, pitch: car.pitch || 0, roll: car.roll || 0, heave: car.heave || 0 });
+      poses.set(car, { x: car.pos.x, y: car.pos.y, heading: car.heading, pitch: car.pitch || 0, roll: car.roll || 0, heave: car.heave || 0, wheelAngle: car.wheelAngle || 0 });
     }
     if (!prev) this.clock = simTime;
     this.frames.push({ t: simTime, poses });
@@ -84,6 +85,7 @@ export class MotionInterpolator {
       car.pitch = from.pitch + (pb.pitch - from.pitch) * k;
       car.roll = from.roll + (pb.roll - from.roll) * k;
       car.heave = from.heave + (pb.heave - from.heave) * k;
+      car.wheelAngle = from.wheelAngle + (pb.wheelAngle - from.wheelAngle) * k;
     }
   }
 }

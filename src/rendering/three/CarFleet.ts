@@ -17,7 +17,6 @@ const PIVOT = 0.32;
  * suspension model reads at broadcast distances.
  */
 const BODY_MOTION_GAIN = 2;
-const MAX_STEER = 0.3; // rad at steer = ±1
 
 export interface CarView { car: Car; isLeader: boolean; isPlayer: boolean; isSelected: boolean }
 
@@ -189,7 +188,8 @@ export class CarFleet {
       const speed = car.speedKmh / 3.6;
       const spin = ((this.spin.get(car) ?? 0) + speed / WHEEL_RADIUS * dt) % (Math.PI * 2);
       this.spin.set(car, spin);
-      const steer = car.isAlive ? -(car.currentControl?.steer ?? 0) * MAX_STEER : 0;
+      // Fronts steer by the road-wheel angle the actuator delivers (interpolated with the pose), not the raw command.
+      const steer = car.isAlive ? -car.wheelAngle : 0;
       for (let w = 0; w < 4; w++) {
         const [x, z, front] = WHEELS[w];
         part.makeRotationZ(-spin);

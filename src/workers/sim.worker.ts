@@ -117,6 +117,8 @@ export interface SerializedCar {
   heave: number;
   pitch: number;
   roll: number;
+  /** Road-wheel steering angle (rad, + = right) as the actuator delivers it, for the 3D front wheels. */
+  wheelAngle: number;
   aeroStall: boolean;
   wakeDrag: number;
   plankForce: number;
@@ -388,6 +390,7 @@ function serializeCar(car: Car, ctrl?: CarControl, isHeadless: boolean = false):
     heave: car.heave,
     pitch: car.pitch,
     roll: car.roll,
+    wheelAngle: car.wheelAngle,
     aeroStall: car.aeroStall,
     wakeDrag: Math.round(car.wakeDrag * 100) / 100,
     plankForce: Math.round(car.plankForce),
