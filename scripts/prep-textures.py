@@ -11,7 +11,7 @@ Usage: python3 scripts/prep-textures.py
 from pathlib import Path
 
 import numpy as np
-from PIL import Image, ImageFilter
+from PIL import Image, ImageDraw, ImageFilter
 
 ROOT = Path(__file__).resolve().parent.parent
 SRC = ROOT / 'assets' / 'generated'
@@ -35,7 +35,7 @@ def load(name: str) -> np.ndarray:
 
 
 def save(a: np.ndarray, name: str, size: tuple[int, int], quality: int = 88) -> None:
-    img = Image.fromarray(np.clip(a, 0, 255).astype(np.uint8))
+    img = Image.fromarray(np.clip(a, 0, 255).astype(np.uint8))  # RGB or RGBA
     img = img.resize(size, Image.LANCZOS)
     img.save(OUT / name, 'WEBP', quality=quality, method=6)
     print(f'{name:22s} {size[0]}x{size[1]}  {(OUT / name).stat().st_size // 1024} KB')
@@ -54,6 +54,24 @@ def flatten(a: np.ndarray, radius: float, keep: float) -> np.ndarray:
     img = Image.fromarray(np.clip(a, 0, 255).astype(np.uint8))
     low = np.asarray(img.filter(ImageFilter.GaussianBlur(radius)), dtype=np.float32)
     return a - low * (1 - keep) + low.reshape(-1, 3).mean(0) * (1 - keep)
+
+
+def cutout(a: np.ndarray, flood: bool) -> np.ndarray:
+    """
+    RGBA from an image on a plain white backdrop. `flood` clears only the white connected to the
+    top corners (keeps white parts of the subject, like a roof); otherwise every white pixel goes.
+    The edge is pulled in a pixel and softened, so no white halo is left.
+    """
+    white = (a.min(axis=2) > 222) & (np.ptp(a, axis=2) < 30)
+    if flood:
+        m = Image.fromarray(white.astype(np.uint8) * 255).copy()  # a numpy-backed image ignores floodfill
+        for corner in [(0, 0), (m.width - 1, 0)]:
+            ImageDraw.floodfill(m, corner, 128)
+        white = np.asarray(m) == 128
+    alpha = Image.fromarray((~white).astype(np.uint8) * 255).filter(ImageFilter.MinFilter(3)).filter(ImageFilter.GaussianBlur(0.7))
+    rgba = np.dstack([a, np.asarray(alpha, dtype=np.float32)])
+    ys, xs = np.nonzero(rgba[..., 3] > 8)
+    return rgba[ys.min():ys.max() + 1, xs.min():xs.max() + 1]
 
 
 def main() -> None:
@@ -80,8 +98,26 @@ def main() -> None:
     # Barrier: one 3 m x 1 m panel, repeating along the wall only.
     save(seamless(load('barrier_raw.jpg'), 1, 0.08), 'barrier.webp', (1536, 512))
 
-    # Sky: equirectangular, must wrap around the horizon.
-    save(seamless(load('sky_day_raw.jpg'), 1, 0.06), 'sky_day.webp', (2048, 1024), 90)
+    # Same wall with invented sponsors on the top band; the panel edges line up when it repeats.
+    save(load('barrier_ads_raw.jpg'), 'barrier_ads.webp', (1536, 512))
+
+    # Skies: equirectangular, must wrap around the horizon.
+    for sky in ['day', 'overcast', 'night']:
+        save(seamless(load(f'sky_{sky}_raw.jpg'), 1, 0.06), f'sky_{sky}.webp', (2048, 1024), 90)
+
+    # Billboards with alpha; their aspect sets the size in the scene (see TrackMesh).
+    for name, flood in [('trees', False), ('grandstand', True)]:
+        a = cutout(load(f'{name}_raw.jpg'), flood)
+        save(a, f'{name}.webp', (2048, round(2048 * a.shape[0] / a.shape[1])))
+
+    # Wheel faces: planar UVs with the circle filling the square.
+    save(load('sidewall_raw.jpg'), 'sidewall.webp', (512, 512))
+    save(load('rim_raw.jpg'), 'rim.webp', (512, 512))
+
+    # App icon: the rounded square without its white surround.
+    logo = cutout(load('logo_raw.jpg'), True)
+    for size in [64, 256]:
+        Image.fromarray(np.clip(logo, 0, 255).astype(np.uint8)).resize((size, size), Image.LANCZOS).save(OUT.parent / f'logo-{size}.png')
 
 
 if __name__ == '__main__':

@@ -101,17 +101,12 @@ button:disabled { opacity: 0.45; cursor: not-allowed; }
   min-width: 0;
 }
 
-.f1-badge {
-  background-color: var(--f1-red);
-  color: #fff;
-  font-weight: 900;
-  font-style: italic;
-  font-size: 20px;
-  line-height: 1;
-  padding: 6px 10px 5px;
-  border-radius: var(--radius-sm);
-  letter-spacing: -0.04em;
+.f1-logo {
+  width: 36px;
+  height: 36px;
+  display: block;
 }
+
 
 .f1-brand h1 {
   font-size: 20px;

@@ -868,6 +868,7 @@ class App {
     document.getElementById('preset-gp')!.addEventListener('click', () => {
       const dims = Car.getDimensionsForTrackWidth(this.trackWidth);
       this.track = Presets.createGrandPrixTrack(dims.effectiveTrackWidth);
+      this.renderer.setSky('day');
       this.rawDrawnPoints = Presets.GRAND_PRIX_POINTS.map(p => p.clone());
       this.trackDirection = null;
       this.population = new Population(Population.MAX_CARS, this.track, this.population.rayCount, this.population.topology);
@@ -886,6 +887,7 @@ class App {
     document.getElementById('preset-oval')!.addEventListener('click', () => {
       const dims = Car.getDimensionsForTrackWidth(this.trackWidth);
       this.track = Presets.createOvalTrack(dims.effectiveTrackWidth);
+      this.renderer.setSky('day');
       this.rawDrawnPoints = Presets.OVAL_POINTS.map(p => p.clone());
       this.trackDirection = null;
       this.population = new Population(Population.MAX_CARS, this.track, this.population.rayCount, this.population.topology);
@@ -1836,6 +1838,7 @@ class App {
 
       const nextTrack = new Track(splinePoints, dims.effectiveTrackWidth);
       this.track = nextTrack;
+      this.renderer.setSky(SceneRenderer.skyFor(sourceName));
       this.trackWidth = nextWidth;
       (document.getElementById('slider-track-width') as HTMLInputElement).value = String(nextWidth);
       document.getElementById('val-track-width')!.textContent = String(nextWidth);
@@ -1879,7 +1882,7 @@ class App {
     const dims = Car.getDimensionsForTrackWidth(this.trackWidth);
     const splinePoints = Spline.generateClosedTrack(this.rawDrawnPoints, dims.effectiveTrackWidth, 18);
     if (splinePoints.length >= 8) {
-      try { this.track = new Track(splinePoints, dims.effectiveTrackWidth); }
+      try { this.track = new Track(splinePoints, dims.effectiveTrackWidth); this.renderer.setSky('day'); }
       catch (error) {
         this.rawDrawnPoints = this.drawSourceBackup.map(p => p.clone());
         this.drawnTrackRejected = true;

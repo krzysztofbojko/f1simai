@@ -35,6 +35,15 @@ export interface FrameState {
 const SUN = new THREE.Vector3(-0.45, 1, -0.35).normalize();
 const SHADOW_MAP = 2048;
 
+export type SkyKind = 'day' | 'overcast' | 'night';
+
+/** Each sky panorama and the light that goes with it (night: floodlights from above). */
+const SKIES: Record<SkyKind, { file: string; sun: number; sunColor: number; hemi: number; env: number; fog: number }> = {
+  day: { file: 'sky_day.webp', sun: 2.6, sunColor: 0xfff1dc, hemi: 0.9, env: 0.5, fog: 0xc4d0d7 },
+  overcast: { file: 'sky_overcast.webp', sun: 1.1, sunColor: 0xe6eaee, hemi: 1.4, env: 0.7, fog: 0x989b99 },
+  night: { file: 'sky_night.webp', sun: 2.6, sunColor: 0xeef2ff, hemi: 0.7, env: 0.6, fog: 0x2a2633 },
+};
+
 /**
  * The 3D view of the circuit: Three.js scene with PBR materials, a shadow-casting sun that
  * follows the camera, a sky panorama for the backdrop and reflections, the instanced car fleet,
@@ -50,6 +59,9 @@ export class SceneRenderer {
   private readonly renderer: THREE.WebGLRenderer;
   private readonly scene = new THREE.Scene();
   private readonly sun = new THREE.DirectionalLight(0xfff1dc, 2.6);
+  private readonly hemi = new THREE.HemisphereLight(0xdde8ff, 0x3b4a2c, 0.9);
+  private skyKind: SkyKind | null = null;
+  private readonly skies = new Map<SkyKind, { sky: THREE.Texture; env: THREE.Texture }>();
   private readonly trackMesh = new TrackMesh();
   private readonly fleet = new CarFleet();
   private readonly effects = new Effects();
@@ -82,16 +94,9 @@ export class SceneRenderer {
     room.dispose();
     pmrem.dispose();
     this.scene.background = this.groundColor;
-    // The sky panorama replaces both the gradient backdrop and the studio reflections.
-    Textures.skyPanorama(sky => {
-      const env = new THREE.PMREMGenerator(this.renderer);
-      this.scene.environment?.dispose();
-      this.scene.environment = env.fromEquirectangular(sky).texture;
-      env.dispose();
-      this.sky = sky;
-    });
+    this.setSky('day');
 
-    this.scene.add(new THREE.HemisphereLight(0xdde8ff, 0x3b4a2c, 0.9));
+    this.scene.add(this.hemi);
     this.sun.castShadow = true;
     this.sun.shadow.mapSize.set(SHADOW_MAP, SHADOW_MAP);
     this.sun.shadow.bias = -0.0003;
@@ -182,6 +187,43 @@ export class SceneRenderer {
 
     this.labels.update(rig, this.views, this.showCarSpeed, f.drawMode ? [] : this.trackMesh.staticLabels, badge);
     this.hud.update(f.raceState, f.startLights, f.winner, f.drawMode, rig.pixelsPerMetre);
+  }
+
+  /** Sky for a circuit file from tracks/: night races under lights, a grey sky for some European rounds. */
+  static skyFor(trackFile?: string): SkyKind {
+    if (!trackFile) return 'day';
+    if (/^(sg|ae|bh|sa|qa)-|las-vegas/.test(trackFile)) return 'night';
+    if (/^(gb|be|de|nl)-/.test(trackFile)) return 'overcast';
+    return 'day';
+  }
+
+  /**
+   * Switches the lighting at once; the panorama (backdrop and reflections, in place of the studio
+   * environment) follows when it has loaded. Loaded skies are kept for the next switch.
+   */
+  setSky(kind: SkyKind): void {
+    if (kind === this.skyKind) return;
+    this.skyKind = kind;
+    const look = SKIES[kind];
+    this.sun.intensity = look.sun;
+    this.sun.color.set(look.sunColor);
+    this.hemi.intensity = look.hemi;
+    this.scene.environmentIntensity = look.env;
+    this.fog.color.set(look.fog);
+    const show = (loaded: { sky: THREE.Texture; env: THREE.Texture }) => {
+      if (this.skyKind !== kind) return;
+      this.sky = loaded.sky;
+      this.scene.environment = loaded.env;
+    };
+    const cached = this.skies.get(kind);
+    if (cached) { show(cached); return; }
+    Textures.skyPanorama(look.file, sky => {
+      const pmrem = new THREE.PMREMGenerator(this.renderer);
+      const loaded = { sky, env: pmrem.fromEquirectangular(sky).texture };
+      pmrem.dispose();
+      this.skies.set(kind, loaded);
+      show(loaded);
+    });
   }
 
   private isNewLayout(b: { minX: number; maxX: number; minY: number; maxY: number }): boolean {

@@ -7,6 +7,11 @@ import { Point2, stripGeometry, offsetPolyline } from './Geometry';
 /** Surface heights (m): each layer sits a few millimetres above the one it overlaps. */
 const H = { ground: -0.25, gravel: 0, grass: 0.004, asphalt: 0.01, paint: 0.018, kerb: 0.022 };
 const SECTOR_COLORS = ['#00D2BE', '#FFD700', '#A855F7', '#E10600'];
+/** Billboards: image aspect (width / height, from public/textures) and size in metres. */
+const TREES = { aspect: 2048 / 459, height: 16, gap: 25 };
+const GRANDSTAND = { aspect: 2048 / 386, length: 120, gap: 8 };
+/** Every third 36 m stretch of barrier carries the sponsor banners. */
+const AD_STRETCH = 36;
 
 export interface StaticLabel { text: string; x: number; y: number; color: string; className: string }
 
@@ -23,7 +28,8 @@ function decal<M extends THREE.Material>(m: M, layer: number): M {
 /**
  * The circuit as static meshes, generated from the same points the physics uses: asphalt,
  * grass and gravel strips up to the barriers, kerbs on corners, painted lines, the chequered
- * start line, timing beams and the pit lane. Rebuilt whenever the track changes.
+ * start line, timing beams, the pit lane, and tree line and grandstand billboards beyond the
+ * barriers. Rebuilt whenever the track changes.
  */
 export class TrackMesh {
   readonly group = new THREE.Group();
@@ -38,6 +44,9 @@ export class TrackMesh {
   private readonly kerb: THREE.MeshStandardMaterial;
   private readonly paint: THREE.MeshStandardMaterial;
   private readonly barrier: THREE.MeshStandardMaterial;
+  private readonly barrierAds: THREE.MeshStandardMaterial;
+  private readonly trees: THREE.MeshStandardMaterial;
+  private readonly grandstand: THREE.MeshStandardMaterial;
   private readonly checker: THREE.MeshStandardMaterial;
   private readonly pitLine: THREE.MeshBasicMaterial;
   private readonly pitBox: THREE.MeshBasicMaterial;
@@ -71,6 +80,14 @@ export class TrackMesh {
     const barrier = Textures.barrier();
     barrier.repeat.set(1 / 3, 1);
     this.barrier = new THREE.MeshStandardMaterial({ map: barrier, roughness: 0.7, side: THREE.DoubleSide });
+    const ads = Textures.barrier('barrier_ads.webp');
+    ads.repeat.copy(barrier.repeat);
+    this.barrierAds = new THREE.MeshStandardMaterial({ map: ads, roughness: 0.6, side: THREE.DoubleSide });
+
+    const trees = Textures.billboard('trees.webp');
+    trees.repeat.set(1 / (TREES.height * TREES.aspect), 1);
+    this.trees = new THREE.MeshStandardMaterial({ map: trees, alphaTest: 0.5, roughness: 0.9, side: THREE.DoubleSide });
+    this.grandstand = new THREE.MeshStandardMaterial({ map: Textures.billboard('grandstand.webp'), alphaTest: 0.5, roughness: 0.8, side: THREE.DoubleSide });
 
     const checker = Textures.checker();
     this.checker = decal(new THREE.MeshStandardMaterial({ map: checker, roughness: 0.6 }), 4);
@@ -91,7 +108,7 @@ export class TrackMesh {
     return true;
   }
 
-  private add(geometry: THREE.BufferGeometry, material: THREE.Material, shadows = { cast: false, receive: true }, parent: THREE.Object3D = this.group): THREE.Mesh {
+  private add(geometry: THREE.BufferGeometry, material: THREE.Material | THREE.Material[], shadows = { cast: false, receive: true }, parent: THREE.Object3D = this.group): THREE.Mesh {
     const mesh = new THREE.Mesh(geometry, material);
     mesh.castShadow = shadows.cast;
     mesh.receiveShadow = shadows.receive;
@@ -147,6 +164,7 @@ export class TrackMesh {
     this.buildStartLine(track);
     this.buildTimingGates(track);
     this.buildPitLane(track);
+    this.buildScenery(track);
     this.buildCheckpoints(track);
 
     const b = { minX: Infinity, maxX: -Infinity, minY: Infinity, maxY: -Infinity };
@@ -200,8 +218,8 @@ export class TrackMesh {
     if (!segs.length) return;
     const height = 1, t = 0.25;
     const pos = new Float32Array(segs.length * 12 * 3), nrm = new Float32Array(segs.length * 12 * 3), uv = new Float32Array(segs.length * 12 * 2);
-    const index: number[] = [];
-    let u = 0, v = 0;
+    const plain: number[] = [], ads: number[] = [];
+    let u = 0, v = 0, index = plain;
     const quad = (corners: number[][], normal: number[], u0: number, u1: number, v0: number, v1: number) => {
       const base = v;
       const uvs = [[u0, v0], [u1, v0], [u1, v1], [u0, v1]];
@@ -216,6 +234,7 @@ export class TrackMesh {
       const a = [s.p1.x + nx, s.p1.y + ny], b = [s.p2.x + nx, s.p2.y + ny];
       const c = [s.p1.x - nx, s.p1.y - ny], d = [s.p2.x - nx, s.p2.y - ny];
       const u1 = u + len;
+      index = Math.floor(u / AD_STRETCH) % 3 === 0 ? ads : plain;
       quad([[a[0], 0, a[1]], [b[0], 0, b[1]], [b[0], height, b[1]], [a[0], height, a[1]]], [nx / t, 0, ny / t], u, u1, 0, 1);
       quad([[c[0], 0, c[1]], [d[0], 0, d[1]], [d[0], height, d[1]], [c[0], height, c[1]]], [-nx / t, 0, -ny / t], u, u1, 0, 1);
       quad([[a[0], height, a[1]], [b[0], height, b[1]], [d[0], height, d[1]], [c[0], height, c[1]]], [0, 1, 0], u, u1, 0.9, 1);
@@ -225,8 +244,10 @@ export class TrackMesh {
     g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
     g.setAttribute('normal', new THREE.BufferAttribute(nrm, 3));
     g.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
-    g.setIndex(index);
-    this.add(g, this.barrier, { cast: true, receive: true });
+    g.setIndex([...plain, ...ads]);
+    g.addGroup(0, plain.length, 0);
+    g.addGroup(plain.length, ads.length, 1);
+    this.add(g, [this.barrier, this.barrierAds], { cast: true, receive: true });
   }
 
   private buildStartLine(track: Track): void {
@@ -289,6 +310,53 @@ export class TrackMesh {
     this.staticLabels.push({ text: 'PIT ENTRY', x: entryPos.x, y: entryPos.y, color: '#FFD700', className: 'pit' });
   }
 
+  /**
+   * A tree line a fixed gap beyond the barriers on both sides, and a grandstand opposite the pit
+   * lane along the start/finish straight. Points that would land near another part of the
+   * circuit (offsets folding through tight corners or across a nearby straight) are dropped.
+   */
+  private buildScenery(track: Track): void {
+    const pts = track.points, run = track.runoff, n = pts.length;
+    const clear = (q: Point2, need: number) => pts.every(p => (p.center.x - q.x) ** 2 + (p.center.y - q.y) ** 2 >= need * need);
+    const place = (i: number, side: number, gap: number) => {
+      const barrier = side > 0 ? run[i].leftBarrier : run[i].rightBarrier;
+      const q = barrier.add(pts[i].normal.mul(side * gap));
+      return { q, ok: clear(q, barrier.dist(pts[i].center) + gap - 2) };
+    };
+
+    const trees: THREE.BufferGeometry[] = [];
+    for (const side of [1, -1]) {
+      const spots = pts.map((_, i) => place(i, side, TREES.gap));
+      const start = spots.findIndex(s => !s.ok);
+      if (start < 0) { trees.push(billboardStrip([...spots, spots[0]].map(s => s.q), TREES.height)); continue; }
+      for (let k = 0; k < n;) {
+        const line: Point2[] = [];
+        while (k < n && spots[(start + k) % n].ok) line.push(spots[(start + k++) % n].q);
+        k++;
+        if (line.length > 3) trees.push(billboardStrip(line, TREES.height));
+      }
+    }
+    if (trees.length) this.add(mergeGeometries(trees), this.trees, { cast: false, receive: false });
+
+    // Points within half the grandstand's length either side of the start line, on the non-pit side.
+    const along: number[] = [];
+    for (let d = 0, i = 0; d < GRANDSTAND.length / 2 && along.length < n; i++) {
+      along.push(i);
+      d += pts[i % n].center.dist(pts[(i + 1) % n].center);
+    }
+    const back: number[] = [];
+    for (let d = 0, i = n - 1; d < GRANDSTAND.length / 2 && back.length + along.length < n; i--) {
+      d += pts[i].center.dist(pts[(i + 1) % n].center);
+      back.unshift(i);
+    }
+    const stand = [...back, ...along].map(i => place(i, -1, GRANDSTAND.gap));
+    if (stand.length > 3 && stand.every(s => s.ok)) {
+      const base = stand.map(s => s.q);
+      const length = base.reduce((sum, p, k) => k ? sum + p.dist(base[k - 1]) : 0, 0);
+      this.add(billboardStrip(base, length / GRANDSTAND.aspect, length), this.grandstand, { cast: false, receive: false });
+    }
+  }
+
   private buildCheckpoints(track: Track): void {
     const pos: number[] = [];
     for (const cp of track.checkpoints) pos.push(cp.p1.x, H.kerb + 0.02, cp.p1.y, cp.p2.x, H.kerb + 0.02, cp.p2.y);
@@ -298,4 +366,32 @@ export class TrackMesh {
     lines.userData.ownsMaterial = true;
     this.checkpoints.add(lines);
   }
+}
+
+/**
+ * Upright strip standing on the ground along `base`, `height` metres tall. u runs in metres
+ * (the material's repeat sets the tile), or 0..1 over the whole strip when `span` is given.
+ */
+function billboardStrip(base: Point2[], height: number, span?: number): THREE.BufferGeometry {
+  const rows = base.length;
+  const pos = new Float32Array(rows * 2 * 3), uv = new Float32Array(rows * 2 * 2), nrm = new Float32Array(rows * 2 * 3);
+  const index: number[] = [];
+  let u = 0;
+  for (let r = 0; r < rows; r++) {
+    const p = base[r];
+    if (r) u += Math.hypot(p.x - base[r - 1].x, p.y - base[r - 1].y);
+    const a = base[Math.max(0, r - 1)], b = base[Math.min(rows - 1, r + 1)];
+    const dx = b.x - a.x, dy = b.y - a.y, len = Math.hypot(dx, dy) || 1;
+    pos.set([p.x, H.ground, p.y, p.x, H.ground + height, p.y], r * 6);
+    nrm.set([-dy / len, 0, dx / len, -dy / len, 0, dx / len], r * 6);
+    const s = span ? u / span : u;
+    uv.set([s, 0, s, 1], r * 4);
+    if (r) index.push(r * 2 - 2, r * 2, r * 2 + 1, r * 2 - 2, r * 2 + 1, r * 2 - 1);
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  g.setAttribute('normal', new THREE.BufferAttribute(nrm, 3));
+  g.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
+  g.setIndex(index);
+  return g;
 }

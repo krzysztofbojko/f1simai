@@ -131,14 +131,14 @@ export class Textures {
   }
 
   /** Energy-absorbing barrier blocks: blue and white panels with a red top band. */
-  static barrier(): THREE.CanvasTexture {
+  static barrier(file = 'barrier.webp'): THREE.CanvasTexture {
     const [c, ctx] = canvas(256, 64);
     ctx.fillStyle = '#1d4fa8'; ctx.fillRect(0, 0, 128, 64);
     ctx.fillStyle = '#e9edf2'; ctx.fillRect(128, 0, 128, 64);
     ctx.fillStyle = '#c4161c'; ctx.fillRect(0, 0, 256, 10);
     ctx.fillStyle = 'rgba(0,0,0,0.25)';
     ctx.fillRect(126, 0, 4, 64); ctx.fillRect(0, 60, 256, 4);
-    return upgrade(texture(c, true), 'barrier.webp');
+    return upgrade(texture(c, true), file);
   }
 
   /** Chequered start/finish strip: two rows of squares along u. */
@@ -196,7 +196,7 @@ export class Textures {
       ctx.save(); ctx.translate(128, 128); ctx.rotate(i * Math.PI);
       ctx.fillText('P ZERO', 0, -112); ctx.restore();
     }
-    return texture(c, true, false);
+    return upgrade(texture(c, true, false), 'sidewall.webp');
   }
 
   /** Wheel rim face with spokes, so the wheel's rotation is visible. */
@@ -211,7 +211,7 @@ export class Textures {
     ctx.strokeStyle = '#c9ced6'; ctx.lineWidth = 6;
     ctx.beginPath(); ctx.arc(64, 64, 58, 0, Math.PI * 2); ctx.stroke();
     ctx.fillStyle = '#d8b13a'; ctx.beginPath(); ctx.arc(64, 64, 9, 0, Math.PI * 2); ctx.fill();
-    return texture(c, true, false);
+    return upgrade(texture(c, true, false), 'rim.webp');
   }
 
   /** Pit box marker painted on the asphalt. */
@@ -226,9 +226,17 @@ export class Textures {
     return texture(c, true, false);
   }
 
+  /** Cut-out billboard (trees, grandstand): no procedural stand-in, so it starts as one transparent pixel. */
+  static billboard(file: string): THREE.CanvasTexture {
+    const [c] = canvas(1, 1);
+    const t = upgrade(texture(c, true), file);
+    t.wrapT = THREE.ClampToEdgeWrapping;
+    return t;
+  }
+
   /** Equirectangular sky panorama for the background and reflections, delivered once it loads. */
-  static skyPanorama(onLoad: (sky: THREE.Texture) => void): void {
-    new THREE.TextureLoader().load(textureUrl('sky_day.webp'), sky => {
+  static skyPanorama(file: string, onLoad: (sky: THREE.Texture) => void): void {
+    new THREE.TextureLoader().load(textureUrl(file), sky => {
       sky.mapping = THREE.EquirectangularReflectionMapping;
       sky.colorSpace = THREE.SRGBColorSpace;
       onLoad(sky);
