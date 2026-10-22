@@ -9,6 +9,7 @@ import { BattlePush } from '../ai/BattlePush';
 import { DriverMistakes } from '../ai/DriverMistakes';
 import { Track, type SurfaceType } from '../track/Track';
 import { getRacingLine, RacingLine } from '../track/RacingLine';
+import { COMPOUND_SPECS, compoundGrip, nextDryCompound, weatherCompound, wrongForConditions, type TyreCompound } from './Tyres';
 
 export const DEFAULT_STRESS_LAP_SHARE = 0.25;
 /** Stress-lap share from a setting: 0..0.6, anything invalid falls back to the default. */
@@ -514,6 +515,15 @@ export class Car {
   public tyreTempRear = 85;
   public tyreWearFront = 0;
   public tyreWearRear = 0;
+  /** Compound fitted (see `Tyres.ts`); medium is the calibrated reference. */
+  public tyreCompound: TyreCompound = 'medium';
+  /** Compound fitted at every pit stop (player choice, or the same set in qualifying); null lets the strategy pick. */
+  public nextCompound: TyreCompound | null = null;
+  /**
+   * Water on the racing surface, 0 dry .. 1 soaked. Set by the race session for every car;
+   * only race-mode cars feel it, so training laps and records stay dry.
+   */
+  public static trackWetness = 0;
   public ersEnergy = Car.ERS_CAPACITY * 0.85;
   private ersHarvestedLap = 0;
   public ersDeploying = false;
@@ -881,6 +891,8 @@ export class Car {
       this.ersEnergy = Car.ERS_CAPACITY * 0.85;
       this.tyreTempFront = this.tyreTempRear = 85;
       this.tyreWearFront = this.tyreWearRear = 0;
+      this.tyreCompound = 'medium';
+      this.nextCompound = null;
     }
     this.ersHarvestedLap = 0;
     this.gear = 1; this.engineRpm = Car.IDLE_RPM; this.shiftCutTimer = 0; this.shiftCooldown = 0;
@@ -963,26 +975,45 @@ export class Car {
     return enter > 0 ? enter : Infinity;
   }
 
-  /** Grip multiplier of an axle from tyre temperature (asymmetric bell, 0.75..1) and wear (up to -25%). */
-  static tyreGrip(temp: number, wear: number): number {
-    const d = temp - Car.TYRE_OPTIMUM;
-    const thermal = d < 0 ? 0.80 + 0.20 * Math.exp(-(d * d) / (2 * 22 * 22)) : 0.75 + 0.25 * Math.exp(-(d * d) / (2 * 26 * 26));
-    return thermal * (1 - 0.25 * Math.pow(Math.max(0, Math.min(1, wear)), 1.4));
+  /**
+   * Grip multiplier of an axle from tyre temperature (asymmetric bell around the compound's
+   * window, 0.75..1), wear (up to -25%) and the compound's grip on a track this wet.
+   */
+  static tyreGrip(temp: number, wear: number, compound: TyreCompound = 'medium', wetness = 0): number {
+    const spec = COMPOUND_SPECS[compound];
+    const d = temp - spec.optimum;
+    const thermal = d < 0 ? 0.80 + 0.20 * Math.exp(-(d * d) / (2 * spec.coldWidth * spec.coldWidth)) : 0.75 + 0.25 * Math.exp(-(d * d) / (2 * spec.hotWidth * spec.hotWidth));
+    return thermal * (1 - 0.25 * Math.pow(Math.max(0, Math.min(1, wear)), 1.4)) * compoundGrip(compound, wetness);
   }
 
   private get tyresActive(): boolean { return this.isRaceMode || Car.TYRE_MODEL_IN_TRAINING; }
 
-  /** Grip the planner can expect from the current tyres (1 on blankets). */
-  get tyreGripFront(): number { return this.tyresActive ? Car.tyreGrip(this.tyreTempFront, this.tyreWearFront) : 1; }
-  get tyreGripRear(): number { return this.tyresActive ? Car.tyreGrip(this.tyreTempRear, this.tyreWearRear) : 1; }
+  /** Track wetness this car drives on (training is always dry). */
+  get wetness(): number { return this.isRaceMode ? Car.trackWetness : 0; }
 
-  /** Heat balance of one axle: slip + hysteresis heating against airflow and track cooling. */
+  /** Grip the planner can expect from the current tyres (1 on blankets). */
+  get tyreGripFront(): number { return this.tyresActive ? Car.tyreGrip(this.tyreTempFront, this.tyreWearFront, this.tyreCompound, this.wetness) : 1; }
+  get tyreGripRear(): number { return this.tyresActive ? Car.tyreGrip(this.tyreTempRear, this.tyreWearRear, this.tyreCompound, this.wetness) : 1; }
+
+  /**
+   * Heat balance of one axle: slip + hysteresis heating against airflow and track cooling.
+   * Water cools the tyre (spray, cooler surface) and lubricates it, so it wears less.
+   */
   private stepTyre(temp: number, wear: number, slipPower: number, load: number, speed: number, dt: number): [number, number] {
+    const wet = this.wetness;
     const heat = (slipPower + 0.0075 * load * speed) * Car.TYRE_HEAT_SCALE;
-    const cooling = 2 * (15 + 3.2 * Math.pow(Math.max(0, speed), 0.8)) * (temp - Car.TYRE_AMBIENT) + 60 * (temp - Car.TYRE_TRACK);
-    const next = Math.max(Car.TYRE_AMBIENT, Math.min(180, temp + (heat - cooling) / Car.TYRE_HEAT_CAPACITY * dt));
-    const nextWear = Math.min(1, wear + Car.TYRE_WEAR_RATE * Math.pow(temp / 100, 2) * slipPower * dt);
+    const cooling = (2 * (15 + 3.2 * Math.pow(Math.max(0, speed), 0.8)) * (temp - Car.TYRE_AMBIENT) + 60 * (temp - (Car.TYRE_TRACK - 16 * wet))) * (1 + 0.9 * wet);
+    const next = Math.max(Car.TYRE_AMBIENT - 8 * wet, Math.min(180, temp + (heat - cooling) / Car.TYRE_HEAT_CAPACITY * dt));
+    const wearRate = Car.TYRE_WEAR_RATE * COMPOUND_SPECS[this.tyreCompound].wear * (1 - 0.6 * wet);
+    const nextWear = Math.min(1, wear + wearRate * Math.pow(temp / 100, 2) * slipPower * dt);
     return [next, nextWear];
+  }
+
+  /** Compound fitted at the next stop: the player's request, else the strategy for the conditions. */
+  pitCompound(): TyreCompound {
+    if (this.nextCompound) return this.nextCompound;
+    const dry = nextDryCompound(this.tyreCompound);
+    return weatherCompound(this.wetness, dry);
   }
 
   /**
@@ -995,7 +1026,8 @@ export class Car {
 
   planDrive(track: Track, leaderSpeeds?: number[]): DrivePlan {
     // AI pit strategy: request pit stop if fuel reserve is low
-    if ((this.fuelKg < 12.0 || (this.tyresActive && Math.max(this.tyreWearFront, this.tyreWearRear) > 0.7)) && !this.isPitting) {
+    const wrongTyres = this.isRaceMode && !this.isManual && wrongForConditions(this.tyreCompound, this.wetness);
+    if ((this.fuelKg < 12.0 || wrongTyres || (this.tyresActive && Math.max(this.tyreWearFront, this.tyreWearRear) > 0.7)) && !this.isPitting) {
       this.wantsToPit = true;
     }
 
@@ -1477,6 +1509,7 @@ export class Car {
         this.isPitting = false;
         this.wantsToPit = false;
         this.damage = 0; // nose/wing change during the stop
+        this.tyreCompound = this.pitCompound();
         this.tyreWearFront = this.tyreWearRear = 0; // fresh, pre-heated set
         this.tyreTempFront = this.tyreTempRear = 85;
         this.isOutOfFuel = false;

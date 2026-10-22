@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { Car } from '../../physics/Car';
 import { Textures } from './Textures';
+import { COMPOUND_SPECS } from '../../physics/Tyres';
 
 /** Instances per part; the field is 20 cars plus the player. */
 const CAPACITY = 48;
@@ -86,6 +87,14 @@ function tyreGeometry(): THREE.BufferGeometry {
   return mergeGeometries([tread, outer, inner], true);
 }
 
+/** Compound band on both sidewalls, just proud of the rubber so it never z-fights. */
+function compoundBandGeometry(): THREE.BufferGeometry {
+  const z = WHEEL_WIDTH / 2 + 0.004;
+  const outer = new THREE.RingGeometry(0.276, 0.316, 40).translate(0, 0, z);
+  const inner = new THREE.RingGeometry(0.276, 0.316, 40).rotateY(Math.PI).translate(0, 0, -z);
+  return mergeGeometries([outer, inner]);
+}
+
 export class CarFleet {
   readonly group = new THREE.Group();
   private readonly body: THREE.InstancedMesh;
@@ -93,6 +102,7 @@ export class CarFleet {
   private readonly helmet: THREE.InstancedMesh;
   private readonly tyres: THREE.InstancedMesh;
   private readonly rims: THREE.InstancedMesh;
+  private readonly bands: THREE.InstancedMesh;
   private readonly lights: THREE.InstancedMesh;
   private readonly rings: THREE.InstancedMesh;
   private readonly selection: THREE.Mesh;
@@ -115,6 +125,7 @@ export class CarFleet {
     const tread = new THREE.MeshStandardMaterial({ color: 0x131315, roughness: 0.9 });
     const sidewall = new THREE.MeshStandardMaterial({ map: Textures.sidewall(), roughness: 0.85 });
     const rim = new THREE.MeshStandardMaterial({ map: Textures.rim(), roughness: 0.35, metalness: 0.7 });
+    const band = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.6 });
     const light = new THREE.MeshBasicMaterial({ color: 0xff1030, toneMapped: false });
     const ring = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.6, depthWrite: false, toneMapped: false });
 
@@ -134,9 +145,10 @@ export class CarFleet {
     this.helmet = make(new THREE.SphereGeometry(0.135, 16, 12).translate(0.3, 0.7, 0), helmet, CAPACITY);
     this.tyres = make(tyreGeometry(), [tread, sidewall, sidewall], CAPACITY * 4);
     this.rims = make(new THREE.CylinderGeometry(0.235, 0.235, WHEEL_WIDTH - 0.05, 24).rotateX(Math.PI / 2), rim, CAPACITY * 4);
+    this.bands = make(compoundBandGeometry(), band, CAPACITY * 4, false);
     this.lights = make(new THREE.BoxGeometry(0.05, 0.08, 0.14).translate(-2.66, 0.46, 0), light, CAPACITY, false);
     this.rings = make(new THREE.RingGeometry(0.86, 1, 48).rotateX(-Math.PI / 2).translate(0, 0.04, 0), ring, CAPACITY, false);
-    for (const mesh of [this.body, this.helmet, this.rings]) mesh.setColorAt(0, this.c.set(0xffffff));
+    for (const mesh of [this.body, this.helmet, this.rings, this.bands]) mesh.setColorAt(0, this.c.set(0xffffff));
 
     const dashed = new THREE.MeshBasicMaterial({ map: Textures.dashedRing(), transparent: true, depthWrite: false, toneMapped: false });
     this.selection = new THREE.Mesh(new THREE.PlaneGeometry(2, 2).rotateX(-Math.PI / 2), dashed);
@@ -190,6 +202,7 @@ export class CarFleet {
       this.spin.set(car, spin);
       // Fronts steer by the road-wheel angle the actuator delivers (interpolated with the pose), not the raw command.
       const steer = car.isAlive ? -car.wheelAngle : 0;
+      const compound = this.teamColor(COMPOUND_SPECS[car.tyreCompound]?.color ?? COMPOUND_SPECS.medium.color);
       for (let w = 0; w < 4; w++) {
         const [x, z, front] = WHEELS[w];
         part.makeRotationZ(-spin);
@@ -198,6 +211,8 @@ export class CarFleet {
         part.premultiply(ground);
         this.tyres.setMatrixAt(n * 4 + w, part);
         this.rims.setMatrixAt(n * 4 + w, part);
+        this.bands.setMatrixAt(n * 4 + w, part);
+        this.bands.setColorAt(n * 4 + w, compound);
       }
 
       const braking = (car.currentControl?.brake ?? 0) > 0.1;
@@ -220,7 +235,7 @@ export class CarFleet {
       n++;
     }
 
-    for (const [mesh, count] of [[this.body, n], [this.carbon, n], [this.helmet, n], [this.tyres, n * 4], [this.rims, n * 4], [this.lights, lit], [this.rings, ringCount]] as const) {
+    for (const [mesh, count] of [[this.body, n], [this.carbon, n], [this.helmet, n], [this.tyres, n * 4], [this.rims, n * 4], [this.bands, n * 4], [this.lights, lit], [this.rings, ringCount]] as const) {
       mesh.count = count;
       mesh.instanceMatrix.needsUpdate = true;
       if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;

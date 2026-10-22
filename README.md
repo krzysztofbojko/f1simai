@@ -23,6 +23,12 @@ Przeglądarkowy symulator wyścigów 2D w TypeScript i Vite. Dwadzieścia bolid�
 
 Model uwzględnia masę paliwa, moc i trakcję napędu, docisk, wektor oporu powietrza oraz wspólne koło tarcia dla sił opon. Szerokość toru jest wyrażona w metrach. Telemetria pokazuje przyspieszenie wynikające ze zmiany prędkości.
 
+### Opony i nawierzchnia
+
+W wyścigu i kwalifikacjach bolidy jeżdżą na pięciu mieszankach (`src/physics/Tyres.ts`): Soft (S, czerwona), Medium (M, żółta, punkt odniesienia kalibracji), Hard (H, biała), Intermediate (I, zielona) i Wet (W, niebieska). Mieszanka zmienia szczytową przyczepność (soft +3,5%, hard −3%, intery −12% i deszczówki −18% na suchym), okno temperatury pracy (95 / 100 / 108 / 80 / 70 °C) i tempo zużycia (×1,8 / ×1 / ×0,6 / ×2,6 / ×3,4). Nawierzchnię wybiera się w panelu wyścigu (sucha, przesychająca, wilgotna, mokra, ulewa). Woda obniża przyczepność slicków do ~45% na mokrym, chłodzi opony i zmniejsza zużycie. Intery są najszybsze na wilgotnym torze, deszczówki w ulewie. Trening zawsze odbywa się na suchym torze, więc rekordy pozostają porównywalne.
+
+AI startuje na mieszance zależnej od pola startowego (medium / soft / hard) albo na oponach dobranych do pogody. W boksie zmienia slicki (na hard, z hard na medium), a gdy nawierzchnia zmieni się w trakcie wyścigu, zjeżdża po opony właściwe dla warunków. Gracz wybiera swoją mieszankę na start i na każdy pit stop. Mieszankę widać w tabeli wyników i telemetrii, a w 3D jako kolorowy pasek na boku opony.
+
 To model hybrydowy do gry. Nie zawiera pełnej dynamiki yaw, kontaktów między bolidami ani fizycznego przejazdu aleją serwisową. Osiągi nie są kalibrowane względem konkretnego bolidu F1. Szczegóły, stałe i ograniczenia opisuje [PHYSICS.md](PHYSICS.md).
 
 Po zmianie fizyki z 04.10.2026 dawne rekordy i modele AI wymagają ponownego treningu. Zmiana ERS na regulamin 2026 (13.10.2026) ponownie zmienia czasy okrążeń, więc dawne rekordy nie są porównywalne. Pliki modeli z 10 kierowcami nadal się wczytują: drugi kierowca zespołu dostaje lekko zmutowaną kopię sieci partnera. Droga hamowania i czasy okrążeń zmieniły się wraz z poprawą limitów tarcia i skali drogi.

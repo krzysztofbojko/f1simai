@@ -9,7 +9,7 @@ const dir = await mkdtemp(join(tmpdir(), 'f1-neural-'));
 try {
   await build({ configFile: false, logLevel: 'silent', build: { outDir: dir, lib: { entry: {
     car: resolve('src/physics/Car.ts'), vector: resolve('src/math/Vector2.ts'), presets: resolve('src/track/Presets.ts'),
-    network: resolve('src/ai/NeuralNetwork.ts'), population: resolve('src/ai/Population.ts'), traffic: resolve('src/physics/Traffic.ts'), pace: resolve('src/ai/PaceSearch.ts'), lines: resolve('src/ai/LineSearch.ts'), linenet: resolve('src/ai/LineNet.ts') },
+    network: resolve('src/ai/NeuralNetwork.ts'), population: resolve('src/ai/Population.ts'), traffic: resolve('src/physics/Traffic.ts'), pace: resolve('src/ai/PaceSearch.ts'), lines: resolve('src/ai/LineSearch.ts'), linenet: resolve('src/ai/LineNet.ts'), tyres: resolve('src/physics/Tyres.ts') },
     formats: ['es'], fileName: (_, name) => name + '.mjs' } } });
   const load = async name => import(pathToFileURL(join(dir, name + '.mjs')));
   const { Car, decodeDriverOutputs, encodeDriverTargets, driverInputCount } = await load('car');
@@ -21,6 +21,7 @@ try {
   const { PaceSearch } = await load('pace');
   const { LineSearch } = await load('lines');
   const { LineNet, lineInputs } = await load('linenet');
+  const { COMPOUND_SPECS, weatherCompound, wrongForConditions } = await load('tyres');
   let state = 99;
   Math.random = () => { state = (Math.imul(state, 1664525) + 1013904223) >>> 0; return state / 4294967296; };
   const gp = Presets.createGrandPrixTrack(14);
@@ -318,6 +319,33 @@ try {
   Car.TYRE_MODEL_IN_TRAINING = true;
   driveCorner(true, 120);
   assert.ok(tyreCar.tyreTempFront !== 85 && tyreCar.tyreWearFront > 0, 'race tyres heat up and wear: ' + tyreCar.tyreTempFront);
+  // Compounds: soft > medium > hard in grip and the reverse in wear; treaded tyres win only on a wet track.
+  const peak = (c, w = 0) => Car.tyreGrip(COMPOUND_SPECS[c].optimum, 0, c, w);
+  assert.ok(Math.abs(peak('medium') - 1) < 1e-9, 'a dry medium is the calibrated reference');
+  assert.ok(peak('soft') > peak('medium') && peak('medium') > peak('hard'), 'soft grips most, hard least');
+  assert.ok(peak('hard') > peak('intermediate') && peak('intermediate') > peak('wet'), 'treaded tyres are slow in the dry');
+  assert.ok(peak('intermediate', 0.5) > peak('soft', 0.5) && peak('intermediate', 0.5) > peak('wet', 0.5), 'intermediates rule a damp track');
+  assert.ok(peak('wet', 1) > peak('intermediate', 1) && peak('intermediate', 1) > peak('soft', 1), 'full wets rule a soaked track');
+  assert.equal(weatherCompound(0, 'soft'), 'soft'); assert.equal(weatherCompound(0.5, 'soft'), 'intermediate'); assert.equal(weatherCompound(1, 'hard'), 'wet');
+  assert.ok(wrongForConditions('soft', 1) && wrongForConditions('wet', 0) && !wrongForConditions('hard', 0), 'wrong tyres for the weather are recognised');
+  const stint = (compound, wetness, steer = 0.12) => {
+    Car.trackWetness = wetness;
+    tyreCar.isRaceMode = true; tyreCar.reset(gp.startPosition, gp.startAngle, true, 1); tyreCar.tyreCompound = compound;
+    tyreCar.vel = Vector2.fromAngle(tyreCar.heading).mul(45); tyreCar.speed = 45;
+    for (let i = 0; i < 240; i++) tyreCar.updatePhysics({ throttle: 0.5, brake: 0, steer }, 1 / 60, stub);
+    Car.trackWetness = 0;
+    return { wear: tyreCar.tyreWearFront, temp: tyreCar.tyreTempFront };
+  };
+  assert.ok(stint('soft', 0).wear > stint('medium', 0).wear && stint('medium', 0).wear > stint('hard', 0).wear, 'softer compounds wear faster');
+  assert.ok(stint('medium', 1, 0).temp < stint('medium', 0, 0).temp, 'a wet track cools the tyres');
+  assert.ok(stint('wet', 1, 0).wear < stint('wet', 0, 0).wear, 'full wets wear less on water than on a dry track');
+  // Pit stops fit the player's request, else the next slick or the tyre for the weather.
+  tyreCar.isRaceMode = true; tyreCar.reset(gp.startPosition, gp.startAngle, true, 1);
+  assert.equal(tyreCar.tyreCompound, 'medium'); assert.equal(tyreCar.pitCompound(), 'hard');
+  Car.trackWetness = 0.9; assert.equal(tyreCar.pitCompound(), 'wet');
+  tyreCar.nextCompound = 'soft'; assert.equal(tyreCar.pitCompound(), 'soft');
+  Car.trackWetness = 0; tyreCar.isRaceMode = false; Car.trackWetness = 1;
+  assert.equal(tyreCar.wetness, 0, 'training is always dry'); Car.trackWetness = 0;
   // Gearbox: 8 ratios, limiter-bound top speed, shift-cut and real gear/rpm bookkeeping.
   const gearCar = new Car(gp.startPosition, gp.startAngle, new NeuralNetwork([driverInputCount(25), 4, 3]), '#fff', 'gears', 60, 25);
   const gearsSeen = new Set(); let maxRpm = 0, cutSteps = 0, prevGear = 1, prevForce = 0;

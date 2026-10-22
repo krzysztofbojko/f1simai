@@ -1274,6 +1274,24 @@ input[type="checkbox"] {
 .race-lap-btn:focus-visible { outline-offset: -2px; }
 .race-lap-btn.active { background: var(--f1-red); color: #fff; }
 
+.race-tyre-row .control-label { flex: none; min-width: 96px; }
+.race-tyre-row .f1-select { flex: 1; width: auto; min-width: 0; }
+
+/* Compound badge: the letter in a ring of the compound's sidewall colour. */
+.tyre-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  flex: none;
+  border-radius: 50%;
+  border: 2px solid var(--tyre-color);
+  background: #111;
+  color: var(--tyre-color);
+  font: 700 9px/1 var(--font-mono);
+}
+
 .race-quali-toggle {
   display: flex;
   align-items: center;

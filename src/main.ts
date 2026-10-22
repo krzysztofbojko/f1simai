@@ -7,6 +7,7 @@ import { Presets } from './track/Presets';
 import { getRacingLine } from './track/RacingLine';
 import { Population, LapLeaderboardEntry } from './ai/Population';
 import { Car, CarControl, driverInputCount, clampStressShare, DEFAULT_STRESS_LAP_SHARE } from './physics/Car';
+import { COMPOUND_SPECS, isCompound } from './physics/Tyres';
 import { SceneRenderer } from './rendering/three/SceneRenderer';
 import { MotionInterpolator } from './rendering/MotionInterpolator';
 import type { CameraMode } from './rendering/three/Cameras';
@@ -21,6 +22,14 @@ const REAL_TRACK_FILES = import.meta.glob<string>(['../tracks/*.json', '!../trac
 
 function loadFlag(key: string): boolean {
   try { return localStorage.getItem(key) === '1'; } catch { return false; }
+}
+
+function loadSetting(key: string): string | null {
+  try { return localStorage.getItem(key); } catch { return null; }
+}
+
+function wetnessLabel(wetness: number): string {
+  return wetness < 0.15 ? 'suchy' : wetness < 0.45 ? 'przesychający' : wetness < 0.7 ? 'wilgotny' : wetness < 0.9 ? 'mokry' : 'ulewa';
 }
 
 class App {
@@ -73,6 +82,7 @@ class App {
   private hasShownQualiModal = false;
   private qualiCountdownTimer: number | null = null;
   private withQualifying = loadFlag('f1_with_qualifying');
+  private latestTrackWetness = 0;
   private latestRaceStartLights: number = 0;
   private latestRaceCurrentLap: number = 1;
   private latestRaceTotalLaps: number = 50;
@@ -183,6 +193,7 @@ class App {
         car.wakeDrag = sc.wakeDrag ?? 1; car.wakeDownforce = sc.wakeDownforce ?? 1; car.plankForce = sc.plankForce ?? 0; car.porpoisingHz = sc.porpoisingHz ?? 0;
         car.tyreTempFront = sc.tyreTempFront ?? 100; car.tyreTempRear = sc.tyreTempRear ?? 100;
         car.tyreWearFront = sc.tyreWearFront ?? 0; car.tyreWearRear = sc.tyreWearRear ?? 0;
+        car.tyreCompound = sc.tyreCompound ?? 'medium';
         car.incidentActive = sc.incidentActive;
         car.battleOpponent = sc.battleOpponent;
         car.overtakingTargetName = sc.overtakingTargetName;
@@ -274,6 +285,7 @@ class App {
       this.latestRaceStartLights = snapshot.raceStartLights;
       this.latestRaceWinner = snapshot.raceWinner;
       this.latestRaceStandings = snapshot.raceStandings || [];
+      this.latestTrackWetness = snapshot.trackWetness ?? 0;
       this.latestQualifying = snapshot.qualifying ?? null;
 
       if (snapshot.raceState === 'QUALI_FINISHED' && snapshot.qualifying && !this.hasShownQualiModal) {
@@ -353,6 +365,7 @@ class App {
         this.playerCar.wakeDrag = sp.wakeDrag ?? 1; this.playerCar.wakeDownforce = sp.wakeDownforce ?? 1; this.playerCar.plankForce = sp.plankForce ?? 0; this.playerCar.porpoisingHz = sp.porpoisingHz ?? 0;
         this.playerCar.tyreTempFront = sp.tyreTempFront ?? 100; this.playerCar.tyreTempRear = sp.tyreTempRear ?? 100;
         this.playerCar.tyreWearFront = sp.tyreWearFront ?? 0; this.playerCar.tyreWearRear = sp.tyreWearRear ?? 0;
+        this.playerCar.tyreCompound = sp.tyreCompound ?? 'medium';
         this.playerCar.incidentActive = sp.incidentActive;
         this.playerCar.battleOpponent = sp.battleOpponent;
         this.playerCar.overtakingTargetName = sp.overtakingTargetName;
@@ -1271,6 +1284,30 @@ class App {
       });
     }
 
+    // Weather and tyres: restored from the last session and sent to the worker at once.
+    const selectWetness = document.getElementById('select-track-wetness') as HTMLSelectElement | null;
+    const selectCompound = document.getElementById('select-player-compound') as HTMLSelectElement | null;
+    if (selectWetness) {
+      const saved = loadSetting('f1_track_wetness');
+      if (saved !== null && [...selectWetness.options].some(o => o.value === saved)) selectWetness.value = saved;
+      const apply = () => {
+        this.bridge.setTyres({ wetness: parseFloat(selectWetness.value) || 0 });
+        try { localStorage.setItem('f1_track_wetness', selectWetness.value); } catch {}
+      };
+      selectWetness.addEventListener('change', apply);
+      apply();
+    }
+    if (selectCompound) {
+      const saved = loadSetting('f1_player_compound');
+      if (isCompound(saved)) selectCompound.value = saved;
+      const apply = () => {
+        this.bridge.setTyres({ compound: selectCompound.value });
+        try { localStorage.setItem('f1_player_compound', selectCompound.value); } catch {}
+      };
+      selectCompound.addEventListener('change', apply);
+      apply();
+    }
+
     document.getElementById('btn-start-race')?.addEventListener('click', () => {
       this.startRace(this.selectedRaceLaps, { withQualifying: this.withQualifying });
     });
@@ -2017,7 +2054,7 @@ class App {
     const rpmEl = document.getElementById('tele-rpm');
     if (rpmEl) rpmEl.textContent = activeCar ? `${Math.round(activeCar.engineRpm / 10) * 10} rpm · prześwit ${Math.round(activeCar.rideHeightFront * 1000)}/${Math.round(activeCar.rideHeightRear * 1000)} mm${activeCar.aeroStall ? ' ⚠ ZERWANIE PRZEPŁYWU' : ''}${activeCar.plankForce > 0 ? ' ⚠ DOBIJANIE DESKI' : ''}${Car.PORPOISING && activeCar.porpoisingHz > 0 ? ` ⚠ MORŚWINOWANIE ${activeCar.porpoisingHz.toFixed(1)} Hz` : ''}${activeCar.wakeDrag < 0.97 ? ` · cień aero opór −${Math.round((1 - activeCar.wakeDrag) * 100)}% docisk −${Math.round((1 - activeCar.wakeDownforce) * 100)}%` : ''}` : 'rpm'
     const tyreEl = document.getElementById('tele-tyres');
-    if (tyreEl) tyreEl.textContent = activeCar ? `OPONY P ${Math.round(activeCar.tyreTempFront)}° T ${Math.round(activeCar.tyreTempRear)}° · zużycie ${Math.round(Math.max(activeCar.tyreWearFront, activeCar.tyreWearRear) * 100)}%` : 'OPONY';
+    if (tyreEl) tyreEl.textContent = activeCar ? `OPONY ${COMPOUND_SPECS[activeCar.tyreCompound].label.toUpperCase()}${this.latestRaceState !== 'IDLE' && this.latestTrackWetness > 0 ? ` · tor ${wetnessLabel(this.latestTrackWetness)}` : ''} · P ${Math.round(activeCar.tyreTempFront)}° T ${Math.round(activeCar.tyreTempRear)}° · zużycie ${Math.round(Math.max(activeCar.tyreWearFront, activeCar.tyreWearRear) * 100)}%` : 'OPONY';
     const ersEl = document.getElementById('tele-ers');
     if (ersEl) ersEl.textContent = activeCar ? `ERS ${Math.round(activeCar.ersEnergy / Car.ERS_CAPACITY * 100)}%` : 'ERS';
     document.getElementById('tele-pressure')!.textContent = activeCar?.isManual ? 'RĘCZNIE'
@@ -2305,6 +2342,7 @@ class App {
                 <div class="driver-title">
                   <span class="team-dot" style="background-color: ${entry.carColor}"></span>
                   <span>${entry.driverName}</span>
+                  ${car && this.latestRaceState !== 'IDLE' ? `<span class="tyre-badge" style="--tyre-color: ${COMPOUND_SPECS[car.tyreCompound].color}" title="Opony: ${COMPOUND_SPECS[car.tyreCompound].label}">${COMPOUND_SPECS[car.tyreCompound].letter}</span>` : ''}
                 </div>
                 <div class="driver-stats-row">
                   <span class="avg-speed-badge">Śr: ${entry.avgSpeed} km/h</span>

@@ -335,6 +335,27 @@
               </div>
             </div>
 
+            <div class="race-setup-row race-tyre-row">
+              <label class="control-label" for="select-track-wetness">Nawierzchnia</label>
+              <select id="select-track-wetness" class="f1-select" title="Woda na torze w wyścigu i kwalifikacjach (trening jest zawsze suchy). Zmiana w trakcie wyścigu: AI zjeżdża po właściwe opony.">
+                <option value="0">Sucha</option>
+                <option value="0.3">Przesychająca</option>
+                <option value="0.5">Wilgotna</option>
+                <option value="0.8">Mokra</option>
+                <option value="1">Ulewa</option>
+              </select>
+            </div>
+            <div class="race-setup-row race-tyre-row">
+              <label class="control-label" for="select-player-compound">Twoje opony</label>
+              <select id="select-player-compound" class="f1-select" title="Mieszanka na start i na każdy pit stop Twojego bolidu (zmiana w trakcie wyścigu: przy następnym zjeździe)">
+                <option value="soft">Soft (S) — najszybsze, szybko się zużywają</option>
+                <option value="medium" selected>Medium (M) — kompromis</option>
+                <option value="hard">Hard (H) — wolniejsze, najtrwalsze</option>
+                <option value="intermediate">Intermediate (I) — wilgotny tor</option>
+                <option value="wet">Wet (W) — mokry tor, ulewa</option>
+              </select>
+            </div>
+
             <label class="race-quali-toggle" title="Przed wyścigiem: Q1 18 min (20 aut, odpada 5), Q2 15 min (odpada 5), Q3 12 min (10 aut). Kolejność startu według wyników.">
               <input type="checkbox" id="check-qualifying">
               <span>Kwalifikacje do wyścigu <small>Q1 18′ · Q2 15′ · Q3 12′</small></span>

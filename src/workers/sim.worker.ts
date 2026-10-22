@@ -8,6 +8,7 @@ import { Spline } from '../math/Spline';
 import { Vector2 } from '../math/Vector2';
 import { TopologySpecifier } from '../ai/NeuralNetwork';
 import { Qualifying, QualifyingPhase, QualifyingStanding } from '../race/Qualifying';
+import { isCompound, startingDryCompound, weatherCompound, type TyreCompound } from '../physics/Tyres';
 import { applyDriverModel, exportDriver, mergeBetterDrivers, serializeTrack } from '../ai/Islands';
 
 export type { TopologySpecifier };
@@ -129,6 +130,7 @@ export interface SerializedCar {
   tyreTempRear: number;
   tyreWearFront: number;
   tyreWearRear: number;
+  tyreCompound: TyreCompound;
   incidentActive: boolean;
   battleOpponent: string;
   overtakingTargetName: string;
@@ -194,6 +196,8 @@ export interface SimSnapshot {
   raceStartLights: number;
   raceWinner: string | null;
   raceStandings: RaceStanding[];
+  /** Water on the track, 0 dry .. 1 soaked (race and qualifying only). */
+  trackWetness: number;
   qualifying: QualifyingSnapshot | null;
   /** Starting order from the last qualifying, used by the next race start. */
   hasQualifyingGrid: boolean;
@@ -266,6 +270,8 @@ let raceStartLights: number = 0; // 0: off, 1..5: red lights, -1: lights out (go
 let raceStartTimer: number = 0;
 let raceWinner: string | null = null;
 let frozenRaceStandings: RaceStanding[] | null = null;
+/** The player's compound: fitted at the start and at every stop of their car. */
+let playerCompound: TyreCompound = 'medium';
 
 // Qualifying State
 const QUALI_FUEL_KG = 20; // topped up on every lap: runs between short refuelling visits are not modelled
@@ -401,6 +407,7 @@ function serializeCar(car: Car, ctrl?: CarControl, isHeadless: boolean = false):
     tyreTempRear: Math.round(car.tyreTempRear),
     tyreWearFront: Math.round(car.tyreWearFront * 1000) / 1000,
     tyreWearRear: Math.round(car.tyreWearRear * 1000) / 1000,
+    tyreCompound: car.tyreCompound,
     incidentActive: car.incidentActive,
     battleOpponent: car.battleOpponent,
     overtakingTargetName: car.overtakingTargetName,
@@ -665,6 +672,7 @@ function createSnapshot(): SimSnapshot {
     raceStartLights,
     raceWinner,
     raceStandings,
+    trackWetness: Car.trackWetness,
     qualifying: qualifying ? {
       session: qualifying.session,
       phase: qualifying.phase,
@@ -682,6 +690,22 @@ function createSnapshot(): SimSnapshot {
 
 function sessionCars(): Car[] {
   return [...population.cars, ...(playerCar && isPlayerDriving ? [playerCar] : [])];
+}
+
+/** The car the player drives: their own car, or a team car they took over. */
+function isPlayerCar(car: Car): boolean {
+  return car === playerCar || (!!manualCarColor && car.color === manualCarColor);
+}
+
+/** Fits the session's starting tyres: the player's choice, or a slick by grid slot adjusted to the weather. */
+function fitStartingTyres(car: Car, gridIndex: number, dryChoice: TyreCompound = startingDryCompound(gridIndex)): void {
+  if (isPlayerCar(car)) {
+    car.tyreCompound = playerCompound;
+    car.nextCompound = playerCompound;
+  } else {
+    car.tyreCompound = weatherCompound(Car.trackWetness, dryChoice);
+    car.nextCompound = null;
+  }
 }
 
 /** Race and qualifying use each driver's protected best network, not the one still learning. */
@@ -716,6 +740,9 @@ function releaseQualifier(car: Car, slotIndex: number): void {
   car.updateDimensionsForTrackWidth(track.width);
   car.fuelKg = QUALI_FUEL_KG;
   car.ersEnergy = Car.ERS_CAPACITY;
+  fitStartingTyres(car, slotIndex, 'soft');
+  // A qualifying stop brings another set of the same tyres.
+  if (!isPlayerCar(car)) car.nextCompound = car.tyreCompound;
   car.isAlive = true;
   car.pitStopsCount = 0;
   car.trackLimitExits = 0;
@@ -1060,6 +1087,17 @@ self.onmessage = (e: MessageEvent) => {
       break;
     }
 
+    case 'SET_TYRES': {
+      // Weather and the player's compound; changing them mid-race takes effect at the next stop.
+      if (typeof data.wetness === 'number' && Number.isFinite(data.wetness)) Car.trackWetness = Math.max(0, Math.min(1, data.wetness));
+      if (isCompound(data.compound)) {
+        playerCompound = data.compound;
+        for (const car of sessionCars()) if (isPlayerCar(car)) car.nextCompound = playerCompound;
+        if (playerCar) playerCar.nextCompound = playerCompound;
+      }
+      break;
+    }
+
     case 'SET_DRIVER_PRESSURE': {
       driverPressure = normalizePressure(data.value);
       population.setDriverPressure(driverPressure);
@@ -1161,6 +1199,7 @@ self.onmessage = (e: MessageEvent) => {
         const slot = track.getGridSlot(i);
         car.reset(slot.pos, slot.heading, true, (slot.checkpointIdx + 1) % track.checkpoints.length);
         car.updateDimensionsForTrackWidth(track.width);
+        fitStartingTyres(car, i);
         car.fuelKg = 50.0;
         car.pitStopsCount = 0;
         car.trackLimitExits = 0;
