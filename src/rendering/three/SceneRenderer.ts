@@ -189,19 +189,22 @@ export class SceneRenderer {
     this.hud.update(f.raceState, f.startLights, f.winner, f.drawMode, rig.pixelsPerMetre);
   }
 
-  /** Sky for a circuit file from tracks/: night races under lights, a grey sky for some European rounds. */
-  static skyFor(trackFile?: string): SkyKind {
-    if (!trackFile) return 'day';
-    if (/^(sg|ae|bh|sa|qa)-|las-vegas/.test(trackFile)) return 'night';
-    if (/^(gb|be|de|nl)-/.test(trackFile)) return 'overcast';
-    return 'day';
+  /**
+   * Setting for a circuit file from tracks/ (none: presets and drawn tracks): night races under
+   * lights, a grey sky for some European rounds, a city skyline around street circuits.
+   */
+  setCircuit(trackFile = ''): void {
+    const sky: SkyKind = /^(sg|ae|bh|sa|qa)-|las-vegas/.test(trackFile) ? 'night'
+      : /^(gb|be|de|nl)-/.test(trackFile) ? 'overcast' : 'day';
+    this.setSky(sky);
+    this.trackMesh.setScenery(/^(mc|sg|az|sa)-|las-vegas|miami/.test(trackFile), sky === 'night');
   }
 
   /**
    * Switches the lighting at once; the panorama (backdrop and reflections, in place of the studio
    * environment) follows when it has loaded. Loaded skies are kept for the next switch.
    */
-  setSky(kind: SkyKind): void {
+  private setSky(kind: SkyKind): void {
     if (kind === this.skyKind) return;
     this.skyKind = kind;
     const look = SKIES[kind];

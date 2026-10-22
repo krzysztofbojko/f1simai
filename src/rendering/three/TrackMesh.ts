@@ -7,9 +7,13 @@ import { Point2, stripGeometry, offsetPolyline } from './Geometry';
 /** Surface heights (m): each layer sits a few millimetres above the one it overlaps. */
 const H = { ground: -0.25, gravel: 0, grass: 0.004, asphalt: 0.01, paint: 0.018, kerb: 0.022 };
 const SECTOR_COLORS = ['#00D2BE', '#FFD700', '#A855F7', '#E10600'];
-/** Billboards: image aspect (width / height, from public/textures) and size in metres. */
-const TREES = { aspect: 2048 / 459, height: 16, gap: 25 };
-const GRANDSTAND = { aspect: 2048 / 386, length: 120, gap: 8 };
+/**
+ * Billboards: image aspect (width / height, from public/textures), size in metres, and the flat
+ * layer behind each for the top camera (`depth` metres deep at `topHeight`).
+ */
+const TREES = { aspect: 2048 / 459, height: 16, gap: 25, depth: 12, topHeight: 12, topAspect: 2048 / 415 };
+const CITY = { aspect: 2048 / 372, height: 45, gap: 15, depth: 40, topHeight: H.ground + 0.05, topAspect: 4 };
+const GRANDSTAND = { aspect: 2048 / 386, length: 120, gap: 8, depth: 18 };
 /** Every third 36 m stretch of barrier carries the sponsor banners. */
 const AD_STRETCH = 36;
 
@@ -47,6 +51,14 @@ export class TrackMesh {
   private readonly barrierAds: THREE.MeshStandardMaterial;
   private readonly trees: THREE.MeshStandardMaterial;
   private readonly grandstand: THREE.MeshStandardMaterial;
+  private readonly canopy: THREE.MeshStandardMaterial;
+  private readonly city: THREE.MeshStandardMaterial;
+  private readonly cityDay = Textures.billboard('city_day.webp');
+  private readonly cityNight = Textures.billboard('city_night.webp');
+  private readonly rooftops: THREE.MeshStandardMaterial;
+  private readonly standRoof: THREE.MeshStandardMaterial;
+  /** Street circuit: a skyline in place of the tree line. */
+  private street = false;
   private readonly checker: THREE.MeshStandardMaterial;
   private readonly pitLine: THREE.MeshBasicMaterial;
   private readonly pitBox: THREE.MeshBasicMaterial;
@@ -88,6 +100,17 @@ export class TrackMesh {
     trees.repeat.set(1 / (TREES.height * TREES.aspect), 1);
     this.trees = new THREE.MeshStandardMaterial({ map: trees, alphaTest: 0.5, roughness: 0.9, side: THREE.DoubleSide });
     this.grandstand = new THREE.MeshStandardMaterial({ map: Textures.billboard('grandstand.webp'), alphaTest: 0.5, roughness: 0.8, side: THREE.DoubleSide });
+    const canopy = Textures.billboard('canopy.webp');
+    canopy.repeat.set(1 / (TREES.depth * TREES.topAspect), 1);
+    this.canopy = new THREE.MeshStandardMaterial({ map: canopy, alphaTest: 0.5, roughness: 0.9, side: THREE.DoubleSide });
+    for (const t of [this.cityDay, this.cityNight]) t.repeat.set(1 / (CITY.height * CITY.aspect), 1);
+    this.city = new THREE.MeshStandardMaterial({ map: this.cityDay, alphaTest: 0.5, roughness: 0.6, side: THREE.DoubleSide });
+    const rooftops = Textures.billboard('rooftops.webp');
+    rooftops.repeat.set(1 / (CITY.depth * CITY.topAspect), 1);
+    this.rooftops = decal(new THREE.MeshStandardMaterial({ map: rooftops, roughness: 0.9 }), 1);
+    const roof = Textures.billboard('stand_roof.webp');
+    roof.repeat.set(1 / (GRANDSTAND.depth * 4), 1);
+    this.standRoof = new THREE.MeshStandardMaterial({ map: roof, roughness: 0.5, side: THREE.DoubleSide });
 
     const checker = Textures.checker();
     this.checker = decal(new THREE.MeshStandardMaterial({ map: checker, roughness: 0.6 }), 4);
@@ -96,6 +119,21 @@ export class TrackMesh {
     dash.repeat.set(1 / 2.5, 1);
     this.pitLine = decal(new THREE.MeshBasicMaterial({ color: 0xffd700, alphaMap: dash, transparent: true, depthWrite: false }), 4);
     this.pitBox = decal(new THREE.MeshBasicMaterial({ map: Textures.pitBox(), transparent: true, depthWrite: false }), 4);
+  }
+
+  /** Street circuits get a skyline instead of trees, with lit windows at night; rebuilds when that changes. */
+  setScenery(street: boolean, night: boolean): void {
+    this.city.map = night ? this.cityNight : this.cityDay;
+    this.city.emissiveMap = night ? this.cityNight : null;
+    this.city.emissive.set(night ? 0xffffff : 0x000000);
+    this.city.needsUpdate = true;
+    // Rooftops catch the city glow, so the top camera still shows the blocks at night.
+    this.rooftops.emissiveMap = night ? this.rooftops.map : null;
+    this.rooftops.emissive.set(night ? 0x3a3a3a : 0x000000);
+    this.rooftops.needsUpdate = true;
+    if (street === this.street) return;
+    this.street = street;
+    this.builtKey = '';
   }
 
   /** Rebuilds only when the track object or its geometry changed. */
@@ -311,32 +349,51 @@ export class TrackMesh {
   }
 
   /**
-   * A tree line a fixed gap beyond the barriers on both sides, and a grandstand opposite the pit
-   * lane along the start/finish straight. Points that would land near another part of the
-   * circuit (offsets folding through tight corners or across a nearby straight) are dropped.
+   * A tree line (a skyline of buildings on street circuits) a fixed gap beyond the barriers on
+   * both sides, and a grandstand opposite the pit lane along the start/finish straight. Each has
+   * a flat layer behind it for the top camera: tree crowns, rooftops, the grandstand roof.
+   * Points that would land near another part of the circuit (offsets folding through tight
+   * corners or across a nearby straight) are dropped.
    */
   private buildScenery(track: Track): void {
     const pts = track.points, run = track.runoff, n = pts.length;
     const clear = (q: Point2, need: number) => pts.every(p => (p.center.x - q.x) ** 2 + (p.center.y - q.y) ** 2 >= need * need);
     const place = (i: number, side: number, gap: number) => {
       const barrier = side > 0 ? run[i].leftBarrier : run[i].rightBarrier;
-      const q = barrier.add(pts[i].normal.mul(side * gap));
-      return { q, ok: clear(q, barrier.dist(pts[i].center) + gap - 2) };
+      const out = pts[i].normal.mul(side);
+      const q = barrier.add(out.mul(gap));
+      return { q, out, ok: clear(q, barrier.dist(pts[i].center) + gap - 2) };
     };
+    type Spot = ReturnType<typeof place>;
+    const noShadow = { cast: false, receive: false };
+    // Flat strip `depth` metres deep behind a billboard line, at `height`.
+    const top = (line: Spot[], depth: number, height: number) =>
+      stripGeometry(line.map(s => s.q), line.map(s => s.q.add(s.out.mul(depth))), height, false, false);
 
-    const trees: THREE.BufferGeometry[] = [];
+    const look = this.street ? CITY : TREES;
+    const fronts: THREE.BufferGeometry[] = [], tops: THREE.BufferGeometry[] = [];
     for (const side of [1, -1]) {
-      const spots = pts.map((_, i) => place(i, side, TREES.gap));
+      const spots = pts.map((_, i) => place(i, side, look.gap));
       const start = spots.findIndex(s => !s.ok);
-      if (start < 0) { trees.push(billboardStrip([...spots, spots[0]].map(s => s.q), TREES.height)); continue; }
-      for (let k = 0; k < n;) {
-        const line: Point2[] = [];
-        while (k < n && spots[(start + k) % n].ok) line.push(spots[(start + k++) % n].q);
-        k++;
-        if (line.length > 3) trees.push(billboardStrip(line, TREES.height));
+      const lines: Spot[][] = [];
+      if (start < 0) lines.push([...spots, spots[0]]);
+      else {
+        for (let k = 0; k < n;) {
+          const line: Spot[] = [];
+          while (k < n && spots[(start + k) % n].ok) line.push(spots[(start + k++) % n]);
+          k++;
+          if (line.length > 3) lines.push(line);
+        }
+      }
+      for (const line of lines) {
+        fronts.push(billboardStrip(line.map(s => s.q), look.height));
+        tops.push(top(line, look.depth, look.topHeight));
       }
     }
-    if (trees.length) this.add(mergeGeometries(trees), this.trees, { cast: false, receive: false });
+    if (fronts.length) {
+      this.add(mergeGeometries(fronts), this.street ? this.city : this.trees, noShadow);
+      this.add(mergeGeometries(tops), this.street ? this.rooftops : this.canopy, noShadow);
+    }
 
     // Points within half the grandstand's length either side of the start line, on the non-pit side.
     const along: number[] = [];
@@ -353,7 +410,9 @@ export class TrackMesh {
     if (stand.length > 3 && stand.every(s => s.ok)) {
       const base = stand.map(s => s.q);
       const length = base.reduce((sum, p, k) => k ? sum + p.dist(base[k - 1]) : 0, 0);
-      this.add(billboardStrip(base, length / GRANDSTAND.aspect, length), this.grandstand, { cast: false, receive: false });
+      const height = length / GRANDSTAND.aspect;
+      this.add(billboardStrip(base, height, length), this.grandstand, noShadow);
+      this.add(top(stand, GRANDSTAND.depth, height), this.standRoof, noShadow);
     }
   }
 

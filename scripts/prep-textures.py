@@ -110,6 +110,19 @@ def main() -> None:
         a = cutout(load(f'{name}_raw.jpg'), flood)
         save(a, f'{name}.webp', (2048, round(2048 * a.shape[0] / a.shape[1])))
 
+    # Street circuits: the generated skyline included a road at the bottom; it stops at the building line.
+    for name in ['city_day', 'city_night']:
+        city = load(f'{name}_raw.jpg')
+        a = cutout(city[:int(city.shape[0] * 0.84)], True)
+        save(a, f'{name}.webp', (2048, round(2048 * a.shape[0] / a.shape[1])))
+
+    # Seen from the top camera: tree crowns (alpha) behind the tree line, rooftops behind the
+    # skyline and the grandstand roof; all repeat along u.
+    a = cutout(load('canopy_raw.jpg'), False)
+    save(seamless(a, 1, 0.08), 'canopy.webp', (2048, round(2048 * a.shape[0] / a.shape[1])))
+    save(seamless(load('rooftops_raw.jpg'), 1, 0.08), 'rooftops.webp', (2048, 512))
+    save(seamless(load('stand_roof_raw.jpg'), 1, 0.05), 'stand_roof.webp', (2048, 512))
+
     # Wheel faces: planar UVs with the circle filling the square.
     save(load('sidewall_raw.jpg'), 'sidewall.webp', (512, 512))
     save(load('rim_raw.jpg'), 'rim.webp', (512, 512))
