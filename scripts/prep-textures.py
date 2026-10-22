@@ -124,7 +124,11 @@ def main() -> None:
     save(seamless(load('stand_roof_raw.jpg'), 1, 0.05), 'stand_roof.webp', (2048, 512))
 
     # Wheel faces: planar UVs with the circle filling the square.
-    save(load('sidewall_raw.jpg'), 'sidewall.webp', (512, 512))
+    # The tyre sits on a grey backdrop with some margin: crop to the square around the dark rubber.
+    tyre = load('sidewall_raw.jpg')
+    ys, xs = np.nonzero(tyre.max(axis=2) < 110)
+    cy, cx, r = (ys.min() + ys.max()) // 2, (xs.min() + xs.max()) // 2, max(np.ptp(ys), np.ptp(xs)) // 2
+    save(tyre[cy - r:cy + r, cx - r:cx + r], 'sidewall.webp', (512, 512))
     save(load('rim_raw.jpg'), 'rim.webp', (512, 512))
 
     # App icon: the rounded square without its white surround.
