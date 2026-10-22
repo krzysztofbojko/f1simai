@@ -68,6 +68,20 @@ try {
    if(a.pos.x>b.pos.x+12 && Math.abs(a.raceLineOffset)<.05) {passed=true;break;}
  }
  assert.ok(passed,'driver failed to complete an actual pass and return to the racing line');
+ // LiDAR sees other cars' bodies (not cars in the pits); the planner brakes and steers round a car
+ // closing in ahead and steers away from one squeezing in alongside. Walls stay a separate reading.
+ const scout=car(150,0,40),blocker=car(180,0,0);scout.currentCheckpointIdx=2;
+ const mid=Math.floor(scout.rayAngles.length/2);
+ scout.updateSensors(circuit,[scout,blocker]);
+ assert.ok(Math.abs(scout.rayDistances[mid]*Car.RAY_MAX_DIST-27.25)<1e-6,'LiDAR must stop at the rear of the car ahead');
+ assert.equal(scout.rayCars[mid],blocker);assert.ok(scout.rayWallDistances[mid]>scout.rayDistances[mid]);
+ const braking=scout.planDrive(circuit);assert.ok(braking.guarded&&braking.expert.brake>0.3&&braking.expert.throttle===0,'no braking for a car seen ahead');
+ blocker.isPitting=true;scout.updateSensors(circuit,[scout,blocker]);assert.equal(scout.rayCars[mid],null);
+ // Alongside: on its line (steering near straight), a car 0.6 m away closing in from the left.
+ const here=circuit.sampleSurface(scout.pos);scout.pos.y=scout.racingLine(circuit).offsetAt(here.index,here.fraction);
+ scout.updateSensors(circuit,[scout,blocker]);const freeSteer=scout.planDrive(circuit).idealSteer;
+ const squeeze=car(150,scout.pos.y+2.5,40);squeeze.vel=new Vector2(40,-2);scout.updateSensors(circuit,[scout,squeeze]);
+ assert.ok(scout.planDrive(circuit).idealSteer<freeSteer-0.01,'no steering away from a car alongside');
  assert.ok(maxOffset>2.8,'driver did not use another line');
  // The default training mode must also have physical contact, not ghost cars.
  const training=new Population(2,circuit);

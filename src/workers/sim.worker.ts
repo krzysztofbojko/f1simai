@@ -876,7 +876,7 @@ function runSimulationSteps(): void {
           }
         }
       } else {
-        playerCar.updateSensors(track);
+        playerCar.updateSensors(track, traffic);
         const lapEvent = playerCar.updatePhysics(avoidTraffic(playerCar, traffic, playerControl, track), fixedDt, track);
         if (trafficMotion) resolveTraffic(traffic, trafficMotion, playerCar);
         if (lapEvent) {

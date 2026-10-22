@@ -22,13 +22,13 @@ const LOOKAHEADS = [0, 18, 40, 70];
 /** speed + 4 curvature samples + lateral position + heading error */
 export const LINE_EXTRA_INPUTS = 7;
 
-export interface LineSensors { pos: Vector2; heading: number; speed: number; rayDistances: number[] }
+export interface LineSensors { pos: Vector2; heading: number; speed: number; rayDistances: number[]; rayWallDistances?: number[] }
 
-/** Network input: LiDAR rays plus what the car reads from the road ahead. */
+/** Network input: LiDAR rays (track edges only: traffic is the race planner's job) plus what the car reads from the road ahead. */
 export function lineInputs(track: Track, car: LineSensors, sample: SurfaceSample = track.sampleSurface(car.pos)): number[] {
   const headingError = Math.atan2(Math.sin(car.heading - sample.tangent.heading()), Math.cos(car.heading - sample.tangent.heading()));
   return [
-    ...car.rayDistances,
+    ...(car.rayWallDistances?.length === car.rayDistances.length ? car.rayWallDistances : car.rayDistances),
     Math.min(1, car.speed / 95),
     ...LOOKAHEADS.map(d => signedCurvature(track, sample.index, d)),
     Math.max(-1, Math.min(1, sample.lateral / Math.max(1, track.width / 2))),

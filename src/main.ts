@@ -1940,7 +1940,7 @@ class App {
           this.population.update(fixedDt, this.track, this.playerCar ? [this.playerCar] : []);
 
           if (this.playerCar && this.playerCar.isAlive) {
-            this.playerCar.updateSensors(this.track);
+            this.playerCar.updateSensors(this.track, traffic);
             const input = this.getPlayerControl();
             const control = avoidTraffic(this.playerCar, traffic, input, this.track);
             const lapEvent = this.playerCar.updatePhysics(control, fixedDt, this.track);

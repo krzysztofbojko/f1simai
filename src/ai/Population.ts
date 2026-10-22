@@ -459,7 +459,7 @@ export class Population {
           car.lapCompromised = true;
           car.replayBuffer = [];
         }
-        car.updateSensors(track);
+        car.updateSensors(track, traffic);
         // Point 1: pass leader speeds for telemetry coaching, or use human player WASD input (learning enabled only in simulation step)
         let control = car.isManual ? car.manualControl : car.getAIControl(track, this.leaderCheckpointSpeeds, !this.isRaceMode);
         control = avoidTraffic(car, traffic, control, track);

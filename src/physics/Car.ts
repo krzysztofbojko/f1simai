@@ -577,8 +577,25 @@ export class Car {
   public static readonly BRAIN_STEER_G = 2;
   /** Lateral room (m) beyond the car's half width in which a side ray's hit still blocks the path ahead. */
   public static readonly CORRIDOR_MARGIN = 0.15;
+  /** Time to contact (s) with a car the LiDAR sees in the path below which the car brakes and steers round it. */
+  public static readonly CAR_AVOID_TTC = 3.5;
+  /** Lateral room (m) beyond the car's half width in which a car seen ahead counts as in the path. */
+  public static readonly CAR_AVOID_MARGIN = 0.8;
+  /** Lateral acceleration (g) the steering may use to move out of the path of a car seen ahead. */
+  public static readonly CAR_AVOID_G = 1.5;
+  /** Above this urgency (0..1, from the time to contact) the guardian drives the avoidance instead of the network. */
+  public static readonly CAR_AVOID_GUARD = 0.25;
+  /** Side gap (m) to a car alongside below which the car steers away from it, */
+  public static readonly CAR_SIDE_GAP = 0.6;
+  /** widened by this many seconds of the speed at which the gap is closing. */
+  public static readonly CAR_SIDE_LOOKAHEAD = 0.4;
   public rayAngles: number[] = [];
+  /** What each ray sees first: barrier/edge or another car's body (the network input). */
   public rayDistances: number[] = [];
+  /** Track edges only: forward clearance and the line network are calibrated to walls. */
+  public rayWallDistances: number[] = [];
+  /** The car each ray hit, or null when it ended on the track edge. */
+  public rayCars: (Car | null)[] = [];
   public rayHits: IntersectionResult[] = [];
 
   public static generateRayAngles(count: number): number[] {
@@ -744,12 +761,16 @@ export class Car {
     this.lapsUntilStyleShift = Math.floor(random() * 3) + 2; // Shifts every 2-4 laps
     this.rayAngles = Car.generateRayAngles(rayCount);
     this.rayDistances = new Array(this.rayAngles.length).fill(1);
+    this.rayWallDistances = new Array(this.rayAngles.length).fill(1);
+    this.rayCars = new Array(this.rayAngles.length).fill(null);
     this.rollLapPerformanceVariation();
   }
 
   public setRayCount(rayCount: number): void {
     this.rayAngles = Car.generateRayAngles(rayCount);
     this.rayDistances = new Array(this.rayAngles.length).fill(1);
+    this.rayWallDistances = new Array(this.rayAngles.length).fill(1);
+    this.rayCars = new Array(this.rayAngles.length).fill(null);
     this.rayHits = [];
   }
 
@@ -889,17 +910,57 @@ export class Car {
     });
   }
 
-  updateSensors(track: Track): void {
+  /**
+   * LiDAR scan: each ray stops at the track edge or at the first body of `cars` in its way
+   * (the same 5.5 m × width box the collision model uses). Cars in the pits, finished or
+   * removed by the marshals are not on track and are not seen.
+   */
+  updateSensors(track: Track, cars: readonly Car[] = []): void {
     // Arrays reused across steps; consumers copy them (inputs spread, snapshots).
     const n = this.rayAngles.length;
     this.rayHits.length = n;
     this.rayDistances.length = n;
+    this.rayWallDistances.length = n;
+    this.rayCars.length = n;
+    const reach = (Car.RAY_MAX_DIST + 3.5) ** 2;
+    const bodies = cars.filter(o => o !== this && !o.wreckRemoved && !o.isPitting && !o.isFinishedRace && o.pos.distSq(this.pos) < reach);
     for (let i = 0; i < n; i++) {
       const rayAngle = this.heading + this.rayAngles[i];
-      const hit = track.castRay(this.pos, rayAngle, Car.RAY_MAX_DIST);
+      let hit = track.castRay(this.pos, rayAngle, Car.RAY_MAX_DIST);
+      this.rayWallDistances[i] = hit.dist / Car.RAY_MAX_DIST;
+      let seen: Car | null = null;
+      if (bodies.length) {
+        const dx = Math.cos(rayAngle), dy = Math.sin(rayAngle);
+        let nearest = hit.dist;
+        for (const body of bodies) {
+          const t = body.rayEntry(this.pos, dx, dy, nearest);
+          if (t < nearest) { nearest = t; seen = body; }
+        }
+        if (seen) hit = { point: new Vector2(this.pos.x + dx * nearest, this.pos.y + dy * nearest), dist: nearest };
+      }
       this.rayHits[i] = hit;
+      this.rayCars[i] = seen;
       this.rayDistances[i] = hit.dist / Car.RAY_MAX_DIST;
     }
+  }
+
+  /** Distance along a ray from `origin` (unit direction dx, dy) to where it enters this body; Infinity if it misses within `maxDist` or starts inside. */
+  private rayEntry(origin: Vector2, dx: number, dy: number, maxDist: number): number {
+    const fx = Math.cos(this.heading), fy = Math.sin(this.heading);
+    const ox = origin.x - this.pos.x, oy = origin.y - this.pos.y;
+    // Slabs of the oriented box: along the heading (half length 2.75 m) and across it (half width).
+    let enter = 0, leave = maxDist;
+    for (let axis = 0; axis < 2; axis++) {
+      const o = axis ? oy * fx - ox * fy : ox * fx + oy * fy;
+      const d = axis ? dy * fx - dx * fy : dx * fx + dy * fy;
+      const half = axis ? this.width / 2 : 2.75;
+      if (Math.abs(d) < 1e-9) { if (Math.abs(o) > half) return Infinity; continue; }
+      const t1 = (-half - o) / d, t2 = (half - o) / d;
+      enter = Math.max(enter, Math.min(t1, t2));
+      leave = Math.min(leave, Math.max(t1, t2));
+      if (enter > leave) return Infinity;
+    }
+    return enter > 0 ? enter : Infinity;
   }
 
   /** Grip multiplier of an axle from tyre temperature (asymmetric bell, 0.75..1) and wear (up to -25%). */
@@ -1092,10 +1153,12 @@ export class Car {
       Math.max(0, Math.min(1, this.rideHeightRear / (1.5 * Car.RRH_STATIC))),
     ];
 
-    const midRay = Math.floor(this.rayDistances.length / 2);
+    // Walls only: the clearance thresholds are calibrated to the track edges; cars are handled below.
+    const walls = this.rayWallDistances.length === this.rayDistances.length ? this.rayWallDistances : this.rayDistances;
+    const midRay = Math.floor(walls.length / 2);
     let leftRaySum = 0, rightRaySum = 0;
-    for (let i = 0; i < midRay; i++) leftRaySum += this.rayDistances[i];
-    for (let i = midRay + 1; i < this.rayDistances.length; i++) rightRaySum += this.rayDistances[i];
+    for (let i = 0; i < midRay; i++) leftRaySum += walls[i];
+    for (let i = midRay + 1; i < walls.length; i++) rightRaySum += walls[i];
     const leftRayAvg = leftRaySum / Math.max(1, midRay);
     const rightRayAvg = rightRaySum / Math.max(1, midRay);
     const wallRepulsion = (rightRayAvg - leftRayAvg) * 0.8;
@@ -1109,19 +1172,51 @@ export class Car {
     // Steering lock usable at this speed: the kinematic angle for the grip-limited turn
     // plus a slip-angle allowance; more lock only saturates the front axle.
     const gripSteer = Math.min(1, (this.baseTireGrip * Car.GRAVITY * this.wheelbase / Math.max(1, this.speed * this.speed) + 0.14) / this.maxSteerAngle);
-    const idealSteer = Math.max(-gripSteer, Math.min(gripSteer, pursuitAngle / this.maxSteerAngle + wallRepulsion * 0.1 + yawFeedback));
+    // Cars the LiDAR sees in the path (the corridor the car sweeps, plus a margin) that it is closing
+    // on: the most urgent one (shortest time to contact) is steered round, away from its centre,
+    // and braked for, both harder as the time to contact shrinks.
+    // A car alongside (bodies overlapping lengthwise) that is close or closing in sideways pushes
+    // the steering away from it: the buffer grows with the speed at which the gap closes.
+    let carUrgency = 0, carSide = 0, sideUrgency = 0, sideSign = 0;
+    const forwardVec = Vector2.fromAngle(this.heading), leftVec = forwardVec.normal();
+    for (let i = 0; i < this.rayCars.length; i++) {
+      const other = this.rayCars[i];
+      if (!other) continue;
+      const dist = this.rayDistances[i] * Car.RAY_MAX_DIST, angle = this.rayAngles[i];
+      const ahead = dist * Math.cos(angle), lateral = dist * Math.sin(angle);
+      if (Math.abs(ahead) <= 2.75 + Car.CAR_AVOID_MARGIN) {
+        const side = Math.sign(lateral);
+        const gap = Math.abs(lateral) - this.width / 2;
+        const closingSide = Math.max(0, this.vel.sub(other.vel).dot(leftVec) * side);
+        const urgency = 1 - gap / (Car.CAR_SIDE_GAP + Car.CAR_SIDE_LOOKAHEAD * closingSide);
+        if (urgency > sideUrgency) { sideUrgency = Math.min(1, urgency); sideSign = side; }
+      }
+      // Beyond the nose (half length 2.75 m) and inside the swept corridor: in the path ahead.
+      const nose = ahead - 2.75;
+      if (nose <= 0 || Math.abs(lateral) > this.width / 2 + Car.CAR_AVOID_MARGIN) continue;
+      const closing = this.vel.sub(other.vel).dot(forwardVec);
+      if (closing < 0.5) continue;
+      const urgency = 1 - nose / closing / Car.CAR_AVOID_TTC;
+      if (urgency <= carUrgency) continue;
+      carUrgency = urgency;
+      // Dead centre ahead: go round on the side with more room to the walls.
+      carSide = Math.sign(other.pos.sub(this.pos).dot(leftVec)) || -Math.sign(wallRepulsion) || 1;
+    }
+    const avoidLock = Math.atan(Car.CAR_AVOID_G * Car.GRAVITY * this.wheelbase / Math.max(1, this.speed * this.speed)) / this.maxSteerAngle;
+    const avoidSteer = Math.max(-avoidLock, Math.min(avoidLock, -(carSide * carUrgency + sideSign * sideUrgency) * avoidLock));
+    const idealSteer = Math.max(-gripSteer, Math.min(gripSteer, pursuitAngle / this.maxSteerAngle + wallRepulsion * 0.1 + yawFeedback + avoidSteer));
     let steer = idealSteer;
 
     // Check forward clearance using central LiDAR rays. A neighbouring ray that meets the white line
     // beside the car's path (the racing line runs close to it) is no wall ahead: it only counts
     // when its hit lies inside the corridor the car sweeps going straight on.
-    const forwardDistNorm = this.rayDistances[midRay] ?? 1.0;
+    const forwardDistNorm = walls[midRay] ?? 1.0;
     const inCorridor = (i: number) => {
-      const d = this.rayDistances[i] ?? 1.0;
+      const d = walls[i] ?? 1.0;
       return d * Car.RAY_MAX_DIST * Math.abs(Math.sin(this.rayAngles[i] ?? 0)) <= this.width / 2 + Car.CORRIDOR_MARGIN ? d : 1.0;
     };
     const leftForwardNorm = inCorridor(Math.max(0, midRay - 1));
-    const rightForwardNorm = inCorridor(Math.min(this.rayDistances.length - 1, midRay + 1));
+    const rightForwardNorm = inCorridor(Math.min(walls.length - 1, midRay + 1));
     const minCenterClearance = Math.min(forwardDistNorm, leftForwardNorm, rightForwardNorm) * (Car.CLEARANCE_REF_WIDTH / Math.max(5, track.width));
 
     // 3. F1 Racing Throttle & Braking Policy:
@@ -1187,6 +1282,10 @@ export class Car {
     if (currentCp && headingVec.dot(currentCp.tangent) < 0.90) {
       throttle = Math.min(throttle, 0.45);
     }
+    if (carUrgency > 0) {
+      throttle = 0;
+      brake = Math.max(brake, Math.min(1, 0.3 + carUrgency));
+    }
 
     const offRoad = (track.sampleSurface?.(this.pos).surface ?? 'asphalt') !== 'asphalt';
     if (offRoad) {
@@ -1202,7 +1301,7 @@ export class Car {
     const expert: CarControl = { steer, throttle, brake };
     return {
       inputs, expert, idealSteer, pushing, offRoad, overspeedDelta, minCenterClearance,
-      guarded: offRoad || minCenterClearance <= Car.CLEAR_LIFT || this.yellowFlag || this.isPitting || this.recoveryTimer > 0,
+      guarded: offRoad || minCenterClearance <= Car.CLEAR_LIFT || Math.max(carUrgency, sideUrgency) > Car.CAR_AVOID_GUARD || this.yellowFlag || this.isPitting || this.recoveryTimer > 0,
     };
   }
 
