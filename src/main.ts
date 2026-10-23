@@ -4,19 +4,22 @@ import { Spline } from './math/Spline';
 import { Track } from './track/Track';
 import { Presets } from './track/Presets';
 import { getRacingLine } from './track/RacingLine';
-import { Population, LapLeaderboardEntry } from './ai/Population';
+import { Population } from './ai/Population';
 import { Car, CarControl, driverInputCount } from './physics/Car';
 import { clampStressShare, DEFAULT_STRESS_LAP_SHARE } from './physics/SimConfig';
 import { COMPOUND_SPECS, isCompound } from './physics/Tyres';
-import { isWeatherScenario, neutralWeather, type WeatherState } from './physics/Weather';
+import { isWeatherScenario, type WeatherState } from './physics/Weather';
 import { SceneRenderer } from './rendering/three/SceneRenderer';
 import { MotionInterpolator } from './rendering/MotionInterpolator';
 import type { CameraMode } from './rendering/three/Cameras';
 import { HudCharts } from './rendering/HudCharts';
 import { hydrateIcons, setControlContent } from './ui/icons';
 import { SimBridge, type ComputeProfile, type TopologySpecifier } from './workers/SimBridge';
-import { applyCarView } from './workers/CarView';
-import type { SimSnapshot, RaceState, QualifyingSnapshot } from './workers/sim.worker';
+import type { SimSnapshot } from './workers/sim.worker';
+import { SnapshotSync, type SyncTarget } from './ui/SnapshotSync';
+import { RaceUI, type RaceUIHost } from './ui/RaceUI';
+import { InputController } from './ui/InputController';
+import { formatLapTime } from './ui/format';
 import realTrackIndex from '../tracks/index.json';
 
 /** Real F1 circuits built by scripts/build-tracks.mjs; each file is fetched only when picked. */
@@ -55,7 +58,6 @@ class App {
 
   // Web Worker Multithreading Bridge
   private bridge: SimBridge;
-  private latestStandings: LapLeaderboardEntry[] = [];
 
   // Track & AI
   private track: Track;
@@ -79,7 +81,6 @@ class App {
   private drawnTrackRejected = false;
   private mousePos: Vector2 | null = null;
   private straightAnchor: Vector2 | null = null;
-  private isShiftHeld: boolean = false;
   private trackWidth: number = 14;
 
   // Simulation controls
@@ -87,21 +88,13 @@ class App {
 
   // Race Mode State
   private selectedRaceLaps: number = 50;
-  private latestRaceState: RaceState = 'IDLE';
-  private latestQualifying: QualifyingSnapshot | null = null;
-  private hasShownQualiModal = false;
-  private qualiCountdownTimer: number | null = null;
   private withQualifying = loadFlag('f1_with_qualifying');
-  private latestWeather: WeatherState = neutralWeather();
-  private latestRaceStartLights: number = 0;
-  private latestRaceCurrentLap: number = 1;
-  private latestRaceTotalLaps: number = 50;
-  private latestRaceWinner: string | null = null;
-  private latestRaceStandings: any[] = [];
-  private hasShownPodiumModal: boolean = false;
-
-  // Input states for manual driving
-  private keys: Record<string, boolean> = {};
+  /** The session as the worker last reported it, and the display copy of the field it keeps. */
+  private readonly sync = new SnapshotSync();
+  private readonly raceUI: RaceUI;
+  private readonly input: InputController;
+  /** The page state the snapshots update and the race screens read. */
+  private readonly page: SyncTarget & RaceUIHost;
 
   private driverPressure = loadDriverPressure();
 
@@ -118,6 +111,25 @@ class App {
     this.population = new Population(Population.MAX_CARS, this.track, 25);
     this.population.setDriverPressure(this.driverPressure, true);
 
+    const app = this;
+    const page = {
+      get session() { return app.sync.session; },
+      get population() { return app.population; },
+      get track() { return app.track; },
+      get playerCar() { return app.playerCar; },
+      get selectedCar() { return app.selectedCar; },
+      get isPlayerDriving() { return app.isPlayerDriving; },
+      get motion() { return app.motion; },
+      startQualifiedRace: () => app.startRace(app.selectedRaceLaps, { useQualifyingGrid: true }),
+    };
+    this.page = page;
+    this.raceUI = new RaceUI(page);
+    this.input = new InputController({
+      isDriving: () => this.isPlayerDriving,
+      onPitToggle: () => this.togglePlayerPit(),
+      onShift: down => this.onShift(down),
+    });
+
     this.bridge = new SimBridge();
     this.setupBridgeSync();
 
@@ -132,7 +144,6 @@ class App {
   }
 
   private static readonly AUTOSAVE_KEY = 'f1_autosave_models';
-  private static readonly LEADERBOARD_ROWS = 10;
   private autosaveMarker = '';
   /** Bumped by the clean slate, so an autosave read before it is never written back. */
   private learningEpoch = 0;
@@ -195,160 +206,8 @@ class App {
     }
 
     this.bridge.onSnapshotCallback = (snapshot: SimSnapshot) => {
-      for (let i = 0; i < this.population.cars.length; i++) {
-        const car = this.population.cars[i];
-        const view = snapshot.cars[i];
-        if (car && view) applyCarView(car, view);
-      }
-
-      if (snapshot.timingGates && snapshot.timingGates.length > 0) {
-        if (!this.track.timingGates || this.track.timingGates.length !== snapshot.timingGates.length ||
-            this.track.timingGates[0]?.distanceAlongTrack !== snapshot.timingGates[0]?.distanceAlongTrack) {
-          this.track.timingGates = snapshot.timingGates.map(g => ({
-            ...g,
-            left: new Vector2(g.left.x, g.left.y),
-            right: new Vector2(g.right.x, g.right.y),
-            center: new Vector2(g.center.x, g.center.y),
-            tangent: new Vector2(g.tangent.x, g.tangent.y),
-            normal: new Vector2(g.normal.x, g.normal.y),
-          }));
-        }
-      }
-
-      this.population.bestRacingLine = snapshot.bestRacingLine.map(p => ({ ...p }));
-      this.population.leaderCheckpointSpeeds = [...snapshot.leaderCheckpointSpeeds];
-      this.population.learningHistory = snapshot.learningHistory.map(h => ({ ...h }));
-      this.population.globalBestLap = snapshot.globalBestLap;
-      this.population.generation = snapshot.generation;
-
-      this.latestRaceState = snapshot.raceState;
-      this.latestRaceTotalLaps = snapshot.raceTotalLaps;
-      this.latestRaceCurrentLap = snapshot.raceCurrentLap;
-      this.latestRaceStartLights = snapshot.raceStartLights;
-      this.latestRaceWinner = snapshot.raceWinner;
-      this.latestRaceStandings = snapshot.raceStandings || [];
-      if (snapshot.weather) this.latestWeather = snapshot.weather;
-      this.latestQualifying = snapshot.qualifying ?? null;
-
-      if (snapshot.raceState === 'QUALI_FINISHED' && snapshot.qualifying && !this.hasShownQualiModal) {
-        this.hasShownQualiModal = true;
-        this.showQualifyingModal(snapshot.qualifying);
-      }
-
-      if (snapshot.raceState === 'FINISHED' && !this.hasShownPodiumModal) {
-        this.hasShownPodiumModal = true;
-        this.showPodiumModal(snapshot.raceStandings, snapshot.raceWinner);
-      }
-
-      if (snapshot.teamStandings && snapshot.teamStandings.length > 0) {
-        this.latestStandings = snapshot.teamStandings;
-        for (const standing of snapshot.teamStandings) {
-          const rec = this.population.teamRecords.find(t => t.color === standing.carColor);
-          if (rec) {
-            if (standing.hasFinishedLap && standing.lapTime > 0) {
-              if (!rec.bestLapTime || standing.lapTime < rec.bestLapTime) {
-                rec.bestLapTime = standing.lapTime;
-                rec.bestLapPressure = standing.bestLapPressure ?? 0;
-              }
-            }
-            if (standing.lastLapTime !== undefined) {
-              rec.lastLapTime = standing.lastLapTime;
-            }
-            rec.avgSpeed = standing.avgSpeed;
-            rec.topSpeed = standing.topSpeed;
-            rec.fuelRemaining = standing.fuelRemaining;
-          }
-          const car = this.population.cars.find(c => c.color === standing.carColor);
-          if (car && standing.hasFinishedLap && standing.lapTime > 0) {
-            if (!car.bestLapTime || standing.lapTime < car.bestLapTime) {
-              car.bestLapTime = standing.lapTime;
-            }
-          }
-          if (car && standing.lastLapTime !== undefined) {
-            car.lastLapTime = standing.lastLapTime;
-          }
-        }
-      }
-
-      // Set currentLeader to car indicated by teamStandings[0].carColor or highest fitness
-      let leaderCar: Car | undefined;
-      if (snapshot.teamStandings && snapshot.teamStandings.length > 0 && snapshot.teamStandings[0].carColor) {
-        leaderCar = this.population.cars.find(c => c.color === snapshot.teamStandings[0].carColor);
-      }
-      if (!leaderCar) {
-        let maxFit = -Infinity;
-        for (const c of this.population.cars) {
-          if (c.fitness > maxFit) {
-            maxFit = c.fitness;
-            leaderCar = c;
-          }
-        }
-      }
-      if (leaderCar) {
-        this.population.currentLeader = leaderCar;
-      }
-
-      if (this.playerCar && snapshot.playerCar) applyCarView(this.playerCar, snapshot.playerCar);
-
-      const synced = this.population.cars.filter((_, i) => snapshot.cars[i]);
-      if (this.playerCar && snapshot.playerCar) synced.push(this.playerCar);
-      this.motion.push(snapshot.simTime, synced);
-
-      if (snapshot.activeCarBrainJson) {
-        const activeCar = this.selectedCar || this.population.currentLeader;
-        if (activeCar && activeCar.brain) {
-          try {
-            activeCar.brain.fromJSON(snapshot.activeCarBrainJson);
-          } catch (e) {}
-        }
-      }
-
-      if (snapshot.islands) {
-        const islands = snapshot.islands;
-        const slider = document.getElementById('slider-islands') as HTMLInputElement | null;
-        if (slider && slider.max !== String(islands.max)) slider.max = String(islands.max);
-        if (slider && document.activeElement !== slider && slider.value !== String(islands.count)) {
-          slider.value = String(islands.count);
-          const label = document.getElementById('val-islands');
-          if (label) label.textContent = String(islands.count);
-        }
-        const status = document.getElementById('islands-status');
-        if (status) {
-          status.textContent = islands.count === 0 ? 'Wyłączone: trening na jednym rdzeniu.'
-            : !islands.running ? `${islands.count} wysp wstrzymanych (pauza, kwalifikacje lub wyścig).`
-            : `${islands.count} wysp · ${islands.stepsPerSecond > 0 ? `${Math.round(islands.stepsPerSecond / 60)}× czasu rzeczywistego łącznie` : 'rozgrzewka…'} · przejęte modele: ${islands.adopted}`;
-        }
-      }
-
-      if (snapshot.computeProfile) {
-        const selectProfile = document.getElementById('select-compute-profile') as HTMLSelectElement | null;
-        if (selectProfile && document.activeElement !== selectProfile && selectProfile.value !== snapshot.computeProfile) {
-          selectProfile.value = snapshot.computeProfile;
-        }
-      }
-
-      const isRacing = snapshot.raceState === 'GRID_START' || snapshot.raceState === 'RACING';
-      const selectTop = document.getElementById('select-topology') as HTMLSelectElement | null;
-      if (selectTop) {
-        selectTop.disabled = isRacing;
-      }
-
-      if (snapshot.topology && typeof snapshot.topology === 'string') {
-        if (selectTop && document.activeElement !== selectTop && selectTop.value !== snapshot.topology) {
-          selectTop.value = snapshot.topology;
-        }
-        if (this.population.topology !== snapshot.topology) {
-          const prevSelectedColor = this.selectedCar ? this.selectedCar.color : null;
-          this.population.topology = snapshot.topology;
-          if (prevSelectedColor) {
-            if (this.playerCar && this.playerCar.color === prevSelectedColor) {
-              this.selectedCar = this.playerCar;
-            } else {
-              this.selectedCar = this.population.cars.find(c => c.color === prevSelectedColor) || null;
-            }
-          }
-        }
-      }
+      this.sync.apply(snapshot, this.page);
+      this.raceUI.onSnapshot(snapshot);
     };
   }
 
@@ -373,33 +232,17 @@ class App {
   private setupWindowEvents(): void {
     window.addEventListener('resize', () => this.resizeCanvas());
 
-    window.addEventListener('keydown', (e) => {
-      const key = e.key.toLowerCase();
-      this.keys[key] = true;
-      if (key === 'p') {
-        this.togglePlayerPit();
-      }
-      if (this.isPlayerDriving && ['arrowup', 'arrowdown', 'arrowleft', 'arrowright', ' ', 'w', 's', 'a', 'd'].includes(key)) {
-        e.preventDefault();
-      }
-      if (e.key === 'Shift') {
-        this.isShiftHeld = true;
-        if (this.isDrawMode && this.isMouseDown && !this.straightAnchor) {
-          const last = this.rawDrawnPoints[this.rawDrawnPoints.length - 1];
-          this.straightAnchor = last ? last.clone() : (this.mousePos ? this.mousePos.clone() : null);
-        }
-      }
-    });
+  }
 
-    window.addEventListener('keyup', (e) => {
-      this.keys[e.key.toLowerCase()] = false;
-      if (e.key === 'Shift') {
-        this.isShiftHeld = false;
-        if (this.isDrawMode && this.isMouseDown && this.straightAnchor && this.mousePos) {
-          this.commitStraightSegment(this.straightAnchor, this.mousePos);
-        }
-      }
-    });
+  /** Shift while drawing: held, the stroke becomes a straight from where it was; released, the straight is laid. */
+  private onShift(down: boolean): void {
+    if (!this.isDrawMode || !this.isMouseDown) return;
+    if (down && !this.straightAnchor) {
+      const last = this.rawDrawnPoints[this.rawDrawnPoints.length - 1];
+      this.straightAnchor = last ? last.clone() : (this.mousePos ? this.mousePos.clone() : null);
+    } else if (!down && this.straightAnchor && this.mousePos) {
+      this.commitStraightSegment(this.straightAnchor, this.mousePos);
+    }
   }
 
   private setupUIEvents(): void {
@@ -468,13 +311,13 @@ class App {
       this.drawnTrackRejected = false;
       const pt = this.getCanvasMousePos(e);
       this.rawDrawnPoints = [pt];
-      this.straightAnchor = (e.shiftKey || this.isShiftHeld) ? pt.clone() : null;
+      this.straightAnchor = (e.shiftKey || this.input.shiftHeld) ? pt.clone() : null;
     });
 
     canvas.addEventListener('mousemove', (e) => {
       this.mousePos = this.getCanvasMousePos(e);
       if (this.isDrawMode && this.isMouseDown) {
-        if (e.shiftKey || this.isShiftHeld) {
+        if (e.shiftKey || this.input.shiftHeld) {
           if (!this.straightAnchor) {
             const last = this.rawDrawnPoints[this.rawDrawnPoints.length - 1];
             this.straightAnchor = last ? last.clone() : this.mousePos.clone();
@@ -646,7 +489,7 @@ class App {
       setControlContent(btnPlay, 'play', 'Start');
       btnPlay.classList.remove('primary');
 
-      if (this.latestRaceState !== 'IDLE') {
+      if (this.sync.session.raceState !== 'IDLE') {
         this.stopRace();
       } else {
         this.resetCarPositions();
@@ -923,7 +766,7 @@ class App {
     const selectTopology = document.getElementById('select-topology') as HTMLSelectElement | null;
     if (selectTopology) {
       selectTopology.addEventListener('change', () => {
-        if (this.latestRaceState !== 'IDLE' && this.latestRaceState !== 'FINISHED') {
+        if (this.sync.session.raceState !== 'IDLE' && this.sync.session.raceState !== 'FINISHED') {
           return;
         }
         const topology = selectTopology.value as TopologySpecifier;
@@ -1181,26 +1024,12 @@ class App {
       this.startRace(this.selectedRaceLaps, { withQualifying: this.withQualifying });
     });
 
-    document.getElementById('btn-quali-start-race')?.addEventListener('click', () => {
-      this.startRaceFromQualifying();
-    });
-
-    document.getElementById('btn-quali-hold')?.addEventListener('click', () => {
-      this.clearQualiCountdown();
-      const label = document.getElementById('quali-start-label');
-      if (label) label.textContent = 'Start wyścigu';
-    });
-
     document.getElementById('btn-stop-race')?.addEventListener('click', () => {
       this.stopRace();
     });
 
     document.getElementById('btn-pit-player')?.addEventListener('click', () => {
       this.togglePlayerPit();
-    });
-
-    document.getElementById('btn-close-podium')?.addEventListener('click', () => {
-      document.getElementById('podium-modal')?.classList.add('hidden');
     });
 
     document.getElementById('btn-restart-race-podium')?.addEventListener('click', () => {
@@ -1210,14 +1039,11 @@ class App {
   }
 
   public startRace(totalLaps: number = 50, options: { withQualifying?: boolean; useQualifyingGrid?: boolean } = {}): void {
-    this.hasShownPodiumModal = false;
-    this.hasShownQualiModal = false;
-    this.clearQualiCountdown();
-    document.getElementById('quali-modal')?.classList.add('hidden');
+    this.raceUI.sessionStarted();
     this.selectedRaceLaps = totalLaps;
     this.bridge.startRace(totalLaps, options);
     // Show the right banner at once instead of waiting for the next snapshot.
-    this.latestRaceState = options.withQualifying ? 'QUALIFYING' : 'GRID_START';
+    this.sync.session.raceState = options.withQualifying ? 'QUALIFYING' : 'GRID_START';
     this.isPaused = false;
     const selectTopology = document.getElementById('select-topology') as HTMLSelectElement | null;
     if (selectTopology) {
@@ -1235,137 +1061,8 @@ class App {
     }
   }
 
-  /** Race start after qualifying: the grid follows the qualifying classification. */
-  private startRaceFromQualifying(): void {
-    this.clearQualiCountdown();
-    document.getElementById('quali-modal')?.classList.add('hidden');
-    this.startRace(this.selectedRaceLaps, { useQualifyingGrid: true });
-  }
-
-  private clearQualiCountdown(): void {
-    if (this.qualiCountdownTimer !== null) window.clearInterval(this.qualiCountdownTimer);
-    this.qualiCountdownTimer = null;
-  }
-
-  /** Session clock, leader and the drivers currently in the elimination zone. */
-  private updateQualifyingBanner(): void {
-    const q = this.latestQualifying;
-    if (!q) return;
-    const session = Math.min(q.session, 2);
-    const clock = (t: number) => `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, '0')}`;
-    const set = (id: string, text: string) => { const el = document.getElementById(id); if (el && el.textContent !== text) el.textContent = text; };
-    set('quali-session', `Q${session + 1}`);
-    set('quali-time-left', q.phase === 'session' ? clock(q.timeLeft) : q.phase === 'overtime' ? 'FLAGA' : q.phase === 'break' ? `PRZERWA ${Math.ceil(q.timeLeft)} s` : 'KONIEC');
-    const leader = q.standings[0];
-    const leaderTime = leader?.times[session] ?? null;
-    set('quali-leader', leader && leaderTime !== null ? `${leader.driverName.split(' ').slice(-1)[0]} ${this.formatLapTime(leaderTime)}` : '-');
-    const active = q.standings.filter(r => r.eliminatedIn === 0);
-    const cut = active.length - q.eliminatedAfter;
-    let zone = '';
-    if (q.phase !== 'finished' && session < 2 && q.eliminatedAfter > 0 && cut > 0) {
-      const cutoffTime = active[cut - 1]?.times[session] ?? null;
-      const names = active.slice(cut).map(r => {
-        const t = r.times[session];
-        const gap = t !== null && cutoffTime !== null ? ` +${(t - cutoffTime).toFixed(3)}` : ' bez czasu';
-        return `${r.driverName.split(' ').slice(-1)[0]}${gap}`;
-      });
-      zone = `Strefa eliminacji P${cut + 1}–P${active.length}: ${names.join(' · ')}`;
-    }
-    set('quali-dropzone', zone);
-  }
-
-  /** Qualifying leaderboard: top 10 of the session (plus the followed driver), with knockout status. */
-  private renderQualifyingRows(q: QualifyingSnapshot): string {
-    const session = Math.min(q.session, 2);
-    const active = q.standings.filter(r => r.eliminatedIn === 0);
-    const cut = q.phase === 'finished' || session >= 2 ? Infinity : active.length - q.eliminatedAfter;
-    const top = q.standings.slice(0, App.LEADERBOARD_ROWS);
-    const extra = q.standings.slice(App.LEADERBOARD_ROWS).filter(r =>
-      this.selectedCar?.color === r.color || (this.isPlayerDriving && this.playerCar?.color === r.color));
-    return [...top, ...extra].map((r, rowIndex) => {
-      const divider = rowIndex === top.length
-        ? `<div class="leaderboard-divider" data-car-color="divider">poza TOP ${App.LEADERBOARD_ROWS} (${q.standings.length} aut)</div>` : '';
-      const car = this.population.cars.find(c => c.color === r.color) || (this.playerCar?.color === r.color ? this.playerCar : null);
-      const isPlayer = !!this.playerCar && this.playerCar.color === r.color && !this.population.cars.includes(this.playerCar);
-      const best = r.eliminatedIn > 0 ? r.times[r.eliminatedIn - 1] : r.times[session];
-      const status = r.eliminatedIn > 0 ? `OUT Q${r.eliminatedIn}` : r.onTrack ? 'NA TORZE' : (q.phase === 'finished' ? `Q3` : 'W GARAŻU');
-      const current = r.onTrack && car && car.isAlive ? this.formatLapTime(car.lapTime) : '--:--.---';
-      const classes = [
-        'leaderboard-item',
-        r.position <= 3 ? `rank-${r.position}` : '',
-        r.eliminatedIn > 0 ? 'quali-out' : '',
-        r.eliminatedIn === 0 && r.position > cut ? 'quali-danger' : '',
-        this.selectedCar?.color === r.color ? 'selected-item' : '',
-      ].filter(Boolean).join(' ');
-      return `${divider}
-        <div class="${classes}" data-car-color="${r.color}" data-is-player="${isPlayer ? 'true' : 'false'}">
-          <div class="leaderboard-left">
-            <div class="rank-badge">${r.position}</div>
-            <div class="driver-details">
-              <div class="driver-title">
-                <span class="team-dot" style="background-color: ${r.color}"></span>
-                <span>${r.driverName}</span>
-                ${r.outside107 ? '<span class="quali-flag-107">107%</span>' : ''}
-              </div>
-              <div class="driver-stats-row">
-                <span class="quali-status ${r.onTrack ? 'on-track' : ''}">${status}</span>
-                <span>Q1 ${r.times[0] !== null ? this.formatLapTime(r.times[0]) : '—'}</span>
-                ${r.times[1] !== null ? `<span>Q2 ${this.formatLapTime(r.times[1])}</span>` : ''}
-                ${r.times[2] !== null ? `<span>Q3 ${this.formatLapTime(r.times[2])}</span>` : ''}
-              </div>
-            </div>
-          </div>
-          <div class="time-details">
-            <div class="time-row">
-              <span class="time-lbl">BEST</span>
-              <span class="time-main">${best !== null ? this.formatLapTime(best) : '--:--.---'}</span>
-              ${r.gap !== null && r.gap > 0 ? `<span class="time-delta">+${r.gap.toFixed(3)}s</span>` : ''}
-            </div>
-            <div class="time-row">
-              <span class="time-lbl">TERAZ</span>
-              <span class="time-curr-val">${current}</span>
-            </div>
-          </div>
-        </div>`;
-    }).join('');
-  }
-
-  private showQualifyingModal(q: QualifyingSnapshot): void {
-    const modal = document.getElementById('quali-modal');
-    if (!modal) return;
-    modal.classList.remove('hidden');
-    const pole = q.standings[0];
-    const poleTag = document.getElementById('quali-pole-tag');
-    if (poleTag) poleTag.textContent = pole ? `POLE: ${pole.driverName.toUpperCase()}` : 'POLE POSITION';
-    const time = (t: number | null) => t !== null ? this.formatLapTime(t) : '—';
-    const body = document.getElementById('quali-table-body');
-    if (body) {
-      body.innerHTML = q.standings.map(s => `
-        <tr>
-          <td><strong>#${s.position}</strong></td>
-          <td><span class="team-dot" style="background-color:${s.color}"></span> ${s.driverName}${s.outside107 ? '<span class="quali-flag-107" title="Wolniej niż 107% najlepszego czasu Q1 — start z końca stawki za zgodą sędziów">107%</span>' : ''}</td>
-          <td>${time(s.times[0])}</td>
-          <td>${s.eliminatedIn === 1 ? '<span class="quali-status">OUT</span>' : time(s.times[1])}</td>
-          <td>${s.eliminatedIn > 0 ? '<span class="quali-status">OUT</span>' : time(s.times[2])}</td>
-          <td>${s.position === 1 ? '—' : s.gap !== null ? `+${s.gap.toFixed(3)}s` : '—'}</td>
-        </tr>
-      `).join('');
-    }
-    // Automatic race start after a short countdown, unless the user holds it.
-    let remaining = 10;
-    const label = document.getElementById('quali-start-label');
-    const tick = () => {
-      if (label) label.textContent = `Start wyścigu (${remaining} s)`;
-      if (remaining-- <= 0) this.startRaceFromQualifying();
-    };
-    this.clearQualiCountdown();
-    tick();
-    this.qualiCountdownTimer = window.setInterval(tick, 1000);
-  }
-
   public stopRace(): void {
-    this.clearQualiCountdown();
-    document.getElementById('quali-modal')?.classList.add('hidden');
+    this.raceUI.sessionStopped();
     this.bridge.stopRace();
     const selectTopology = document.getElementById('select-topology') as HTMLSelectElement | null;
     if (selectTopology) {
@@ -1375,12 +1072,11 @@ class App {
     document.getElementById('btn-stop-race')?.classList.add('hidden');
     document.getElementById('race-info-banner')?.classList.add('hidden');
     document.getElementById('quali-info-banner')?.classList.add('hidden');
-    document.getElementById('podium-modal')?.classList.add('hidden');
 
     this.population.isRaceMode = false;
-    this.latestRaceState = 'IDLE';
+    this.sync.session.raceState = 'IDLE';
     this.resetCarPositions();
-    this.latestRaceStandings = [];
+    this.sync.session.standings = [];
   }
 
   public resetCarPositions(): void {
@@ -1472,14 +1168,14 @@ class App {
       this.playerCar.currentLapSplits = [null, null, null, null];
       this.playerCar.lastCheckpointDelta = null;
     }
-    if (this.latestStandings) {
-      for (const s of this.latestStandings) {
+    if (this.sync.session.teamStandings) {
+      for (const s of this.sync.session.teamStandings) {
         s.lapTime = 0;
         s.lastLapTime = null;
         s.hasFinishedLap = false;
       }
     }
-    for (const rs of this.latestRaceStandings) {
+    for (const rs of this.sync.session.standings) {
       rs.bestLap = null;
       rs.lastLap = null;
     }
@@ -1499,90 +1195,6 @@ class App {
     }
 
     this.updateHUD();
-  }
-
-  public getDriverTrueBest(carColor: string, entryLapTime?: number, entryHasFinished?: boolean): number | null {
-    const car = this.population.cars.find(c => c.color === carColor)
-      || (this.playerCar && this.playerCar.color === carColor ? this.playerCar : null);
-    const teamRec = this.population.teamRecords.find(t => t.color === carColor);
-    const rs = this.latestRaceStandings.find(s => s.carColor === carColor);
-
-    const candidates: number[] = [];
-    if (entryHasFinished && typeof entryLapTime === 'number' && entryLapTime > 0) {
-      candidates.push(entryLapTime);
-    }
-    if (teamRec && typeof teamRec.bestLapTime === 'number' && teamRec.bestLapTime > 0) {
-      candidates.push(teamRec.bestLapTime);
-    }
-    if (car && typeof car.bestLapTime === 'number' && car.bestLapTime > 0) {
-      candidates.push(car.bestLapTime);
-    }
-    if (rs && typeof rs.bestLap === 'number' && rs.bestLap > 0) {
-      candidates.push(rs.bestLap);
-    }
-
-    if (candidates.length === 0) return null;
-    const trueBest = Math.min(...candidates);
-
-    if (teamRec && (!teamRec.bestLapTime || trueBest < teamRec.bestLapTime)) {
-      teamRec.bestLapTime = trueBest;
-    }
-    if (car && (!car.bestLapTime || trueBest < car.bestLapTime)) {
-      car.bestLapTime = trueBest;
-    }
-
-    return trueBest;
-  }
-
-  private showPodiumModal(standings: any[], _winnerName: string | null): void {
-    const modal = document.getElementById('podium-modal');
-    if (!modal) return;
-    modal.classList.remove('hidden');
-
-    const lapsTag = document.getElementById('podium-laps-tag');
-    if (lapsTag) lapsTag.textContent = `${this.latestRaceTotalLaps} OKRĄŻEŃ`;
-
-    const podiumCards = document.getElementById('podium-cards');
-    if (podiumCards && standings && standings.length >= 3) {
-      const p1 = standings[0];
-      const p2 = standings[1];
-      const p3 = standings[2];
-
-      podiumCards.innerHTML = `
-        <div class="podium-card p2">
-          <div class="podium-pos-badge" style="background:${p2.carColor}; color:#fff;">2</div>
-          <div class="podium-driver">${p2.driverName}</div>
-          <div class="podium-time">${p2.gap}</div>
-          <div class="podium-time">Pit stopy: ${p2.pitStops}</div>
-        </div>
-        <div class="podium-card p1">
-          <div class="podium-pos-badge" style="background:${p1.carColor}; color:#fff;">1</div>
-          <div class="podium-driver">${p1.driverName}</div>
-          <div class="podium-time">ZWYCIĘZCA</div>
-          <div class="podium-time">Pit stopy: ${p1.pitStops}</div>
-        </div>
-        <div class="podium-card p3">
-          <div class="podium-pos-badge" style="background:${p3.carColor}; color:#fff;">3</div>
-          <div class="podium-driver">${p3.driverName}</div>
-          <div class="podium-time">${p3.gap}</div>
-          <div class="podium-time">Pit stopy: ${p3.pitStops}</div>
-        </div>
-      `;
-    }
-
-    const tableBody = document.getElementById('podium-table-body');
-    if (tableBody && standings) {
-      tableBody.innerHTML = standings.map(s => `
-        <tr>
-          <td><strong>#${s.rank}</strong></td>
-          <td><span class="team-dot" style="background-color:${s.carColor}"></span> ${s.driverName}</td>
-          <td>${s.gap}</td>
-          <td>${s.pitStops}</td>
-          <td>${s.bestLap ? this.formatLapTime(s.bestLap) : '--:--.---'}</td>
-          <td>${s.totalTime.toFixed(1)}s</td>
-        </tr>
-      `).join('');
-    }
   }
 
   public async loadModelFromJSON(content: string, silent = false): Promise<boolean> {
@@ -1814,19 +1426,6 @@ class App {
     }
   }
 
-  private getPlayerControl(): CarControl {
-    let steer = 0;
-    let throttle = 0;
-    let brake = 0;
-
-    if (this.keys['a'] || this.keys['arrowleft']) steer -= 1;
-    if (this.keys['d'] || this.keys['arrowright']) steer += 1;
-    if (this.keys['w'] || this.keys['arrowup']) throttle = 1;
-    if (this.keys['s'] || this.keys['arrowdown']) brake = 1;
-
-    return { steer, throttle, brake };
-  }
-
   private loop(): void {
     const wrapper = document.getElementById('canvas-wrapper')!;
     const rect = wrapper.getBoundingClientRect();
@@ -1834,7 +1433,7 @@ class App {
     const height = rect.height;
 
     // The simulation runs only in the worker; the page sends the player's input to it.
-    if (this.isPlayerDriving && this.bridge.isReady) this.bridge.sendPlayerInput(this.getPlayerControl());
+    if (this.isPlayerDriving && this.bridge.isReady) this.bridge.sendPlayerInput(this.input.playerControl());
 
     // Render frame
     if (this.bridge.isReady) this.motion.apply();
@@ -1872,12 +1471,12 @@ class App {
       racingLine: this.population.bestRacingLine,
       plannedLine: this.isDrawMode ? null : getRacingLine(this.track),
       drawMode: this.isDrawMode,
-      frozen: this.isPaused || this.latestRaceState === 'FINISHED' || this.latestRaceState === 'QUALI_FINISHED',
+      frozen: this.isPaused || this.sync.session.raceState === 'FINISHED' || this.sync.session.raceState === 'QUALI_FINISHED',
       drawing: this.isDrawMode ? { points: this.rawDrawnPoints, mouse: this.mousePos, anchor: this.straightAnchor } : null,
-      raceState: this.latestRaceState,
-      startLights: this.latestRaceStartLights,
-      winner: this.latestRaceWinner,
-      weather: this.latestWeather,
+      raceState: this.sync.session.raceState,
+      startLights: this.sync.session.startLights,
+      winner: this.sync.session.winner,
+      weather: this.sync.session.weather,
     });
 
     // Update Telemetry & UI
@@ -1900,12 +1499,12 @@ class App {
     const tyreEl = document.getElementById('tele-tyres');
     if (tyreEl) tyreEl.textContent = activeCar ? `OPONY ${COMPOUND_SPECS[activeCar.tyreCompound].label.toUpperCase()} · P ${Math.round(activeCar.tyreTempFront)}° T ${Math.round(activeCar.tyreTempRear)}° · zużycie ${Math.round(Math.max(activeCar.tyreWearFront, activeCar.tyreWearRear) * 100)}%` : 'OPONY';
     const weatherEl = document.getElementById('tele-weather');
-    if (weatherEl) weatherEl.textContent = weatherLine(this.latestWeather);
+    if (weatherEl) weatherEl.textContent = weatherLine(this.sync.session.weather);
     const ersEl = document.getElementById('tele-ers');
     if (ersEl) ersEl.textContent = activeCar ? `ERS ${Math.round(activeCar.ersEnergy / Car.ERS_CAPACITY * 100)}%` : 'ERS';
     document.getElementById('tele-pressure')!.textContent = activeCar?.isManual ? 'RĘCZNIE'
       : `PRESJA ${pressureText(effectivePressure)}${Math.abs(targetPressure-effectivePressure) > .1 ? ` → ${pressureText(targetPressure)}` : ''}`;
-    document.getElementById('tele-incident')!.textContent = activeCar?.wreckRemoved && (this.latestRaceState === 'QUALIFYING' || this.latestRaceState === 'QUALI_FINISHED')
+    document.getElementById('tele-incident')!.textContent = activeCar?.wreckRemoved && (this.sync.session.raceState === 'QUALIFYING' || this.sync.session.raceState === 'QUALI_FINISHED')
       ? 'W GARAŻU (KWALIFIKACJE)'
       : activeCar?.eliminationReason
       ? activeCar.wreckRemoved ? 'DNF — BOLID USUNIĘTY' : reasons[activeCar.eliminationReason] : activeCar?.yellowFlag ? 'ŻÓŁTA FLAGA — ZAKAZ WYPRZEDZANIA' : activeCar?.incidentActive ? 'POMYŁKA KIEROWCY' : activeCar && activeCar.recoveryTimer > 0 ? 'ODZYSKIWANIE KONTROLI' : activeCar?.overtakingTargetName ? `WYPRZEDZANIE: ${activeCar.overtakingTargetName}` : activeCar?.battleOpponent ? `ATAK: ${activeCar.battleOpponent}` : activeCar?.racingLineLabel || (activeCar && activeCar.damage > 0.05 ? `USZKODZENIA ${Math.round(Math.min(1, activeCar.damage) * 100)}%` : 'JAZDA');
@@ -1979,287 +1578,9 @@ class App {
     document.getElementById('stat-alive')!.textContent = `${this.population.aliveCount} / ${this.population.populationSize}`;
     document.getElementById('stat-fitness')!.textContent = Math.round(this.population.bestFitness).toLocaleString();
 
-    document.getElementById('stat-best-lap')!.textContent = this.population.globalBestLap ? this.formatLapTime(this.population.globalBestLap) : '--:--.---';
+    document.getElementById('stat-best-lap')!.textContent = this.population.globalBestLap ? formatLapTime(this.population.globalBestLap) : '--:--.---';
 
-    // Race Mode HUD elements
-    const raceTag = document.getElementById('race-status-tag');
-    const inQualifying = this.latestRaceState === 'QUALIFYING' || this.latestRaceState === 'QUALI_FINISHED';
-    document.getElementById('quali-info-banner')?.classList.toggle('hidden', !inQualifying);
-    document.getElementById('race-info-banner')?.classList.toggle('hidden', inQualifying || this.latestRaceState === 'IDLE');
-    if (inQualifying) this.updateQualifyingBanner();
-    if (raceTag) {
-      if (this.latestRaceState === 'QUALIFYING') {
-        const q = this.latestQualifying;
-        raceTag.textContent = q ? `KWALIFIKACJE Q${q.session + 1}${q.phase === 'break' ? ' (PRZERWA)' : q.phase === 'overtime' ? ' (FLAGA)' : ''}` : 'KWALIFIKACJE';
-        raceTag.className = 'panel-tag';
-        raceTag.style.background = '#b138dd';
-      } else if (this.latestRaceState === 'QUALI_FINISHED') {
-        raceTag.textContent = 'KWALIFIKACJE — WYNIKI';
-        raceTag.className = 'panel-tag';
-        raceTag.style.background = '#b138dd';
-      } else if (this.latestRaceState === 'GRID_START') {
-        raceTag.textContent = 'START (GRID)';
-        raceTag.className = 'panel-tag';
-        raceTag.style.background = '#e10600';
-      } else if (this.latestRaceState === 'RACING') {
-        raceTag.textContent = 'WYŚCIG TRWA';
-        raceTag.className = 'panel-tag cyan';
-        raceTag.style.background = '';
-      } else if (this.latestRaceState === 'FINISHED') {
-        raceTag.textContent = 'META (FLAGA)';
-        raceTag.className = 'panel-tag';
-        raceTag.style.background = '#a855f7';
-      } else {
-        raceTag.textContent = 'TRENING';
-        raceTag.className = 'panel-tag gold';
-        raceTag.style.background = '';
-      }
-    }
-
-    const raceLapCounter = document.getElementById('race-lap-counter');
-    if (raceLapCounter) {
-      raceLapCounter.textContent = `${this.latestRaceCurrentLap} / ${this.latestRaceTotalLaps}`;
-    }
-    const raceLeaderEl = document.getElementById('race-leader-name');
-    if (raceLeaderEl) {
-      const topCar = this.latestRaceStandings?.[0];
-      raceLeaderEl.textContent = topCar ? topCar.driverName.split(' ')[0] : '-';
-    }
-    const racePitStatusEl = document.getElementById('race-pit-status');
-    const pitPlayerBtn = document.getElementById('btn-pit-player');
-    const playerControlledCar = (this.isPlayerDriving ? (this.population.cars.find(c => c.isManual) || this.playerCar) : null);
-    if (playerControlledCar) {
-      if (playerControlledCar.isPitting) {
-        if (racePitStatusEl) racePitStatusEl.textContent = 'W BOKSIE!';
-        if (pitPlayerBtn) pitPlayerBtn.classList.add('active');
-      } else if (playerControlledCar.wantsToPit) {
-        if (racePitStatusEl) racePitStatusEl.textContent = 'ZJAZD [P]';
-        if (pitPlayerBtn) pitPlayerBtn.classList.add('active');
-      } else {
-        if (racePitStatusEl) racePitStatusEl.textContent = 'OTWARTE';
-        if (pitPlayerBtn) pitPlayerBtn.classList.remove('active');
-      }
-    }
-
-    // Leaderboard: top 10 of the field
-    const leaderboardContainer = document.getElementById('leaderboard-list')!;
-    const standings = (this.latestRaceState !== 'IDLE' && this.latestRaceStandings.length > 0)
-      ? this.latestRaceStandings.map(rs => {
-          const matchingEntry = (this.latestStandings || []).find(s => s.carColor === rs.carColor);
-          const car = this.population.cars.find(c => c.color === rs.carColor);
-          return {
-            id: rs.rank,
-            rank: rs.rank,
-            lapTime: rs.bestLap || 0,
-            lastLapTime: rs.lastLap ?? (matchingEntry?.lastLapTime ?? (car ? car.lastLapTime : null)),
-            avgSpeed: matchingEntry ? matchingEntry.avgSpeed : (car ? Math.round(car.speedKmh) : 0),
-            topSpeed: matchingEntry ? matchingEntry.topSpeed : (car ? Math.round(car.maxSpeedInLap * 3.6) : 0),
-            fuelRemaining: car ? Math.round(car.fuelKg * 10) / 10 : (matchingEntry ? matchingEntry.fuelRemaining : 0),
-            driverName: rs.driverName,
-            carColor: rs.carColor,
-            generation: this.population.generation,
-            isPlayer: rs.isPlayer,
-            hasFinishedLap: rs.bestLap !== null,
-            bestLapPressure: matchingEntry?.bestLapPressure ?? car?.bestLapPressure ?? 0,
-            gap: rs.gap,
-            gapToLeader: rs.gapToLeader || rs.gap || '—',
-            gapToPrevious: rs.gapToPrevious || '—',
-          };
-        })
-      : ((this.latestStandings && this.latestStandings.length > 0)
-          ? this.latestStandings.map(s => ({ ...s }))
-          : this.population.teamStandings.map(s => ({ ...s })));
-
-    // In training mode, sort standings by immutable personal best lap time ascending (P1 on top)
-    if (this.latestRaceState === 'IDLE') {
-      standings.sort((a, b) => {
-        const bestA = this.getDriverTrueBest(a.carColor, a.lapTime, a.hasFinishedLap);
-        const bestB = this.getDriverTrueBest(b.carColor, b.lapTime, b.hasFinishedLap);
-        if (bestA !== null && bestB !== null) return bestA - bestB;
-        if (bestA !== null) return -1;
-        if (bestB !== null) return 1;
-        return 0;
-      });
-      standings.forEach((entry, idx) => {
-        entry.rank = idx + 1;
-      });
-    }
-
-    // Determine overall fastest lap in current session for calculating P1 / deltas
-    const sessionBests = standings
-      .map(e => this.getDriverTrueBest(e.carColor, e.lapTime, e.hasFinishedLap))
-      .filter((t): t is number => typeof t === 'number' && t > 0);
-    const sessionFastestLap = sessionBests.length > 0 ? Math.min(...sessionBests) : null;
-
-    // Top 10 of the field; a followed driver or the player outside it is appended below a divider.
-    const topRows = standings.slice(0, App.LEADERBOARD_ROWS);
-    const extraRows = standings.slice(App.LEADERBOARD_ROWS).filter(e =>
-      e.isPlayer || (this.selectedCar?.color === e.carColor));
-    const qualiBoard = (this.latestRaceState === 'QUALIFYING' || this.latestRaceState === 'QUALI_FINISHED') ? this.latestQualifying : null;
-    const leaderboardHtml = qualiBoard ? this.renderQualifyingRows(qualiBoard) : [...topRows, ...extraRows]
-      .map((entry, rowIndex) => {
-        const divider = rowIndex === topRows.length
-          ? `<div class="leaderboard-divider" data-car-color="divider">poza TOP ${App.LEADERBOARD_ROWS} (${standings.length} aut)</div>` : '';
-        const car = this.population.cars.find(c => c.color === entry.carColor)
-          || (this.playerCar && this.playerCar.color === entry.carColor ? this.playerCar : null);
-        const isSelected = this.selectedCar && (
-          (entry.isPlayer && this.selectedCar === this.playerCar) ||
-          (!entry.isPlayer && this.selectedCar === car)
-        );
-
-        const bestTimeVal = this.getDriverTrueBest(entry.carColor, entry.lapTime, entry.hasFinishedLap);
-        const teamRec = this.population.teamRecords.find(t => t.color === entry.carColor);
-        const bestPressure = entry.bestLapPressure ?? teamRec?.bestLapPressure ?? car?.bestLapPressure ?? 0;
-        const pressureBadge = bestTimeVal !== null ? `<span class="time-delta" title="Presja podczas rekordowego okrążenia">P ${bestPressure > 0 ? '+' : ''}${bestPressure}</span>` : '';
-        const lastTimeVal = (entry as any).lastLapTime ?? teamRec?.lastLapTime ?? car?.lastLapTime ?? null;
-        const lastTimeStr = (lastTimeVal && lastTimeVal > 0) ? this.formatLapTime(lastTimeVal) : '--:--.---';
-
-        // 1. Czas najlepszy (Personal Best) lub pozycja/strata w wyścigu
-        const isRace = this.latestRaceState !== 'IDLE';
-        let bestTimeStr: string;
-        let deltaStr: string;
-        let gapToLeader = '—';
-        let gapToPrevious = '—';
-
-        if (isRace) {
-          const rs = this.latestRaceStandings.find(s => s.carColor === entry.carColor);
-          bestTimeStr = bestTimeVal ? this.formatLapTime(bestTimeVal) : '--:--.---';
-          gapToLeader = rs?.gapToLeader || rs?.gap || (entry as any).gapToLeader || '—';
-          gapToPrevious = rs?.gapToPrevious || (entry as any).gapToPrevious || '—';
-          deltaStr = rs ? rs.gap : '';
-        } else if (bestTimeVal !== null) {
-          bestTimeStr = this.formatLapTime(bestTimeVal);
-          if (sessionFastestLap && Math.abs(bestTimeVal - sessionFastestLap) < 0.001) {
-            deltaStr = 'P1';
-          } else if (sessionFastestLap && bestTimeVal > sessionFastestLap) {
-            deltaStr = `+${(bestTimeVal - sessionFastestLap).toFixed(3)}s`;
-          } else {
-            deltaStr = '';
-          }
-        } else {
-          bestTimeStr = '--:--.---';
-          deltaStr = '';
-        }
-
-        // 2. Czas aktualny (bieżący przejazd)
-        let currentTimeStr: string;
-        if (car && car.isPitting) {
-          currentTimeStr = `PIT (${car.pitTimer.toFixed(1)}s)`;
-        } else if (car && !car.isAlive) {
-          if (this.latestRaceState !== 'IDLE') {
-            currentTimeStr = '<span class="time-dnf">DNF</span>';
-          } else {
-            currentTimeStr = 'PIT (RESPAWN)';
-          }
-        } else if (car && car.wantsToPit) {
-          currentTimeStr = `${this.formatLapTime(car.lapTime)} [BOX]`;
-        } else if (car) {
-          currentTimeStr = this.formatLapTime(car.lapTime);
-        } else {
-          currentTimeStr = '--:--.---';
-        }
-
-        // 2b. Checkpoint Delta Badge (F1 broadcast style)
-        let cpBadgeHtml = '';
-        const targetCar = entry.isPlayer ? this.playerCar : car;
-        if (targetCar && targetCar.isAlive && targetCar.lastCheckpointDelta) {
-          const cp = targetCar.lastCheckpointDelta;
-          const sign = cp.delta <= 0 ? '-' : '+';
-          const valStr = `${sign}${Math.abs(cp.delta).toFixed(3)}s`;
-          const gateLabel = `CP${cp.gateIndex + 1}`;
-          let colorClass = 'cp-red';
-          if (cp.isPurple) {
-            colorClass = 'cp-purple';
-          } else if (cp.delta <= 0) {
-            colorClass = 'cp-green';
-          }
-          cpBadgeHtml = `<span class="cp-delta-pill ${colorClass}" title="${cp.gateName}: split ${this.formatLapTime(cp.splitTime)}">${gateLabel} ${valStr}</span>`;
-        }
-
-        const rankClass = entry.rank <= 3 ? `rank-${entry.rank}` : '';
-        const dnfClass = (car && !car.isAlive) ? 'dnf-item' : '';
-        const selectedClass = isSelected ? 'selected-item' : '';
-
-        return `${divider}
-          <div class="leaderboard-item ${rankClass} ${dnfClass} ${selectedClass}" data-car-color="${entry.carColor}" data-is-player="${entry.isPlayer ? 'true' : 'false'}">
-            <div class="leaderboard-left">
-              <div class="rank-badge">${entry.rank}</div>
-              <div class="driver-details">
-                <div class="driver-title">
-                  <span class="team-dot" style="background-color: ${entry.carColor}"></span>
-                  <span>${entry.driverName}</span>
-                  ${car && this.latestRaceState !== 'IDLE' ? `<span class="tyre-badge" style="--tyre-color: ${COMPOUND_SPECS[car.tyreCompound].color}" title="Opony: ${COMPOUND_SPECS[car.tyreCompound].label}">${COMPOUND_SPECS[car.tyreCompound].letter}</span>` : ''}
-                </div>
-                <div class="driver-stats-row">
-                  <span class="avg-speed-badge">Śr: ${entry.avgSpeed} km/h</span>
-                  <span>Vmax: ${entry.topSpeed} km/h</span>
-                  <span title="Paliwo">${entry.fuelRemaining} kg</span>
-                  ${car && car.pitStopsCount > 0 ? `<span class="stat-pit">PIT ×${car.pitStopsCount}</span>` : ''}
-                  ${this.latestRaceState !== 'IDLE' && car ? `<span>L${car.raceLapsCompleted}/${this.latestRaceTotalLaps}</span>` : (car && car.currentLap > 0 ? `<span>L${car.currentLap}</span>` : '')}
-                  ${car && !car.isAlive && this.latestRaceState !== 'IDLE' ? '<span class="time-dnf">DNF (rozbity)</span>' : ''}
-                  ${car ? `<span title="Agresja hamowania">Ham. ${Math.round(car.brakingAggression * 100)}%</span>` : ''}
-                </div>
-              </div>
-            </div>
-            <div class="time-details">
-              ${isRace ? `
-                <div class="time-row">
-                  <span class="time-lbl">DO LIDERA</span>
-                  <span class="gap-leader-val">${gapToLeader}</span>
-                </div>
-                <div class="time-row">
-                  <span class="time-lbl">DO POPRZ.</span>
-                  <span class="gap-prev-val">${gapToPrevious}</span>
-                </div>
-                <div class="time-row">
-                  <span class="time-lbl">BEST</span>
-                  <span class="time-main">${bestTimeStr}</span>${pressureBadge}
-                </div>
-                <div class="time-row">
-                  <span class="time-lbl">LAST</span>
-                  <span class="time-last-val">${lastTimeStr}</span>
-                </div>
-                <div class="time-row">
-                  <span class="time-lbl">POZA TOREM</span>
-                  <span class="time-last-val" title="Wyjazdy wszystkimi czterema kołami poza asfalt">${targetCar ? targetCar.trackLimitExits : 0}×</span>
-                </div>
-                <div class="time-row">
-                  <span class="time-lbl">TERAZ</span>
-                  <span class="time-curr-val">${currentTimeStr}</span>
-                  ${cpBadgeHtml}
-                </div>
-              ` : `
-                <div class="time-row">
-                  <span class="time-lbl">BEST</span>
-                  <span class="time-main">${bestTimeStr}</span>${pressureBadge}
-                  ${deltaStr ? `<span class="time-delta">${deltaStr}</span>` : ''}
-                </div>
-                <div class="time-row">
-                  <span class="time-lbl">LAST</span>
-                  <span class="time-last-val">${lastTimeStr}</span>
-                </div>
-
-              `}
-            </div>
-          </div>
-        `;
-      })
-      .join('');
-    // Keep each driver's row stable while live timings and ranking change.
-    const template = document.createElement('template');
-    template.innerHTML = leaderboardHtml;
-    const existingRows = new Map(Array.from(leaderboardContainer.children).map(row => [row.getAttribute('data-car-color'), row]));
-    Array.from(template.content.children).forEach((freshRow, index) => {
-      const row = existingRows.get(freshRow.getAttribute('data-car-color')) || freshRow;
-      if (row !== freshRow) {
-        row.className = freshRow.className;
-        if (row.innerHTML !== freshRow.innerHTML) row.innerHTML = freshRow.innerHTML;
-        row.setAttribute('data-is-player', freshRow.getAttribute('data-is-player') || 'false');
-      }
-      if (leaderboardContainer.children[index] !== row) leaderboardContainer.insertBefore(row, leaderboardContainer.children[index] || null);
-      existingRows.delete(freshRow.getAttribute('data-car-color'));
-    });
-    existingRows.forEach(row => row.remove());
+    this.raceUI.update();
 
     // Telemetry panel
     if (activeCar) {
@@ -2277,7 +1598,7 @@ class App {
 
       let demandCtrl: CarControl;
       if (activeCar.isManual || activeCar === this.playerCar) {
-        demandCtrl = this.getPlayerControl();
+        demandCtrl = this.input.playerControl();
       } else {
         demandCtrl = activeCar.currentControl;
       }
@@ -2344,12 +1665,12 @@ class App {
       document.getElementById('gauge-weight')!.style.width = `${frontPct}%`;
       document.getElementById('tele-weight-ratio')!.textContent = `${frontPct}% / ${rearPct}%`;
 
-      document.getElementById('tele-lap-time')!.textContent = this.formatLapTime(activeCar.lapTime);
+      document.getElementById('tele-lap-time')!.textContent = formatLapTime(activeCar.lapTime);
       const teleBestLap = document.getElementById('tele-best-lap-time');
       if (teleBestLap) {
-        const standing = this.latestStandings?.find(s => s.carColor === activeCar.color);
-        const bestTime = this.getDriverTrueBest(activeCar.color, standing?.lapTime, standing?.hasFinishedLap);
-        teleBestLap.textContent = bestTime ? this.formatLapTime(bestTime) : '--:--.---';
+        const standing = this.sync.session.teamStandings?.find(s => s.carColor === activeCar.color);
+        const bestTime = this.raceUI.getDriverTrueBest(activeCar.color, standing?.lapTime, standing?.hasFinishedLap);
+        teleBestLap.textContent = bestTime ? formatLapTime(bestTime) : '--:--.---';
       }
       document.getElementById('tele-lap-num')!.textContent = (activeCar.currentLap + 1).toString();
 
@@ -2364,7 +1685,7 @@ class App {
         const bestSplit = activeCar.bestLapSplits ? activeCar.bestLapSplits[g] : null;
 
         if (currSplit !== null && currSplit !== undefined) {
-          timeEl.textContent = this.formatLapTime(currSplit);
+          timeEl.textContent = formatLapTime(currSplit);
           if (bestSplit !== null && bestSplit !== undefined) {
             const diff = currSplit - bestSplit;
             const sign = diff <= 0 ? '-' : '+';
@@ -2386,7 +1707,7 @@ class App {
             if (boxEl) boxEl.style.borderColor = 'rgba(0, 210, 190, 0.4)';
           }
         } else {
-          timeEl.textContent = bestSplit ? this.formatLapTime(bestSplit) : '--:--.---';
+          timeEl.textContent = bestSplit ? formatLapTime(bestSplit) : '--:--.---';
           deltaEl.textContent = bestSplit ? 'PB' : '--';
           deltaEl.className = 'sec-delta';
           if (boxEl) boxEl.style.borderColor = '#232932';
@@ -2419,7 +1740,7 @@ class App {
     const history = this.population.learningHistory;
     const bestTag = document.getElementById('chart-best-tag');
     if (this.population.globalBestLap && bestTag) {
-      bestTag.textContent = `REKORD: ${this.formatLapTime(this.population.globalBestLap)}`;
+      bestTag.textContent = `REKORD: ${formatLapTime(this.population.globalBestLap)}`;
     }
 
     if (history.length < 2) {
@@ -2501,13 +1822,6 @@ class App {
     ctx.beginPath();
     ctx.arc(lastX, lastY, 4.5, 0, Math.PI * 2);
     ctx.fill();
-  }
-
-  private formatLapTime(seconds: number): string {
-    const mins = Math.floor(seconds / 60);
-    const secs = Math.floor(seconds % 60);
-    const ms = Math.floor((seconds % 1) * 1000);
-    return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}.${ms.toString().padStart(3, '0')}`;
   }
 }
 
