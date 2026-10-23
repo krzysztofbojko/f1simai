@@ -183,6 +183,24 @@ Model działa zawsze, w treningu i w wyścigu, bez przełącznika.
 - Pomiar wpływu całego etapu (gęstość, wiatr, aquaplaning, hamulce; trening `Population`, 180 s, ziarna 1–8, przed → po): słonecznie 322 → 316 okrążeń, DNF 70 → 66, średni najlepszy czas 53,52 → 53,76 s; deszcz 206 → 204 okrążenia, DNF 62 → 70. Różnice mieszczą się w rozrzucie między ziarnami. Koła są zablokowane w ok. 0,5% kroków auta na suchym i ok. 1,3% w deszczu; tarcze przód dochodzą w treningu do ok. 500–620 °C. Pierwsza wersja (blokada względem budżetu z rezerwą stabilności, rozkład 56/44) blokowała tył na prostej, obniżyła liczbę okrążeń o ok. 30% i podwoiła liczbę DNF, więc ją odrzucono.
 - Test: `npm run test:weather`.
 
+## Trening = wyścig (23.10.2026)
+
+Zachowanie aut i warunki sesji nie zależą od `isRaceMode`. W każdej sesji: wrak stoi 15 s z lokalną żółtą flagą (`updateRaceSafety` w każdym `Population.update`; trening respawnuje auto dopiero po `wreckRemoved`, także gracza), ataki (`BattlePush`), jazda w cieniu na prostej, obrona przed hamowaniem i wyprzedzanie, a okrążenie z planem wyprzedzania nie jest wzorcowe. Trudne okrążenia (szum LiDAR, rozrzut przyczepności i mocy) działają w każdej sesji, także dla nauczyciela w `Distill.ts`. Trening przy respawnie losuje paliwo z zakresu wyścigowego (`src/race/RaceFuel.ts`). Usunięto przywracanie sprawdzonej sieci po poślizgu w wyścigu (w wyścigu sieć i tak jest sprawdzoną kopią) oraz martwe zapisy trybu na stronie (`main.ts`).
+
+`isRaceMode` zostaje tylko tam, gdzie chodzi o uczenie albo zasady sesji:
+- DAgger i bufor próbek (`Population.ts`, `getAIControl(..., !isRaceMode)`), respawn z mutacją (`Population.update`), ewolucja (`evolve`, auto-cykle), `lineSearch/lineNet.finish` i `shakeBrain` w `recordLap`;
+- resety rekordów przy zmianie warunków (`Population.setConditions`, `recordLap`) i `offConditions` w `LapTiming.ts`;
+- trudne okrążenie oznacza `lapCompromised` i nieważny sektor tylko w treningu (`Car.rollLapPerformanceVariation`, `timeSector`);
+- sprawdzony zamiast próbnego marginesu tempa (`DrivePlanner.ts` → `PaceSearch.value`) i linii (`LineNet.target`, wołane z `RaceTraffic.ts`);
+- wyspy nie podmieniają modeli w wyścigu (`Islands.ts`);
+- zasady kwalifikacji i wyścigu w `RaceSession.ts` (wypuszczanie z garażu, dolewanie do 20 kg, paliwo na dystans, klasyfikacja).
+
+Pomiar (trening `Population`, tor GP, 180 s, ziarna 1–8, przed → po wszystkich zmianach):
+- słonecznie: okrążenia 316 → 286, czyste okrążenia 102 → 18, nowe rekordy zespołów 78 → 13, zespoły z czasem 74 → 12 (na 160), DNF 66 → 72 (bandy 11 → 6, kontakt 45 → 29, utknięcie 10 → 37), najlepszy czas sesji (średnia ziaren z czasem) 53,76 → 53,54 s;
+- deszcz: okrążenia 204 → 187, czyste okrążenia 72 → 9, nowe rekordy 72 → 9, zespoły z czasem 69 → 9, DNF 70 → 54.
+- Udział zmian w spadku czystych okrążeń (słonecznie): wraki 102 → 70, walka w treningu 70 → 8, trudne okrążenia i paliwo bez wyraźnej zmiany (17–18). Bez kompromitowania okrążenia przez plan wyprzedzania byłoby 32 czyste okrążenia. Utknięcia rosną, bo auta czekają za wrakami; w wyścigu jest tak samo.
+- `npm run bench:step`: 515 → 492 µs/krok (bez regresji; skrót stanu zmienia się, bo zmienia się jazda).
+
 ## Ochrona przed wartościami nieskończonymi (19.10.2026)
 
 Po całkowaniu, a przed przesunięciem auta, `updatePhysics` sprawdza stan dynamiczny: pozycję, prędkość, kurs, prędkość kątową, heave/pitch/roll z prędkościami, temperatury opon, ERS i paliwo. Wartość NaN lub ∞ zostałaby w stanie auta na zawsze, a pozycja NaN psuje też zapytania toru. Taki krok jest więc odrzucany. Pozycja zostaje ostatnią skończoną, zawieszenie wraca do statyki, złe wartości są resetowane, a auto kończy jazdę jak po uderzeniu w bandę (w treningu respawn po usunięciu wraku). Pierwsze takie zdarzenie trafia do `console.warn`. Test w `test-suspension`.

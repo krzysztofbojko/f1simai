@@ -48,7 +48,15 @@ To model hybrydowy do gry: jednoślad z kątami znoszenia, dynamiczne zawieszeni
 
 ### Te same zasady w treningu i w wyścigu
 
-Trening, kwalifikacje i wyścig mają tę samą fizykę i te same warunki: pogodę, gęstość powietrza, opony (temperatura, zużycie, mieszanki, aquaplaning), hamulce (temperatura, blokowanie kół), ślad aerodynamiczny, morświnowanie, stratę alei serwisowej i brak tankowania. Fizyka nie ma przełączników wyłączających mechanikę, więc model nauczony w treningu trafia w wyścigu na te same warunki. Różnią się tylko elementy sesji, nie fizyki: „trudne okrążenia” (patrz wyżej) zdarzają się w każdej sesji; w treningu sieci się uczą, a rozbite auto po 15 s jako wrak z żółtą flagą (jak w wyścigu) wraca na tor; taktyka (atak, jazda w cieniu na prostej, obrona) działa w każdej sesji; w wyścigu działa dobór tempa z najlepszego marginesu; w kwalifikacjach paliwo jest uzupełniane do 20 kg na linii.
+Trening, kwalifikacje i wyścig mają tę samą fizykę i te same warunki: pogodę, gęstość powietrza, opony (temperatura, zużycie, mieszanki, aquaplaning), hamulce (temperatura, blokowanie kół), ślad aerodynamiczny, morświnowanie, stratę alei serwisowej i brak tankowania. Tak samo zachowują się auta w walce i po wypadku: rozbite auto zostaje 15 s wrakiem z lokalną żółtą flagą, kierowcy atakują, jadą w cieniu na prostej, bronią wewnętrznej i wyprzedzają, a „trudne okrążenia” (patrz wyżej) zdarzają się w każdej sesji. Nie ma przełączników wyłączających mechanikę, więc model nauczony w treningu trafia w wyścigu na te same warunki (`npm run test:parity`).
+
+Celowo różnią się tylko mechanizmy uczenia i zasady sesji, nie warunki jazdy:
+- uczenie tylko w treningu: DAgger i bufor próbek, mutacje przy respawnie i sam respawn po usunięciu wraku, ewolucja generacji, poszukiwanie linii i tempa (`LineSearch`, `LineNet`, `PaceSearch`), próby wyjścia ze stagnacji, wyspy treningowe;
+- księgowanie rekordów: w treningu trudne okrążenie i okrążenie poza klasą warunków nie oceniają modelu, a zmiana warunków resetuje rekord odniesienia; w kwalifikacjach i wyścigu takie okrążenia mają ważny czas i sektory;
+- wybór sprawdzonego zamiast próbnego marginesu tempa i linii w kwalifikacjach i wyścigu (w treningu jedzie się próbę, którą ocenia okrążenie);
+- paliwo: wyścig startuje z paliwem na dystans, kwalifikacje dolewają do 20 kg na linii, a trening przy respawnie losuje paliwo z zakresu wyścigowego (5 kg – paliwo na 50 okrążeń).
+
+Szczegóły i pomiar wpływu: `PHYSICS.md`, sekcja „Trening = wyścig”.
 
 Po zmianie fizyki z 04.10.2026 dawne rekordy i modele AI wymagają ponownego treningu. Zmiany z 23.10.2026 (zużycie paliwa według limitu 100 kg/h, postoje bez tankowania ze stratą alei, ślad aerodynamiczny i morświnowanie także w treningu, gęstość powietrza z temperatury, aquaplaning, temperatura hamulców i blokowanie kół) znów zmieniają czasy okrążeń i przebieg treningu, więc dawne rekordy nie są porównywalne. Układ wejść sieci się nie zmienił, więc zapisane modele się wczytują, ale warto je douczyć. Zmiana ERS na regulamin 2026 (13.10.2026) ponownie zmienia czasy okrążeń, więc dawne rekordy nie są porównywalne. Pliki modeli z 10 kierowcami nadal się wczytują: drugi kierowca zespołu dostaje lekko zmutowaną kopię sieci partnera. Droga hamowania i czasy okrążeń zmieniły się wraz z poprawą limitów tarcia i skali drogi.
 
