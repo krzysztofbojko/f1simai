@@ -130,8 +130,8 @@ export function planRaceLine(car: Car, cars: Car[], track: Track, dt: number): v
     .sort((a, b) => a.distance - b.distance);
   // Nearest running car ahead in the same direction: the one to tow behind or keep out of the wake of.
   const leader = ahead.find(({ other }) => other.isAlive);
-  // On a long straight a race car stays in the tow and only pulls out close behind.
-  const towing = car.isRaceMode && cornerAhead > TOW_STRAIGHT;
+  // On a long straight a car stays in the tow and only pulls out close behind (every session).
+  const towing = cornerAhead > TOW_STRAIGHT;
   if (!plan) {
     // A wreck to bypass, or a slower car to pass (never under yellow).
     const pass = ahead.find(({ other, distance }) => !other.isAlive
@@ -157,7 +157,7 @@ export function planRaceLine(car: Car, cars: Car[], track: Track, dt: number): v
     if (cornerAhead === 0) defence.inCorner = true;
     else if (defence.inCorner) { defences.delete(car); defence = undefined; }
   }
-  if (!plan && !defence && car.isRaceMode && !car.yellowFlag && turn !== 0 && cornerAhead > 60 && cornerAhead < 220 && car.currentControl.brake < 0.05) {
+  if (!plan && !defence && !car.yellowFlag && turn !== 0 && cornerAhead > 60 && cornerAhead < 220 && car.currentControl.brake < 0.05) {
     // One move, made before the braking zone and never under braking: cover the inside of the next corner.
     const attacker = cars.some(other => {
       if (other === car || !other.isAlive || other.isPitting || other.isFinishedRace) return false;
@@ -198,8 +198,7 @@ export function planRaceLine(car: Car, cars: Car[], track: Track, dt: number): v
   car.overtakingTargetName = plan?.target.isAlive && !car.yellowFlag ? plan.target.driverName : '';
   if (plan) {
     plans.set(car,plan);
-    // In training a pass is normal pack driving: slow laps never beat a best, and contacts/off-track still disqualify.
-    // In a race the lap is flagged as before.
-    if (car.isRaceMode) car.lapCompromised = true;
+    // A lap with a pass (or a wreck bypass) is not a reference lap, in training as in the race.
+    car.lapCompromised = true;
   } else plans.delete(car);
 }

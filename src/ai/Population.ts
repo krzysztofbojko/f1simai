@@ -490,7 +490,7 @@ export class Population {
         // A rival must occupy the same local stretch, face the same direction,
         // and be ahead by at most 35 m. Nearby parallel track sections do not count.
         const tangent = track.checkpoints[car.currentCheckpointIdx]?.tangent;
-        const rival = this.isRaceMode && tangent ? this.cars.find(other => {
+        const rival = tangent ? this.cars.find(other => {
           if (other === car || !other.isAlive || other.isPitting || other.isFinishedRace || other.raceLapsCompleted !== car.raceLapsCompleted) return false;
           const indexGap = Math.abs(other.currentCheckpointIdx - car.currentCheckpointIdx);
           if (Math.min(indexGap, track.checkpoints.length - indexGap) > 2) return false;
@@ -498,7 +498,7 @@ export class Population {
           const ahead = offset.dot(tangent);
           return ahead > 2 && ahead < 35 && Math.abs(offset.cross(tangent)) < track.width && Math.cos(other.heading - car.heading) > 0.9;
         }) : undefined;
-        const eligible = this.isRaceMode && !car.yellowFlag && !car.isManual && !car.isPitting && !car.wantsToPit && !car.isFinishedRace && car.speed > 12 && car.surface === 'asphalt' && !car.isSkidding && !car.incidentActive && car.recoveryTimer <= 0;
+        const eligible = !car.yellowFlag && !car.isManual && !car.isPitting && !car.wantsToPit && !car.isFinishedRace && car.speed > 12 && car.surface === 'asphalt' && !car.isSkidding && !car.incidentActive && car.recoveryTimer <= 0;
         car.battlePush.step(dt, rival?.driverName ?? null, eligible, pressureProfile(car.effectiveDriverPressure).attacks);
         car.battleOpponent = car.battlePush.opponent;
         if (car.battlePush.remaining > 0) {
