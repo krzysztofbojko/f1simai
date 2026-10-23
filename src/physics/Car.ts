@@ -115,8 +115,6 @@ export class Car {
   public static readonly STEERING_LAG: number = 0.09; // s
   /** The front axle saturates slightly before the rear: a stable, understeer-biased balance at the limit. */
   public static readonly FRONT_GRIP_BIAS: number = 1.0;
-  /** Slip-angle / yaw-inertia model above ~8 m/s (false = purely kinematic response). */
-  public static DYNAMIC_YAW = true;
   /** Fraction of the lateral force in use that drive/brake may not take from the friction circle. */
   public static readonly STABILITY_RESERVE: number = 1.1;
   public static readonly YAW_FEEDBACK: number = 0.1;
@@ -124,22 +122,14 @@ export class Car {
   public static readonly SLIDE_SLIP: number = 0.38;
   /** Tyre cornering stiffness in N per N of vertical load per radian of slip angle. */
   public static readonly CORNERING_STIFFNESS: number = 22;
-  /** Magic Formula (Pacejka) axle curve with a post-peak drop instead of the saturating tanh. */
-  public static PACEJKA = false;
-  public static readonly MF_C = 1.35;
-  public static readonly MF_E = -0.85;
-  public static readonly MF_ALPHA_PEAK = 0.13; // rad
   /** Yaw inertia in kg·m² per kg of total mass (≈1170 kg·m² for a 900 kg car). */
   public static readonly YAW_INERTIA_FACTOR: number = 1.3;
   /**
    * Tyre load sensitivity across an axle: each wheel's friction scales as (Fz/Fz_mean)^-k, so the
    * loaded outer wheel gains less grip than the inner one loses. With no roll the axle keeps μ·Fz,
-   * so grip against speed stays as calibrated (false = flat roll penalty on both axles).
+   * so grip against speed stays as calibrated.
    */
-  public static LOAD_SENSITIVITY = true;
   public static LOAD_SENSITIVITY_EXP = 0.12;
-  /** Front axle share of the lateral load transfer without the roll model (SUSPENSION_ROLL = false). */
-  public static ROLL_STIFFNESS_FRONT = 0.52;
 
   /** Load-equivalent grip of an axle (μ·this = its friction limit) with `transfer` moved to the outer wheel. */
   static axleGripLoad(axleLoad: number, transfer: number): number {
@@ -151,14 +141,10 @@ export class Car {
   }
 
   /**
-   * Aerodynamic wake of the cars ahead (Traffic.computeWake): a tow cuts drag, dirty air cuts
-   * downforce, the front wing most. Off in training by default, so a tow never sets a PB.
+   * Drag and downforce multipliers from the aerodynamic wake of the cars ahead
+   * (Traffic.computeWake), refreshed every step, the same in training and the race: a tow cuts
+   * drag, dirty air cuts downforce, the front wing most (1 = clean air).
    */
-  public static WAKE_AERO = true;
-  public static WAKE_IN_TRAINING = false;
-  /** Car-to-car contacts apply their impulse at the contact point with friction (false = centre-to-centre, frictionless). */
-  public static CONTACT_SPIN = true;
-  /** Drag and downforce multipliers from the wake, refreshed every step (1 = clean air). */
   public wakeDrag = 1;
   public wakeDownforce = 1;
 
@@ -263,7 +249,6 @@ export class Car {
    * particular height and chokes when it gets too close to the road. Ride height follows with a lag
    * so the stall threshold cannot chatter from step to step.
    */
-  public static RIDE_HEIGHT_AERO = true;
   public static readonly FRH_STATIC = 0.030;
   public static readonly RRH_STATIC = 0.055;
   public static readonly AXLE_STIFFNESS_FRONT = 380000; // 2 x 145 kN/m springs + 90 kN/m heave element
@@ -275,16 +260,12 @@ export class Car {
   /**
    * Dynamic suspension: the sprung mass heaves and pitches on the axle springs and asymmetric
    * dampers, driven by front/rear downforce and the elastic share of longitudinal load transfer.
-   * Ride height follows from the body motion (false = quasi-static compression with a 0.15 s lag).
-   */
-  public static SUSPENSION_DYNAMIC = true;
-  /** Tyre loads from the suspension forces (body motion delays transfer) instead of quasi-static transfer. */
-  public static SUSPENSION_LOADS = true;
-  /**
+   * Ride height follows from the body motion, and the tyre loads from the suspension forces (body
+   * motion delays the transfer).
+   *
    * Body roll on the corner springs and anti-roll bars: each axle's roll stiffness and damping set
-   * its share of the lateral load transfer, transients included (false = fixed ROLL_STIFFNESS_FRONT split).
+   * its share of the lateral load transfer, transients included.
    */
-  public static SUSPENSION_ROLL = true;
   /** Corner (wheel-rate) springs, N/m; the axle heave stiffness adds a third element on top. */
   public static readonly CORNER_SPRING_FRONT = 145000;
   public static readonly CORNER_SPRING_REAR = 115000;
@@ -298,7 +279,6 @@ export class Car {
    * Plank (skid block) contact: below zero ride height the floor meets the road through a stiff,
    * damped contact; it carries load the tyres no longer get and drags with titanium-on-asphalt friction.
    */
-  public static PLANK_CONTACT = true;
   public static readonly PLANK_STIFFNESS = 3_500_000; // N/m
   public static readonly PLANK_DAMPING = 85000;       // N·s/m
   public static readonly PLANK_FRICTION = 0.32;
@@ -377,9 +357,9 @@ export class Car {
     const kRollF = this.rollStiffnessFront, kRollR = this.rollStiffnessRear, rollInertia = ms * Car.ROLL_INERTIA_FACTOR;
     const cRoll = 2 * Car.ROLL_DAMPING_ZETA * Math.sqrt((kRollF + kRollR) * rollInertia);
     const cRollF = cRoll * critF / (critF + critR), cRollR = cRoll - cRollF;
-    const rollMoment = Car.SUSPENSION_ROLL ? ms * ay * this.cogHeight : 0;
+    const rollMoment = ms * ay * this.cogHeight;
     // Off-road bumps: a new bump height under each axle every ~2.5 m of travel, the road easing towards it.
-    const roughness = Car.PLANK_CONTACT ? this.surfaceFractions.grass * Car.GRASS_ROUGHNESS + this.surfaceFractions.gravel * Car.GRAVEL_ROUGHNESS : 0;
+    const roughness = this.surfaceFractions.grass * Car.GRASS_ROUGHNESS + this.surfaceFractions.gravel * Car.GRAVEL_ROUGHNESS;
     const roadPrevFront = this.roadFront, roadPrevRear = this.roadRear;
     if (roughness > 0 || this.roadFront !== 0 || this.roadRear !== 0) {
       const travel = dt * Math.max(1, this.speed) / 2.5;
@@ -394,7 +374,7 @@ export class Car {
       if (roughness === 0 && Math.abs(this.roadFront) + Math.abs(this.roadRear) < 1e-5) this.roadFront = this.roadRear = 0;
     }
     const roadRateFront = (this.roadFront - roadPrevFront) / dt, roadRateRear = (this.roadRear - roadPrevRear) / dt;
-    const plank = (gap: number, closing: number) => gap >= 0 || !Car.PLANK_CONTACT ? 0
+    const plank = (gap: number, closing: number) => gap >= 0 ? 0
       : Math.max(0, Car.PLANK_STIFFNESS * -gap + Car.PLANK_DAMPING * Math.max(0, closing));
     let ff = 0, fr = 0, pf = 0, pr = 0;
     for (let i = 0; i < steps; i++) {
@@ -452,10 +432,8 @@ export class Car {
   /**
    * Porpoising: the floor's flow stalls below 8/15 mm and only reattaches above 12/19 mm, each change
    * developing over FLOOR_FLOW_LAG. With the sprung mass bouncing on its springs this hysteresis
-   * sustains a 3–10 Hz limit cycle near the stall height. Off by default: chaotic downforce loss
-   * makes learning harder (false = the stall follows ride height without hysteresis).
+   * sustains a 3–10 Hz limit cycle near the stall height, the same in training and the race.
    */
-  public static PORPOISING = false;
   /** Downforce lost when the floor flow is fully stalled in the porpoising model (a choked diffuser). */
   public static PORPOISING_STALL_LOSS = 0.4;
   /** Stalled share of the floor flow, 0..1. */
@@ -509,8 +487,7 @@ export class Car {
     return Car.icePowerFraction(this.engineRpm);
   }
 
-  // Tyre thermal / wear model, per axle. Active in training and race; set TYRE_MODEL_IN_TRAINING = false for tyre blankets (optimal, no wear).
-  public static TYRE_MODEL_IN_TRAINING = true;
+  // Tyre thermal / wear model, per axle, the same in training and the race.
   /**
    * Correlation time (s) of each of the two filter stages that shape the stress-lap LiDAR error.
    * A misjudged distance drifts instead of flickering every physics step: white per-step noise
@@ -1023,14 +1000,12 @@ export class Car {
     return thermal * (1 - 0.25 * Math.pow(Math.max(0, Math.min(1, wear)), 1.4)) * compoundGrip(compound, wetness);
   }
 
-  get tyresActive(): boolean { return this.isRaceMode || Car.TYRE_MODEL_IN_TRAINING; }
-
   /** Track wetness this car drives on. */
   get wetness(): number { return Car.config.weather.wetness; }
 
-  /** Grip the planner can expect from the current tyres (1 on blankets). */
-  get tyreGripFront(): number { return this.tyresActive ? Car.tyreGrip(this.tyreTempFront, this.tyreWearFront, this.tyreCompound, this.wetness) : 1; }
-  get tyreGripRear(): number { return this.tyresActive ? Car.tyreGrip(this.tyreTempRear, this.tyreWearRear, this.tyreCompound, this.wetness) : 1; }
+  /** Grip the planner can expect from the current tyres. */
+  get tyreGripFront(): number { return Car.tyreGrip(this.tyreTempFront, this.tyreWearFront, this.tyreCompound, this.wetness); }
+  get tyreGripRear(): number { return Car.tyreGrip(this.tyreTempRear, this.tyreWearRear, this.tyreCompound, this.wetness); }
 
   /**
    * Heat balance of one axle: slip + hysteresis heating against airflow and track cooling.
@@ -1271,39 +1246,26 @@ export class Car {
     // 3. Gravity and Aerodynamics Normal Load (Fz)
     const gravityForce = currentMass * Car.GRAVITY; // Gravity F = m * g
     let downforceMag = 0.5 * this.airDensity * this.downforceCoeff * (1 - 0.35 * this.damage) * (airSpeed * airSpeed) * (1 - crosswindLoss);
-    if (Car.RIDE_HEIGHT_AERO && Car.SUSPENSION_DYNAMIC) {
-      // The floor works at the height its airflow sees; the body then moves under that load.
-      if (Car.PORPOISING) {
-        const low = this.floorStall > 0.5
-          ? this.floorHeightFront < 0.012 || this.floorHeightRear < 0.019
-          : this.floorHeightFront < 0.008 || this.floorHeightRear < 0.015;
-        this.floorStall += ((low ? 1 : 0) - this.floorStall) * (1 - Math.exp(-dt / Car.FLOOR_FLOW_LAG));
-        this.aeroStall = this.floorStall > 0.5;
-        downforceMag *= Car.rideHeightLift(this.floorHeightFront, this.floorHeightRear, 1 - Car.PORPOISING_STALL_LOSS * this.floorStall);
-      } else {
-        this.aeroStall = this.floorHeightFront < 0.008 || this.floorHeightRear < 0.015;
-        downforceMag *= Car.rideHeightLift(this.floorHeightFront, this.floorHeightRear);
-      }
-    } else if (Car.RIDE_HEIGHT_AERO) {
-      const follow = 1 - Math.exp(-dt / 0.15);
-      this.rideHeightFront += (Math.max(0, Car.FRH_STATIC - 0.45 * downforceMag / Car.AXLE_STIFFNESS_FRONT) - this.rideHeightFront) * follow;
-      this.rideHeightRear += (Math.max(0, Car.RRH_STATIC - 0.55 * downforceMag / Car.AXLE_STIFFNESS_REAR) - this.rideHeightRear) * follow;
-      this.aeroStall = this.rideHeightFront < 0.008 || this.rideHeightRear < 0.015;
-      downforceMag *= Car.rideHeightLift(this.rideHeightFront, this.rideHeightRear);
-    }
+    // The floor works at the height its airflow sees; the body then moves under that load. Its
+    // flow stalls and reattaches with hysteresis, which can set up porpoising near the stall height.
+    const low = this.floorStall > 0.5
+      ? this.floorHeightFront < 0.012 || this.floorHeightRear < 0.019
+      : this.floorHeightFront < 0.008 || this.floorHeightRear < 0.015;
+    this.floorStall += ((low ? 1 : 0) - this.floorStall) * (1 - Math.exp(-dt / Car.FLOOR_FLOW_LAG));
+    this.aeroStall = this.floorStall > 0.5;
+    downforceMag *= Car.rideHeightLift(this.floorHeightFront, this.floorHeightRear, 1 - Car.PORPOISING_STALL_LOSS * this.floorStall);
     // Dirty air takes 60% of its loss from the front wing (46% is the clean-air split).
     const wakeLostDownforce = downforceMag * (1 - this.wakeDownforce);
     downforceMag -= wakeLostDownforce;
-    const totalNormalLoadZ = gravityForce + downforceMag; // Gravity + Aero Downforce
     // A crosswind stalls the front wing first: 60% of its loss comes off the front axle.
     const crosswindFrontShift = crosswindLoss > 0 ? 0.14 * downforceMag * crosswindLoss / (1 - crosswindLoss) : 0;
     const aeroFront = downforceMag * 0.46 - 0.14 * wakeLostDownforce - crosswindFrontShift;
-    if (Car.SUSPENSION_DYNAMIC) this.stepSuspension(dt, aeroFront, downforceMag - aeroFront, this.longitudinalG * Car.GRAVITY, this.lateralG * Car.GRAVITY);
+    this.stepSuspension(dt, aeroFront, downforceMag - aeroFront, this.longitudinalG * Car.GRAVITY, this.lateralG * Car.GRAVITY);
 
     // Aerodynamic drag opposes the velocity relative to the air (a headwind costs top speed,
     // a tailwind adds it); plank friction scrubs along the road against the motion. A crosswind
     // also pushes the car sideways through the side force, centred behind the centre of gravity.
-    const plankDrag = Car.SUSPENSION_DYNAMIC ? Car.PLANK_FRICTION * this.plankForce : 0;
+    const plankDrag = Car.PLANK_FRICTION * this.plankForce;
     const aeroDrag = 0.5 * this.airDensity * this.dragCoeff * this.lapDragFactor * this.wakeDrag * (1 + 0.15 * this.damage) * airSpeed * airSpeed;
     const aeroScale = airSpeed > 0 ? Math.min(aeroDrag / airSpeed, currentMass / dt) : 0;
     const plankScale = speedMag > 0 ? Math.min(plankDrag / speedMag, currentMass / dt) : 0;
@@ -1313,33 +1275,22 @@ export class Car {
 
     // Keep axle loads positive without inventing extra total normal load.
     const pitchTransfer = -currentMass * this.longitudinalG * Car.GRAVITY * this.cogHeight / this.wheelbase;
-    let frontLoad: number, rearLoad: number;
-    if (Car.SUSPENSION_DYNAMIC && Car.SUSPENSION_LOADS) {
-      // Tyres carry the static weight, the springs/dampers and the transfer that bypasses them:
-      // the geometric (anti-dive/squat) share of the sprung mass and all of the unsprung mass.
-      const anti = this.longitudinalG < 0 ? Car.ANTI_DIVE : Car.ANTI_SQUAT;
-      const direct = pitchTransfer * (1 - Car.SPRUNG_MASS_SHARE + Car.SPRUNG_MASS_SHARE * anti);
-      const front = gravityForce * 0.46 + this.suspensionForceFront + direct;
-      const rear = gravityForce * 0.54 + this.suspensionForceRear - direct;
-      const total = Math.max(gravityForce * 0.1, front + rear);
-      frontLoad = Math.max(total * 0.05, Math.min(total * 0.95, front));
-      rearLoad = total - frontLoad;
-    } else {
-      frontLoad = Math.max(totalNormalLoadZ * 0.05, Math.min(totalNormalLoadZ * 0.95, totalNormalLoadZ * 0.46 + pitchTransfer - 0.14 * wakeLostDownforce));
-      rearLoad = totalNormalLoadZ - frontLoad;
-    }
+    // Tyres carry the static weight, the springs/dampers and the transfer that bypasses them:
+    // the geometric (anti-dive/squat) share of the sprung mass and all of the unsprung mass.
+    const anti = this.longitudinalG < 0 ? Car.ANTI_DIVE : Car.ANTI_SQUAT;
+    const direct = pitchTransfer * (1 - Car.SPRUNG_MASS_SHARE + Car.SPRUNG_MASS_SHARE * anti);
+    const frontSprung = gravityForce * 0.46 + this.suspensionForceFront + direct;
+    const rearSprung = gravityForce * 0.54 + this.suspensionForceRear - direct;
+    const totalLoad = Math.max(gravityForce * 0.1, frontSprung + rearSprung);
+    const frontLoad = Math.max(totalLoad * 0.05, Math.min(totalLoad * 0.95, frontSprung));
+    const rearLoad = totalLoad - frontLoad;
     this.weightFrontRatio = frontLoad / (frontLoad + rearLoad);
-    const rollTransfer = currentMass * this.lateralG * Car.GRAVITY * this.cogHeight / this.trackWidthMeters;
     const fractions = this.surfaceFractions;
     const surfaceMu = fractions.asphalt * this.baseTireGrip + fractions.grass * 0.45 + fractions.gravel * 0.60;
-    let mu = surfaceMu * this.lapGripFactor;
-    let frontGripLoad = frontLoad, rearGripLoad = rearLoad;
-    if (Car.LOAD_SENSITIVITY) {
-      // Roll moves load to the outer wheels; with load sensitivity that costs the axle grip.
-      const rolling = Car.SUSPENSION_DYNAMIC && Car.SUSPENSION_ROLL;
-      frontGripLoad = Car.axleGripLoad(frontLoad, rolling ? this.rollTransferFront : rollTransfer * Car.ROLL_STIFFNESS_FRONT);
-      rearGripLoad = Car.axleGripLoad(rearLoad, rolling ? this.rollTransferRear : rollTransfer * (1 - Car.ROLL_STIFFNESS_FRONT));
-    } else mu *= 1 - Math.min(0.08, Math.abs(rollTransfer) / totalNormalLoadZ * 0.15);
+    const mu = surfaceMu * this.lapGripFactor;
+    // Roll moves load to the outer wheels; with load sensitivity that costs the axle grip.
+    const frontGripLoad = Car.axleGripLoad(frontLoad, this.rollTransferFront);
+    const rearGripLoad = Car.axleGripLoad(rearLoad, this.rollTransferRear);
     const frontLimit = mu * this.tyreGripFront * frontGripLoad;
     const rearLimit = mu * this.tyreGripRear * rearGripLoad;
 
@@ -1432,7 +1383,7 @@ export class Car {
     // Dynamic single-track model: slip angles -> saturating axle forces -> yaw
     // torque on a rigid body with yaw inertia. Below ~10 m/s slip angles become
     // ill-conditioned, so the kinematic response above takes over smoothly.
-    const dynamicWeight = Car.DYNAMIC_YAW && nextForwardSpeed > 0 ? Math.max(0, Math.min(1, (nextForwardSpeed - 8) / 8)) : 0;
+    const dynamicWeight = nextForwardSpeed > 0 ? Math.max(0, Math.min(1, (nextForwardSpeed - 8) / 8)) : 0;
     let lateralForce = kinematicLateral;
     let slipRatio = Math.abs(requestedLateral) > 0 ? Math.max(0, 1 - lateralLimit / Math.abs(requestedLateral)) : 0;
     let frontSlip = slipRatio, rearSlip = slipRatio;
@@ -1447,9 +1398,7 @@ export class Car {
       const alphaRear = -Math.atan2(lateralSpeed - toRear * yawPrevious, u);
       const axleForce = (alpha: number, load: number, limit: number) => {
         if (limit <= 1) return 0;
-        if (!Car.PACEJKA) return limit * Math.tanh(Car.CORNERING_STIFFNESS * load * alpha / limit);
-        const B = 1 / (Car.MF_C * Car.MF_ALPHA_PEAK), Bx = B * alpha;
-        return limit * Math.sin(Car.MF_C * Math.atan(Bx - Car.MF_E * (Bx - Math.atan(Bx))));
+        return limit * Math.tanh(Car.CORNERING_STIFFNESS * load * alpha / limit);
       };
       const frontForce = axleForce(alphaFront, frontLoad, frontLateral * Car.FRONT_GRIP_BIAS);
       const rearForce = axleForce(alphaRear, rearLoad, rearLateral);
@@ -1477,13 +1426,8 @@ export class Car {
     const wetNow = this.wetness;
     if (wetNow < this.lapWetMin) this.lapWetMin = wetNow;
     if (wetNow > this.lapWetMax) this.lapWetMax = wetNow;
-    if (this.tyresActive) {
-      [this.tyreTempFront, this.tyreWearFront] = this.stepTyre(this.tyreTempFront, this.tyreWearFront, frontSlipPower * Car.TYRE_FRONT_HEAT, frontLoad, speedMag, dt);
-      [this.tyreTempRear, this.tyreWearRear] = this.stepTyre(this.tyreTempRear, this.tyreWearRear, rearSlipPower, rearLoad, speedMag, dt);
-    } else {
-      this.tyreTempFront = this.tyreTempRear = Car.TYRE_OPTIMUM;
-      this.tyreWearFront = this.tyreWearRear = 0;
-    }
+    [this.tyreTempFront, this.tyreWearFront] = this.stepTyre(this.tyreTempFront, this.tyreWearFront, frontSlipPower * Car.TYRE_FRONT_HEAT, frontLoad, speedMag, dt);
+    [this.tyreTempRear, this.tyreWearRear] = this.stepTyre(this.tyreTempRear, this.tyreWearRear, rearSlipPower, rearLoad, speedMag, dt);
     this.tireUtilization = Math.min(1, Math.hypot(frontFx + rearFx, lateralForce) / Math.max(1, frontLimit + rearLimit));
     const drifting = Math.abs(lateralSpeed) > 4.5 && speedMag > 18;
     this.isSkidding = slipRatio > 0.01 || drifting;
@@ -1517,8 +1461,8 @@ export class Car {
     const measuredAcceleration = this.vel.sub(previousVelocity).div(dt);
     this.longitudinalG = measuredAcceleration.dot(forwardDir) / Car.GRAVITY;
     this.lateralG = measuredAcceleration.dot(rightDir) / Car.GRAVITY;
-    this.pitchAngle = Car.SUSPENSION_DYNAMIC ? this.pitch : Math.max(-0.06, Math.min(0.06, -this.longitudinalG * 0.015));
-    this.rollAngle = Car.SUSPENSION_DYNAMIC && Car.SUSPENSION_ROLL ? this.roll : Math.max(-0.08, Math.min(0.08, this.lateralG * 0.018));
+    this.pitchAngle = this.pitch;
+    this.rollAngle = this.roll;
     if (!this.dynamicStateFinite()) { this.recoverInvalidState(previousHeading); return null; }
 
     // 7. Position & Distance Update (1 px = 1 meter)

@@ -304,21 +304,17 @@ try {
   assert.ok(offCar.isAlive, 'ten seconds off track is still within the recovery window');
   for (let i = 0; i < 60 * 3 && offCar.isAlive; i++) { offCar.updatePhysics(parked, 1 / 60, gp); offCar.framesSinceLastCheckpoint = 0; }
   assert.equal(offCar.eliminationReason, 'stuck', 'more than twelve seconds off track retires the car');
-  // Tyres: bell-shaped thermal window, heating and wear in training and race (blankets when TYRE_MODEL_IN_TRAINING is off).
+  // Tyres: bell-shaped thermal window, heating and wear, the same in training and the race.
   assert.ok(Math.abs(Car.tyreGrip(Car.TYRE_OPTIMUM, 0) - 1) < 1e-9, 'full grip at the optimum');
   assert.ok(Car.tyreGrip(60, 0) < 0.9 && Car.tyreGrip(150, 0) < 0.9, 'cold and overheated tyres lose grip');
   assert.ok(Car.tyreGrip(100, 1) < Car.tyreGrip(100, 0.3), 'wear lowers grip');
   const tyreCar = new Car(gp.startPosition, gp.startAngle, new NeuralNetwork([driverInputCount(25), 4, 3]), '#fff', 'tyres', 60, 25);
-  const driveCorner = (race, steps) => { tyreCar.isRaceMode = race; tyreCar.reset(gp.startPosition, gp.startAngle, true, 1); tyreCar.vel = Vector2.fromAngle(tyreCar.heading).mul(45); tyreCar.speed = 45; for (let i = 0; i < steps; i++) tyreCar.updatePhysics({ throttle: 0.5, brake: 0, steer: 0.12 }, 1 / 60, stub); };
+  const driveCorner = (race, steps) => { tyreCar.isRaceMode = race; tyreCar.reset(gp.startPosition, gp.startAngle, true, 1); tyreCar.lapPowerFactor = tyreCar.lapGripFactor = tyreCar.lapDragFactor = 1; tyreCar.vel = Vector2.fromAngle(tyreCar.heading).mul(45); tyreCar.speed = 45; for (let i = 0; i < steps; i++) tyreCar.updatePhysics({ throttle: 0.5, brake: 0, steer: 0.12 }, 1 / 60, stub); };
   driveCorner(false, 120);
-  assert.ok(tyreCar.tyreTempFront !== Car.TYRE_OPTIMUM && tyreCar.tyreWearFront > 0, 'training tyres heat up and wear by default: ' + tyreCar.tyreTempFront);
-  Car.TYRE_MODEL_IN_TRAINING = false;
-  driveCorner(false, 120);
-  assert.equal(tyreCar.tyreTempFront, Car.TYRE_OPTIMUM, 'blankets when the model is off in training');
-  assert.equal(tyreCar.tyreGripFront, 1);
-  Car.TYRE_MODEL_IN_TRAINING = true;
+  const training = { temp: tyreCar.tyreTempFront, wear: tyreCar.tyreWearFront };
+  assert.ok(training.temp !== Car.TYRE_OPTIMUM && training.wear > 0, 'training tyres heat up and wear: ' + training.temp);
   driveCorner(true, 120);
-  assert.ok(tyreCar.tyreTempFront !== 85 && tyreCar.tyreWearFront > 0, 'race tyres heat up and wear: ' + tyreCar.tyreTempFront);
+  assert.ok(tyreCar.tyreTempFront === training.temp && tyreCar.tyreWearFront === training.wear, 'race tyres heat up and wear exactly as in training: ' + tyreCar.tyreTempFront);
   // Compounds: soft > medium > hard in grip and the reverse in wear; treaded tyres win only on a wet track.
   const peak = (c, w = 0) => Car.tyreGrip(COMPOUND_SPECS[c].optimum, 0, c, w);
   assert.ok(Math.abs(peak('medium') - 1) < 1e-9, 'a dry medium is the calibrated reference');
@@ -328,9 +324,11 @@ try {
   assert.ok(peak('wet', 1) > peak('intermediate', 1) && peak('intermediate', 1) > peak('soft', 1), 'full wets rule a soaked track');
   assert.equal(weatherCompound(0, 'soft'), 'soft'); assert.equal(weatherCompound(0.5, 'soft'), 'intermediate'); assert.equal(weatherCompound(1, 'hard'), 'wet');
   assert.ok(wrongForConditions('soft', 1) && wrongForConditions('wet', 0) && !wrongForConditions('hard', 0), 'wrong tyres for the weather are recognised');
-  const stint = (compound, wetness, steer = 0.12) => {
+  // A corner every compound holds (a hard tyre at 0.12 slides and overheats, which is a different test).
+  const stint = (compound, wetness, steer = 0.1) => {
     Car.config.weather.wetness = wetness;
     tyreCar.isRaceMode = true; tyreCar.reset(gp.startPosition, gp.startAngle, true, 1); tyreCar.tyreCompound = compound;
+    tyreCar.lapPowerFactor = tyreCar.lapGripFactor = tyreCar.lapDragFactor = 1; // the compound alone, not this lap's spread
     tyreCar.vel = Vector2.fromAngle(tyreCar.heading).mul(45); tyreCar.speed = 45;
     for (let i = 0; i < 240; i++) tyreCar.updatePhysics({ throttle: 0.5, brake: 0, steer }, 1 / 60, stub);
     Car.config.weather.wetness = 0;

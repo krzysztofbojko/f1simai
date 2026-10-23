@@ -50,13 +50,13 @@ export function avoidTraffic(car: Car, cars: Car[], control: CarControl, track?:
 /**
  * Wake of the cars ahead: a tow cuts drag up to 30% (fading out 50 m behind the car ahead),
  * dirty air cuts downforce up to 20% (fading out by 30 m). The wake is ±1.6 m wide and weakens
- * when the car ahead is slower. Sets `wakeDrag` / `wakeDownforce` on every car.
+ * when the car ahead is slower. Sets `wakeDrag` / `wakeDownforce` on every car, the same in
+ * training and the race: a model trained in the pack meets the same air in a race.
  */
 export function computeWake(cars: Car[], track?: Track): void {
   for (const car of cars) {
     car.wakeDrag = 1;
     car.wakeDownforce = 1;
-    if (!Car.WAKE_AERO || (!car.isRaceMode && !Car.WAKE_IN_TRAINING)) continue;
     if (!car.isAlive || car.isPitting || car.isFinishedRace || car.speed < 20) continue;
     const forward = Vector2.fromAngle(car.heading);
     const road = track?.sampleSurface(car.pos);
@@ -128,8 +128,7 @@ function support(car: Car, dir: Vector2): Vector2 {
 function applyContactImpulse(a: Car, b: Car, normal: Vector2, ia: number, ib: number): void {
   const point = Vector2.lerp(support(a, normal), support(b, normal.mul(-1)), 0.5);
   const ra = point.sub(a.pos), rb = point.sub(b.pos);
-  const spin = Car.CONTACT_SPIN ? 1 / Car.YAW_INERTIA_FACTOR : 0;
-  const ja = ia * spin, jb = ib * spin; // 1/Iz, Iz = factor·m
+  const ja = ia / Car.YAW_INERTIA_FACTOR, jb = ib / Car.YAW_INERTIA_FACTOR; // 1/Iz, Iz = factor·m
   const yawBefore = [a.angularVelocity, b.angularVelocity];
   const relative = () => b.vel.add(rb.normal().mul(b.angularVelocity)).sub(a.vel.add(ra.normal().mul(a.angularVelocity)));
   const push = (dir: Vector2, impulse: number) => {
@@ -145,7 +144,7 @@ function applyContactImpulse(a: Car, b: Car, normal: Vector2, ia: number, ib: nu
   push(normal, normalImpulse);
   const tangent = normal.normal();
   const slide = relative().dot(tangent);
-  const limit = Car.CONTACT_SPIN ? CONTACT_FRICTION * normalImpulse : 0;
+  const limit = CONTACT_FRICTION * normalImpulse;
   push(tangent, Math.max(-limit, Math.min(limit, -slide / mass(tangent))));
   // Same bound as a barrier hit, so a touch cannot set up an unrecoverable spin.
   [a, b].forEach((car, k) => {

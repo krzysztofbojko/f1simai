@@ -82,9 +82,8 @@ try {
   c.surfaceFractions = { asphalt: 1, grass: 0, gravel: 0 }; run(c, 2, 1 / 60, () => [0, 0, 0, 0]);
   assert.ok(c.roadFront === 0 && c.roadRear === 0 && Math.abs(c.rideHeightFront - Car.FRH_STATIC) < 1e-4, 'smooth again on asphalt');
 
-  // Full car: heights fall with speed and dive under braking, with and without suspension loads.
-  for (const loads of [false, true]) {
-    Car.SUSPENSION_LOADS = loads;
+  // Full car: heights fall with speed and dive under braking.
+  {
     // An open plane (as in audit-physics) so the straight-line run never meets a barrier.
     const plane = { checkpoints: [], timingGates: [], width: 76, isOutOfBounds: () => false };
     const car = new Car({ x: 0, y: 0, clone() { return this; } }, 0);
@@ -96,43 +95,42 @@ try {
     assert.ok(cruise < Car.FRH_STATIC && car.rideHeightRear < Car.RRH_STATIC, 'downforce compresses the axles at speed');
     let minFront = Infinity;
     for (let i = 0; i < 20; i++) { car.updatePhysics({ throttle: 0, brake: 1, steer: 0 }, 1 / 60, plane); minFront = Math.min(minFront, car.rideHeightFront); }
-    assert.ok(car.isAlive && Number.isFinite(car.speed) && minFront < cruise - 0.001, `brake dive at speed (loads ${loads}): ${mm(cruise)} -> ${mm(minFront)} mm`);
+    assert.ok(car.isAlive && Number.isFinite(car.speed) && minFront < cruise - 0.001, `brake dive at speed: ${mm(cruise)} -> ${mm(minFront)} mm`);
   }
-  // A floor pressed onto the road scrubs speed: plank friction acts as extra drag.
-  // Without the floor-stall model (which lifts a choked car off the road by itself) to isolate the plank.
-  const coast = plankOn => {
-    Car.PLANK_CONTACT = plankOn; Car.RIDE_HEIGHT_AERO = false;
+  // A floor pressed onto the road scrubs speed: plank friction acts as extra drag. An extra 30 kN
+  // per axle on top of the aero load bottoms the car (the floor-stall model cannot lift it off the
+  // road); the same car on its springs alone coasts freely.
+  const coast = extra => {
     const plane = { checkpoints: [], timingGates: [], width: 76, isOutOfBounds: () => false };
     const car = new Car({ x: 0, y: 0, clone() { return this; } }, 0);
     car.pos = car.vel.clone(); car.prevPos = car.vel.clone(); car.vel.set(70, 0); car.speed = 70;
-    car.lapPowerFactor = car.lapGripFactor = car.lapDragFactor = 1; car.downforceCoeff = 12;
+    car.lapPowerFactor = car.lapGripFactor = car.lapDragFactor = 1;
+    const stepSuspension = car.stepSuspension.bind(car);
+    car.stepSuspension = (dt, front, rear, ax, ay) => stepSuspension(dt, front + extra, rear + extra, ax, ay);
     let plank = 0;
     for (let i = 0; i < 60; i++) { car.updatePhysics({ throttle: 0, brake: 0, steer: 0 }, 1 / 60, plane); plank = Math.max(plank, car.plankForce); }
-    Car.PLANK_CONTACT = true; Car.RIDE_HEIGHT_AERO = true;
     return { speed: car.speed, plank };
   };
-  const scrub = coast(true), free = coast(false);
+  const scrub = coast(30000), free = coast(0);
   assert.ok(scrub.plank > 0 && free.plank === 0 && scrub.speed < free.speed - 0.5, `plank drag: ${scrub.speed.toFixed(2)} vs ${free.speed.toFixed(2)} m/s`);
-  // Porpoising: with the hysteresis on and the floor working near its stall height the body settles
-  // into a bounded 3–10 Hz bounce, at any simulation step; with it off the same car runs steady.
-  const bounce = (on, dt) => {
-    Car.PORPOISING = on;
+  // Porpoising: with the floor working near its stall height the flow hysteresis settles the body
+  // into a bounded 3–10 Hz bounce, at any simulation step; a floor clear of the stall runs steady.
+  const bounce = (dt, downforceCoeff = 5) => {
     const plane = { checkpoints: [], timingGates: [], width: 76, isOutOfBounds: () => false };
     const car = new Car({ x: 0, y: 0, clone() { return this; } }, 0);
     car.pos = car.vel.clone(); car.prevPos = car.vel.clone();
-    car.lapPowerFactor = car.lapGripFactor = car.lapDragFactor = 1; car.downforceCoeff = 5;
+    car.lapPowerFactor = car.lapGripFactor = car.lapDragFactor = 1; car.downforceCoeff = downforceCoeff;
     const hs = [];
     for (let t = 0; t < 5; t += dt) { car.vel.set(80, 0); car.speed = 80; car.updatePhysics({ throttle: 0, brake: 0, steer: 0 }, dt, plane); if (t > 2) hs.push(car.rideHeightFront); }
-    Car.PORPOISING = false;
     const mean = hs.reduce((x, y) => x + y) / hs.length;
     return { rms: Math.sqrt(hs.reduce((x, y) => x + (y - mean) ** 2, 0) / hs.length), hz: car.porpoisingHz, min: Math.min(...hs), max: Math.max(...hs) };
   };
   for (const dt of [1 / 30, 1 / 60, 1 / 120]) {
-    const b = bounce(true, dt);
+    const b = bounce(dt);
     assert.ok(b.rms > 0.001 && b.hz >= 3 && b.hz <= 10 && b.min > -0.006 && b.max < Car.FRH_STATIC, `porpoising at dt ${dt.toFixed(4)}: ${mm(b.rms)} mm rms, ${b.hz} Hz, ${mm(b.min)}..${mm(b.max)} mm`);
   }
-  const calm = bounce(false, 1 / 60);
-  assert.ok(calm.rms < 1e-4 && calm.hz === 0, 'no bounce without the porpoising model');
+  const calm = bounce(1 / 60, 3);
+  assert.ok(calm.rms < 1e-4 && calm.hz === 0, 'no bounce with the floor above its stall height');
   // Tyre temperature and wear do not depend on the simulation step: straight, steady corner, braking.
   const planeCar = speed => {
     const car = new Car({ x: 0, y: 0, clone() { return this; } }, 0);

@@ -112,7 +112,7 @@ Wyjścia sieci `[skręt, gaz, hamulec]` są faktycznym sterowaniem (`Car.getAICo
 
 Model jednośladu (`Car.updatePhysics`): kąty znoszenia osi → siła boczna `Fy = Fmax·tanh(Cα·α/Fmax)` (Cα = 22·Fz, Fmax z koła tarcia osi) → moment na bryłę o bezwładności `Iz = 1,3·m`. Napęd i hamowanie mają **priorytet stabilności**: oś zachowuje siłę boczną użytą w poprzednim kroku (×1,1), a napęd/hamulec dostają resztę koła tarcia (jak TC/ESC). Skręt koła podąża za poleceniem z opóźnieniem 0,09 s.
 
-Skutki: podsterowność przy nasyceniu przedniej osi, nadsterowność przy nasyceniu tylnej, `isSkidding`/`understeerSlip`/`oversteerSlip` wynikają z kątów znoszenia, a nie z samego żądania. Kierowca regułowy ma sprzężenie od prędkości kątowej i ogranicza skręt do tego, co wykorzystuje oś. `Car.DYNAMIC_YAW = false` przywraca czysto kinematyczny model (diagnostyka).
+Skutki: podsterowność przy nasyceniu przedniej osi, nadsterowność przy nasyceniu tylnej, `isSkidding`/`understeerSlip`/`oversteerSlip` wynikają z kątów znoszenia, a nie z samego żądania. Kierowca regułowy ma sprzężenie od prędkości kątowej i ogranicza skręt do tego, co wykorzystuje oś. Poniżej ok. 8–16 m/s, gdzie kąty znoszenia są źle uwarunkowane, odpowiedź płynnie przechodzi w kinematyczną.
 
 ## Kolizje, uszkodzenia, wraki
 
@@ -164,8 +164,8 @@ Jednostka napędowa według regulaminu 2026 (bez MGU-H):
 
 - Stan: temperatura i zużycie osi przedniej i tylnej. Bilans: ciepło z mocy poślizgu bocznego (`siła · prędkość · tan α`, ×2), z pełzania wzdłużnego (1,2% `|Fx|·v`), z histerezy (`0,0075·Fz·v`), oś przednia ×1,6; chłodzenie konwekcją `∝ v^0,8` i torem; pojemność 12 kJ/K (stała czasowa ok. 40 s).
 - Mnożnik przyczepności osi: dzwon temperaturowy (optimum 100 °C, zimno do 0,80, przegrzanie do 0,75) razy zużycie (do −25% przy W=1). Wchodzi do limitów osi i do planowanej przyczepności (kierowca zwalnia na zimnych/zużytych oponach).
-- Model opon działa w treningu i w wyścigu (`Car.TYRE_MODEL_IN_TRAINING = true` domyślnie); `false` przywraca „koce” (100 °C, zużycie 0) w treningu. Auto startuje z 85 °C; pit stop daje nowy komplet. Zużycie > 70% wywołuje zjazd do boksu (patrz „AI, paliwo i postój”).
-- Kalibracja (`npm run diag:nn`; `NOTYRES=1` wyłącza opony): temperatury ok. 80–115 °C, tempo wyścigowe ok. 3–5% wolniejsze od treningowego.
+- Model opon działa zawsze, tak samo w treningu i w wyścigu (bez przełącznika „koców”). Auto startuje z 85 °C; pit stop daje nowy komplet. Zużycie > 70% wywołuje zjazd do boksu (patrz „AI, paliwo i postój”).
+- Kalibracja (`npm run diag:nn`): temperatury ok. 80–115 °C, tempo wyścigowe ok. 3–5% wolniejsze od treningowego.
 - Pogoda (`Weather.ts`): powietrze i nawierzchnia z bieżącej pogody zastępują stałe 25 / 38 °C (`TYRE_AMBIENT` / `TYRE_TRACK` to wartości pogody odniesienia). Chłodzenie: `2·(15 + 3,2·v^0,8)·(T − T_pow) + 60·(T − T_toru)`, razy `(1 + 0,9·W)` na mokrym.
 - Niezależność od kroku (`test-suspension`): prosta, stały zakręt oraz cykl hamowanie/przyspieszanie, każdy po 20 s przy 30/60/120 Hz. Różnice temperatury < 1,5 °C, zużycia < 5% (zmierzone: 0,9 °C i 2,3% w zakręcie).
 
@@ -186,22 +186,22 @@ Wyniki promieni (`rayDistances`, `rayHits`), udziały nawierzchni pod kołami i 
 - HUD pokazuje prawdziwy bieg i obroty, nie bieg wyliczany z prędkości.
 - Wpływ na tempo: ok. 1,5% wolniejsze okrążenia (cięcia zapłonu, pasmo mocy, hamowanie silnikiem).
 
-## Pacejka (opcjonalnie, domyślnie wyłączona)
+## Pacejka (usunięta 23.10.2026)
 
-`Car.PACEJKA = true` podmienia `tanh` siły osi na Magic Formula (`C=1,35`, `E=−0,85`, szczyt przy α≈7,5°, spadek ok. 15% za szczytem). Pomiar `npm run diag:nn` (`PACEJKA=1`, 3 ziarna po 600 s): 2–7 rozbić o bandę na ziarno (przy `tanh` 0) i niejednoznaczne czasy, więc zostaje wyłączona. Wymagałaby osobnego strojenia strażnika stabilności i planowanej przyczepności.
+Wcześniej `Car.PACEJKA = true` podmieniał `tanh` siły osi na Magic Formula (`C=1,35`, `E=−0,85`, szczyt przy α≈7,5°, spadek ok. 15% za szczytem). Pomiar `npm run diag:nn` (3 ziarna po 600 s): 2–7 rozbić o bandę na ziarno (przy `tanh` 0) i niejednoznaczne czasy; 23.10.2026 z włączoną Pacejką nie przechodzi też `test-neural-driving` („overtaking left the asphalt”). Fizyka nie ma już przełączników, więc wariant usunięto (jest w historii gita). Wymagałby osobnego strojenia strażnika stabilności i planowanej przyczepności.
 
-## Zawieszenie i prześwit (dynamiczne, `Car.SUSPENSION_DYNAMIC`)
+## Zawieszenie i prześwit (dynamiczne)
 
-Stan po zmianach z 18.10.2026. `SUSPENSION_DYNAMIC = false` przywraca dawny model quasi-statyczny (ugięcie z samego docisku i opóźnienie 0,15 s).
+Stan po zmianach z 18.10.2026. Od 23.10.2026 wszystkie elementy poniżej działają zawsze, w treningu i w wyścigu; dawne przełączniki (`SUSPENSION_DYNAMIC`, `SUSPENSION_LOADS`, `SUSPENSION_ROLL`, `RIDE_HEIGHT_AERO`, `PLANK_CONTACT`, `PORPOISING`) i modele zastępcze usunięto.
 
 - **Heave + pitch** (`Car.stepSuspension`): masa resorowana 0,85·m, bezwładność pitch 1,85·ms. Sprężyny osi 380/305 kN/m, prześwit statyczny 30/55 mm. Tłumiki asymetryczne: dobicie ζ = 0,5, odbicie ζ = 0,7. Wymuszenia to docisk przód/tył (46/54, z korektą śladu aero) i sprężysta część transferu wzdłużnego. Geometria zawieszenia przejmuje 50% transferu przy hamowaniu (`ANTI_DIVE`) i 30% przy przyspieszaniu (`ANTI_SQUAT`), więc 5 g hamowania obniża przód o < 6 mm. Częstotliwości ok. 5 Hz (heave) i 6,5 Hz (pitch). Podkroki 1/240 s, półjawny Euler, wynik niezależny od kroku symulacji (30/60/120 Hz, < 0,5 mm).
-- **Obciążenia opon** (`SUSPENSION_LOADS = true`): statyka plus siły sprężyn i tłumików, plus transfer geometryczny i masy nieresorowanej. Ruch nadwozia opóźnia część transferu. W bramce etapu 1 wariant z dawnym transferem quasi-statycznym miał ziarna z 54 i 19 uderzeniami w bandę, wariant z obciążeniami z zawieszenia nie.
-- **Przechył** (`SUSPENSION_ROLL`): sprężyny narożnikowe 145/115 kN/m i stabilizatory 45/46,5 kN/m. Stabilizatory dobrano tak, żeby przód przejmował ok. 52% ustalonego transferu bocznego, jak dawna stała. Tłumienie przechyłu ζ = 0,6 dzieli się na osie jak tłumiki heave. Transfer każdej osi wynika z momentu jej sprężyn i tłumików przechyłu, łącznie ze stanem przejściowym, i trafia do modelu wrażliwości opon. `rollAngle` i `pitchAngle` pochodzą teraz z dynamiki, więc przechył narasta z opóźnieniem względem przyspieszenia bocznego.
+- **Obciążenia opon**: statyka plus siły sprężyn i tłumików, plus transfer geometryczny i masy nieresorowanej. Ruch nadwozia opóźnia część transferu. W bramce etapu 1 wariant z dawnym transferem quasi-statycznym miał ziarna z 54 i 19 uderzeniami w bandę, wariant z obciążeniami z zawieszenia nie.
+- **Przechył**: sprężyny narożnikowe 145/115 kN/m i stabilizatory 45/46,5 kN/m. Stabilizatory dobrano tak, żeby przód przejmował ok. 52% ustalonego transferu bocznego, jak dawna stała. Tłumienie przechyłu ζ = 0,6 dzieli się na osie jak tłumiki heave. Transfer każdej osi wynika z momentu jej sprężyn i tłumików przechyłu, łącznie ze stanem przejściowym, i trafia do modelu wrażliwości opon. `rollAngle` i `pitchAngle` pochodzą teraz z dynamiki, więc przechył narasta z opóźnieniem względem przyspieszenia bocznego.
 - **Przepływ pod podłogą**: aerodynamika widzi prześwit przez filtr 0,05 s (`FLOOR_FLOW_LAG`), który chroni próg zerwania przed migotaniem. `rideHeightLift` bez zmian: optimum przodu ok. 16 mm, tyłu ok. 35 mm, spadek do 75% poniżej 8/15 mm.
-- **Deska** (`PLANK_CONTACT`): przy prześwicie < 0 kontakt 3,5 MN/m i 85 kN·s/m. Siłę przejmuje podłoga zamiast opon, a tarcie deski 0,32·F działa jak dodatkowy opór. Poza asfaltem są garby: nowa wysokość co ok. 2,5 m drogi, amplituda trawa 6 mm, żwir 14 mm (`random()` ze ziarnem). HUD: „⚠ DOBIJANIE DESKI”.
-- **Morświnowanie** (`PORPOISING = false` domyślnie): histereza przepływu. Zerwanie poniżej 8/15 mm, ponowne przylgnięcie dopiero powyżej 12/19 mm, strata 40% docisku (`PORPOISING_STALL_LOSS`). Przy podłodze pracującej przy progu zerwania (np. Cl·A ≈ 5 przy 80 m/s) daje to stabilny cykl ok. 3,5–4 Hz, ok. 3 mm rms przy każdym kroku symulacji. HUD: „⚠ MORŚWINOWANIE x Hz”.
+- **Deska**: przy prześwicie < 0 kontakt 3,5 MN/m i 85 kN·s/m. Siłę przejmuje podłoga zamiast opon, a tarcie deski 0,32·F działa jak dodatkowy opór. Poza asfaltem są garby: nowa wysokość co ok. 2,5 m drogi, amplituda trawa 6 mm, żwir 14 mm (`random()` ze ziarnem). HUD: „⚠ DOBIJANIE DESKI”.
+- **Morświnowanie** (zawsze włączone od 23.10.2026, wcześniej domyślnie wyłączone): histereza przepływu. Zerwanie poniżej 8/15 mm, ponowne przylgnięcie dopiero powyżej 12/19 mm, strata 40% docisku (`PORPOISING_STALL_LOSS`). Przy podłodze pracującej przy progu zerwania (np. Cl·A ≈ 5 przy 80 m/s) daje to stabilny cykl ok. 3,5–4 Hz, ok. 3 mm rms przy każdym kroku symulacji. HUD: „⚠ MORŚWINOWANIE x Hz”.
 - **Opóźnienie o jeden krok**: zawieszenie dostaje `longitudinalG`/`lateralG` z poprzedniego kroku (16,7 ms przy 60 Hz), bo przyspieszenia znane są dopiero po całkowaniu. To świadoma decyzja. Opóźnienie jest krótsze od relaksacji opony i od okresu przechyłu, a predykcja przyspieszenia mogłaby wzbudzić oscylacje między transferem a siłami opon.
-- Na torze GP w treningu (vmax ok. 83 m/s) najniższy prześwit podłogi wynosi 12/30 mm. Progi zerwania nie są osiągane, a deska nie dotyka asfaltu ani pobocza. Dlatego `PORPOISE=1` daje w `diag:nn` wynik identyczny z domyślnym. Oba zjawiska ujawnią się przy większym docisku lub wyższych prędkościach.
+- Na torze GP w treningu (vmax ok. 83 m/s) najniższy prześwit podłogi wynosi 12/30 mm. Progi zerwania nie są osiągane, a deska nie dotyka asfaltu ani pobocza, więc włączenie morświnowania na stałe nie zmieniło czasów (`test-timing`: 46,619 s przed i po). Oba zjawiska ujawnią się przy większym docisku lub wyższych prędkościach.
 
 ## Wejścia sieci kierowcy (rayCount + 13)
 
@@ -211,26 +211,26 @@ Destylacja uczy te wejścia: nauczyciel jedzie z włączonym modelem opon i co 2
 
 Autozapis zawiera teraz też energię ERS i stan opon (temperatury, zużycie) każdego kierowcy; klucz autozapisu uwzględnia liczbę wejść sieci.
 
-## Wrażliwość opon na obciążenie (`Car.LOAD_SENSITIVITY`)
+## Wrażliwość opon na obciążenie
 
-- Transfer boczny `m·aY·h/t` (z przyspieszenia poprzedniego kroku) dzieli się na osie według sztywności przechyłu: przód 52% (`ROLL_STIFFNESS_FRONT`).
+- Transfer boczny każdej osi pochodzi z modelu przechyłu (sprężyny, stabilizatory i tłumiki tej osi, patrz wyżej); w stanie ustalonym przód przejmuje ok. 52%.
 - Tarcie koła skaluje się jak `(Fz/Fz_śr)^−k`, k = 0,12 (`LOAD_SENSITIVITY_EXP`). `Fz_śr` to średnie obciążenie koła danej osi. Dociążone koło zewnętrzne zyskuje mniej, niż traci wewnętrzne, więc przechył zmniejsza przyczepność osi. Oś, która przenosi większą część transferu, traci więcej (balans podsterowność/nadsterowność).
 - Bez przechyłu oś ma nadal `μ·Fz`. Zależność przyczepności od prędkości i docisku pozostaje skalibrowana jak wcześniej. Model zastępuje dawną jednolitą karę ≤8%.
 - Wersji ze stałym `Fz0`, w której μ maleje także z dociskiem, nie przyjęto. Szybsze okrążenie w wolnych zakrętach podwajało liczbę kontaktów w treningu. Wersja z k = 0,25 dawała ok. 48 uderzeń w bandę na 600 s (wcześniej 3).
-- `false` przywraca jednolitą karę (`diag:nn`: `NOLOADSENS=1`, `LSK=<k>`).
+- Działa zawsze (dawny przełącznik `LOAD_SENSITIVITY` usunięto). `diag:nn` przyjmuje `LSK=<k>` do badania wykładnika.
 
-## Ślad aerodynamiczny: zasysanie i brudne powietrze (`Car.WAKE_AERO`)
+## Ślad aerodynamiczny: zasysanie i brudne powietrze
 
 - `computeWake` (`src/physics/Traffic.ts`) w każdym kroku `Population.update` (także dla gracza) szuka aut przed bolidem: do 50 m wzdłuż trasy (`trackGap`), ślad o szerokości ±1,6 m z zanikiem gaussowskim.
 - Zasysanie: opór × (1 − 0,3·s), pełny efekt tuż za tylnym skrzydłem, zanik do 50 m. Brudne powietrze: docisk × (1 − 0,2·s), zanik do 30 m. Siła śladu słabnie, gdy auto z przodu jest wolniejsze. Nie działa poniżej 20 m/s, w boksie i za wrakiem.
 - Utracony docisk w 60% pochodzi z przedniego skrzydła (czysty rozkład to 46%), więc za rywalem auto jest bardziej podsterowne. Planista zakrętów zakłada bieżący docisk ze śladem.
-- Domyślnie tylko w wyścigu (`WAKE_IN_TRAINING = false`), żeby zasysanie nie ustanawiało PB w treningu. HUD pokazuje „cień aero opór −x% docisk −y%”. `diag:nn`: `WAKE=1` włącza ślad w treningu.
+- Od 23.10.2026 działa zawsze, w treningu tak samo jak w wyścigu (wcześniej tylko w wyścigu): model uczony w stawce trafia w wyścigu na to samo powietrze. Okrążenie treningowe może więc skorzystać z zasysania. HUD pokazuje „cień aero opór −x% docisk −y%”.
 
-## Kontakt auto–auto: obrót i tarcie (`Car.CONTACT_SPIN`)
+## Kontakt auto–auto: obrót i tarcie
 
 - Impuls normalny jest przykładany w punkcie styku: środek między najbliższymi narożnikami lub ścianami obu obrysów. Uwzględnia masę i bezwładność `Iz = 1,3·m`, tak jak w modelu jednośladu. Tarcie styczne Coulomba μ = 0,3.
 - Uderzenie poza osią obraca oba auta. Centralne najechanie od tyłu ich nie obraca. Prędkość kątowa po kontakcie jest ograniczona do max(1,2 rad/s, wartość przed kontaktem). Energia kinetyczna (liniowa i obrotowa) nie rośnie, co sprawdza `test:traffic`.
-- `false` przywraca dawny impuls centralny bez tarcia (`diag:nn`: `NOSPIN=1`).
+- Działa zawsze (dawny przełącznik `CONTACT_SPIN` usunięto).
 
 ## Kalibracja zmian z 18.10.2026 (`npm run diag:nn -- 600`, ziarna 1–6, trening)
 
