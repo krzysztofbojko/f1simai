@@ -9,6 +9,7 @@ import { Vector2 } from '../math/Vector2';
 import { TopologySpecifier } from '../ai/NeuralNetwork';
 import { Qualifying, QualifyingPhase, QualifyingStanding } from '../race/Qualifying';
 import { isCompound, startingDryCompound, weatherCompound, type TyreCompound } from '../physics/Tyres';
+import { Weather, isWeatherScenario, type WeatherScenario, type WeatherState } from '../physics/Weather';
 import { applyDriverModel, exportDriver, mergeBetterDrivers, serializeTrack } from '../ai/Islands';
 
 export type { TopologySpecifier };
@@ -196,8 +197,9 @@ export interface SimSnapshot {
   raceStartLights: number;
   raceWinner: string | null;
   raceStandings: RaceStanding[];
-  /** Water on the track, 0 dry .. 1 soaked (race and qualifying only). */
-  trackWetness: number;
+  /** Weather now: sun, rain, temperatures, water on the track and the wind. */
+  weather: WeatherState;
+  weatherScenario: WeatherScenario;
   qualifying: QualifyingSnapshot | null;
   /** Starting order from the last qualifying, used by the next race start. */
   hasQualifyingGrid: boolean;
@@ -272,6 +274,10 @@ let raceWinner: string | null = null;
 let frozenRaceStandings: RaceStanding[] | null = null;
 /** The player's compound: fitted at the start and at every stop of their car. */
 let playerCompound: TyreCompound = 'medium';
+/** Weather of training and every session; a race or qualifying starts again from the forecast. */
+const weather = new Weather();
+Car.weather = weather.state;
+const weatherSeed = () => (Math.random() * 0x7fffffff) | 0;
 
 // Qualifying State
 const QUALI_FUEL_KG = 20; // topped up on every lap: runs between short refuelling visits are not modelled
@@ -308,7 +314,8 @@ function exportAllDrivers(): any[] {
 
 function islandSetupMessage(): object {
   return { type: 'SETUP', version: islandVersion, track: serializeTrack(track), rayCount, topology: currentTopology,
-    driverPressure, mutationRate, startingFuelKg, stressLapShare: Car.STRESS_LAP_SHARE, drivers: exportAllDrivers() };
+    driverPressure, mutationRate, startingFuelKg, stressLapShare: Car.STRESS_LAP_SHARE, drivers: exportAllDrivers(),
+    weatherScenario: weather.scenario, weatherSeed: weatherSeed() };
 }
 
 function onIslandMessage(worker: Worker, message: any): void {
@@ -346,7 +353,7 @@ function resetIslands(): void {
 }
 
 function configureIslands(): void {
-  for (const worker of islands) worker.postMessage({ type: 'CONFIG', driverPressure, mutationRate, startingFuelKg, stressLapShare: Car.STRESS_LAP_SHARE });
+  for (const worker of islands) worker.postMessage({ type: 'CONFIG', driverPressure, mutationRate, startingFuelKg, stressLapShare: Car.STRESS_LAP_SHARE, weatherScenario: weather.scenario });
 }
 
 /** Islands train only while the main field trains: not when paused, in qualifying or in a race. */
@@ -672,7 +679,8 @@ function createSnapshot(): SimSnapshot {
     raceStartLights,
     raceWinner,
     raceStandings,
-    trackWetness: Car.trackWetness,
+    weather: { ...weather.state },
+    weatherScenario: weather.scenario,
     qualifying: qualifying ? {
       session: qualifying.session,
       phase: qualifying.phase,
@@ -703,7 +711,7 @@ function fitStartingTyres(car: Car, gridIndex: number, dryChoice: TyreCompound =
     car.tyreCompound = playerCompound;
     car.nextCompound = playerCompound;
   } else {
-    car.tyreCompound = weatherCompound(Car.trackWetness, dryChoice);
+    car.tyreCompound = weatherCompound(weather.state.wetness, dryChoice);
     car.nextCompound = null;
   }
 }
@@ -843,6 +851,8 @@ function runSimulationSteps(): void {
     }
     if (speedMultiplier !== 'max') physicsAccumulator = Math.max(0, physicsAccumulator - fixedDt);
     simTime += fixedDt;
+    weather.step(fixedDt);
+    population.setConditions(weather.conditions);
     if (raceState === 'QUALIFYING' && !stepQualifying(fixedDt)) {
       if (raceState !== 'QUALIFYING') break;
       continue;
@@ -1087,9 +1097,18 @@ self.onmessage = (e: MessageEvent) => {
       break;
     }
 
+    case 'SET_WEATHER': {
+      // A new forecast applies at once (training too) and to every following session.
+      if (isWeatherScenario(data.scenario) && data.scenario !== weather.scenario) {
+        weather.reset(data.scenario, typeof data.seed === 'number' ? data.seed : weatherSeed());
+        population.setConditions(weather.conditions);
+        configureIslands();
+      }
+      break;
+    }
+
     case 'SET_TYRES': {
-      // Weather and the player's compound; changing them mid-race takes effect at the next stop.
-      if (typeof data.wetness === 'number' && Number.isFinite(data.wetness)) Car.trackWetness = Math.max(0, Math.min(1, data.wetness));
+      // The player's compound; changing it mid-race takes effect at the next stop.
       if (isCompound(data.compound)) {
         playerCompound = data.compound;
         for (const car of sessionCars()) if (isPlayerCar(car)) car.nextCompound = playerCompound;
@@ -1166,6 +1185,8 @@ self.onmessage = (e: MessageEvent) => {
       frozenRaceStandings = null;
       isPaused = false;
       population.isRaceMode = true;
+      weather.reset(weather.scenario, typeof data.weatherSeed === 'number' ? data.weatherSeed : weatherSeed());
+      population.setConditions(weather.conditions);
       // CRITICAL: Preserve learned neural network! Equip the best brain learned during training!
       equipBestBrains();
 

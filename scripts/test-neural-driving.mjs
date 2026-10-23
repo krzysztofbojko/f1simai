@@ -329,11 +329,11 @@ try {
   assert.equal(weatherCompound(0, 'soft'), 'soft'); assert.equal(weatherCompound(0.5, 'soft'), 'intermediate'); assert.equal(weatherCompound(1, 'hard'), 'wet');
   assert.ok(wrongForConditions('soft', 1) && wrongForConditions('wet', 0) && !wrongForConditions('hard', 0), 'wrong tyres for the weather are recognised');
   const stint = (compound, wetness, steer = 0.12) => {
-    Car.trackWetness = wetness;
+    Car.weather.wetness = wetness;
     tyreCar.isRaceMode = true; tyreCar.reset(gp.startPosition, gp.startAngle, true, 1); tyreCar.tyreCompound = compound;
     tyreCar.vel = Vector2.fromAngle(tyreCar.heading).mul(45); tyreCar.speed = 45;
     for (let i = 0; i < 240; i++) tyreCar.updatePhysics({ throttle: 0.5, brake: 0, steer }, 1 / 60, stub);
-    Car.trackWetness = 0;
+    Car.weather.wetness = 0;
     return { wear: tyreCar.tyreWearFront, temp: tyreCar.tyreTempFront };
   };
   assert.ok(stint('soft', 0).wear > stint('medium', 0).wear && stint('medium', 0).wear > stint('hard', 0).wear, 'softer compounds wear faster');
@@ -342,10 +342,12 @@ try {
   // Pit stops fit the player's request, else the next slick or the tyre for the weather.
   tyreCar.isRaceMode = true; tyreCar.reset(gp.startPosition, gp.startAngle, true, 1);
   assert.equal(tyreCar.tyreCompound, 'medium'); assert.equal(tyreCar.pitCompound(), 'hard');
-  Car.trackWetness = 0.9; assert.equal(tyreCar.pitCompound(), 'wet');
+  Car.weather.wetness = 0.9; assert.equal(tyreCar.pitCompound(), 'wet');
   tyreCar.nextCompound = 'soft'; assert.equal(tyreCar.pitCompound(), 'soft');
-  Car.trackWetness = 0; tyreCar.isRaceMode = false; Car.trackWetness = 1;
-  assert.equal(tyreCar.wetness, 0, 'training is always dry'); Car.trackWetness = 0;
+  Car.weather.wetness = 0; tyreCar.isRaceMode = false; Car.weather.wetness = 1;
+  assert.equal(tyreCar.wetness, 1, 'training drives in the weather too');
+  tyreCar.reset(gp.startPosition, gp.startAngle, true, 1);
+  assert.equal(tyreCar.tyreCompound, 'wet', 'a training car on a soaked track gets full wets'); Car.weather.wetness = 0;
   // Gearbox: 8 ratios, limiter-bound top speed, shift-cut and real gear/rpm bookkeeping.
   const gearCar = new Car(gp.startPosition, gp.startAngle, new NeuralNetwork([driverInputCount(25), 4, 3]), '#fff', 'gears', 60, 25);
   const gearsSeen = new Set(); let maxRpm = 0, cutSteps = 0, prevGear = 1, prevForce = 0;

@@ -8,6 +8,7 @@ import { getRacingLine } from './track/RacingLine';
 import { Population, LapLeaderboardEntry } from './ai/Population';
 import { Car, CarControl, driverInputCount, clampStressShare, DEFAULT_STRESS_LAP_SHARE } from './physics/Car';
 import { COMPOUND_SPECS, isCompound } from './physics/Tyres';
+import { isWeatherScenario, neutralWeather, type WeatherState } from './physics/Weather';
 import { SceneRenderer } from './rendering/three/SceneRenderer';
 import { MotionInterpolator } from './rendering/MotionInterpolator';
 import type { CameraMode } from './rendering/three/Cameras';
@@ -29,7 +30,17 @@ function loadSetting(key: string): string | null {
 }
 
 function wetnessLabel(wetness: number): string {
-  return wetness < 0.15 ? 'suchy' : wetness < 0.45 ? 'przesychający' : wetness < 0.7 ? 'wilgotny' : wetness < 0.9 ? 'mokry' : 'ulewa';
+  return wetness < 0.15 ? 'suchy' : wetness < 0.45 ? 'przesychający' : wetness < 0.7 ? 'wilgotny' : wetness < 0.9 ? 'mokry' : 'zalany';
+}
+
+/** Weather in one telemetry line: sky, temperatures, the wind and where it blows, the surface. */
+function weatherLine(w: WeatherState): string {
+  const sky = w.rain > 0.6 ? '⛈ ulewa' : w.rain > 0.02 ? '🌧 deszcz' : w.cloud > 0.65 ? '☁ pochmurno' : w.cloud > 0.3 ? '⛅ przejaśnienia' : '☀ słońce';
+  // The arrow points where the wind blows to, in the top view (screen y grows downwards, as world y).
+  const arrows = ['→', '↘', '↓', '↙', '←', '↖', '↑', '↗'];
+  const dir = arrows[((Math.round(w.windDir / (Math.PI / 4)) % 8) + 8) % 8];
+  const wind = Math.hypot(w.windX, w.windY);
+  return `POGODA ${sky} · powietrze ${Math.round(w.airTemp)}° · tor ${Math.round(w.trackTemp)}°${w.windSpeed > 0.5 ? ` · wiatr ${dir} ${wind.toFixed(0)} m/s` : ''} · nawierzchnia ${wetnessLabel(w.wetness)}`;
 }
 
 class App {
@@ -82,7 +93,7 @@ class App {
   private hasShownQualiModal = false;
   private qualiCountdownTimer: number | null = null;
   private withQualifying = loadFlag('f1_with_qualifying');
-  private latestTrackWetness = 0;
+  private latestWeather: WeatherState = neutralWeather();
   private latestRaceStartLights: number = 0;
   private latestRaceCurrentLap: number = 1;
   private latestRaceTotalLaps: number = 50;
@@ -285,7 +296,7 @@ class App {
       this.latestRaceStartLights = snapshot.raceStartLights;
       this.latestRaceWinner = snapshot.raceWinner;
       this.latestRaceStandings = snapshot.raceStandings || [];
-      this.latestTrackWetness = snapshot.trackWetness ?? 0;
+      if (snapshot.weather) { this.latestWeather = snapshot.weather; Car.weather = snapshot.weather; }
       this.latestQualifying = snapshot.qualifying ?? null;
 
       if (snapshot.raceState === 'QUALI_FINISHED' && snapshot.qualifying && !this.hasShownQualiModal) {
@@ -1285,16 +1296,16 @@ class App {
     }
 
     // Weather and tyres: restored from the last session and sent to the worker at once.
-    const selectWetness = document.getElementById('select-track-wetness') as HTMLSelectElement | null;
+    const selectWeather = document.getElementById('select-weather') as HTMLSelectElement | null;
     const selectCompound = document.getElementById('select-player-compound') as HTMLSelectElement | null;
-    if (selectWetness) {
-      const saved = loadSetting('f1_track_wetness');
-      if (saved !== null && [...selectWetness.options].some(o => o.value === saved)) selectWetness.value = saved;
+    if (selectWeather) {
+      const saved = loadSetting('f1_weather');
+      if (isWeatherScenario(saved)) selectWeather.value = saved;
       const apply = () => {
-        this.bridge.setTyres({ wetness: parseFloat(selectWetness.value) || 0 });
-        try { localStorage.setItem('f1_track_wetness', selectWetness.value); } catch {}
+        this.bridge.setWeather(selectWeather.value);
+        try { localStorage.setItem('f1_weather', selectWeather.value); } catch {}
       };
-      selectWetness.addEventListener('change', apply);
+      selectWeather.addEventListener('change', apply);
       apply();
     }
     if (selectCompound) {
@@ -2034,6 +2045,7 @@ class App {
       raceState: this.latestRaceState,
       startLights: this.latestRaceStartLights,
       winner: this.latestRaceWinner,
+      weather: this.latestWeather,
     });
 
     // Update Telemetry & UI
@@ -2054,7 +2066,9 @@ class App {
     const rpmEl = document.getElementById('tele-rpm');
     if (rpmEl) rpmEl.textContent = activeCar ? `${Math.round(activeCar.engineRpm / 10) * 10} rpm · prześwit ${Math.round(activeCar.rideHeightFront * 1000)}/${Math.round(activeCar.rideHeightRear * 1000)} mm${activeCar.aeroStall ? ' ⚠ ZERWANIE PRZEPŁYWU' : ''}${activeCar.plankForce > 0 ? ' ⚠ DOBIJANIE DESKI' : ''}${Car.PORPOISING && activeCar.porpoisingHz > 0 ? ` ⚠ MORŚWINOWANIE ${activeCar.porpoisingHz.toFixed(1)} Hz` : ''}${activeCar.wakeDrag < 0.97 ? ` · cień aero opór −${Math.round((1 - activeCar.wakeDrag) * 100)}% docisk −${Math.round((1 - activeCar.wakeDownforce) * 100)}%` : ''}` : 'rpm'
     const tyreEl = document.getElementById('tele-tyres');
-    if (tyreEl) tyreEl.textContent = activeCar ? `OPONY ${COMPOUND_SPECS[activeCar.tyreCompound].label.toUpperCase()}${this.latestRaceState !== 'IDLE' && this.latestTrackWetness > 0 ? ` · tor ${wetnessLabel(this.latestTrackWetness)}` : ''} · P ${Math.round(activeCar.tyreTempFront)}° T ${Math.round(activeCar.tyreTempRear)}° · zużycie ${Math.round(Math.max(activeCar.tyreWearFront, activeCar.tyreWearRear) * 100)}%` : 'OPONY';
+    if (tyreEl) tyreEl.textContent = activeCar ? `OPONY ${COMPOUND_SPECS[activeCar.tyreCompound].label.toUpperCase()} · P ${Math.round(activeCar.tyreTempFront)}° T ${Math.round(activeCar.tyreTempRear)}° · zużycie ${Math.round(Math.max(activeCar.tyreWearFront, activeCar.tyreWearRear) * 100)}%` : 'OPONY';
+    const weatherEl = document.getElementById('tele-weather');
+    if (weatherEl) weatherEl.textContent = weatherLine(this.latestWeather);
     const ersEl = document.getElementById('tele-ers');
     if (ersEl) ersEl.textContent = activeCar ? `ERS ${Math.round(activeCar.ersEnergy / Car.ERS_CAPACITY * 100)}%` : 'ERS';
     document.getElementById('tele-pressure')!.textContent = activeCar?.isManual ? 'RĘCZNIE'

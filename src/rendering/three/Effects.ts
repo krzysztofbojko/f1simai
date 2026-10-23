@@ -9,7 +9,7 @@ const SKID_HALF_WIDTH = 0.18;
 /** Plank load (N) above which the skid block throws sparks. */
 const SPARK_PLANK_FORCE = 800;
 
-interface CarTrail { lx: number; ly: number; rx: number; ry: number; skidding: boolean; impact: number; smoke: number; dust: number; sparks: number }
+interface CarTrail { lx: number; ly: number; rx: number; ry: number; skidding: boolean; impact: number; smoke: number; dust: number; sparks: number; spray: number }
 
 /**
  * Tyre marks as a ring buffer of quads (oldest overwritten first), so a long session keeps a
@@ -82,6 +82,7 @@ export class Effects {
   private readonly gravelColor = new THREE.Color(0xa58e66);
   private readonly grassColor = new THREE.Color(0x6b6a3e);
   private readonly sparkColor = new THREE.Color(1, 0.62, 0.22);
+  private readonly sprayColor = new THREE.Color(0xdfe6ec);
 
   constructor() {
     this.group.add(this.skids.mesh, this.smoke.points, this.sparks.points);
@@ -98,6 +99,7 @@ export class Effects {
   update(cars: Car[], dt: number, emit = true): void {
     // Emission is rate-based; a long frame (tab switch) must not dump a burst of particles.
     const step = Math.min(dt, 0.05);
+    this.smoke.windX = Car.weather.windX; this.smoke.windZ = Car.weather.windY;
     if (emit) for (const car of cars) this.updateCar(car, step);
     this.skids.flush();
     this.smoke.update(dt);
@@ -112,7 +114,7 @@ export class Effects {
     const rx = car.pos.x + c * REAR_X + sx * REAR_Z, ry = car.pos.y + s * REAR_X + sy * REAR_Z;
     let t = this.trails.get(car);
     if (!t) {
-      t = { lx, ly, rx, ry, skidding: false, impact: car.barrierImpactSpeed, smoke: 0, dust: 0, sparks: 0 };
+      t = { lx, ly, rx, ry, skidding: false, impact: car.barrierImpactSpeed, smoke: 0, dust: 0, sparks: 0, spray: 0 };
       this.trails.set(car, t);
     }
     const alive = car.isAlive && !car.wreckRemoved;
@@ -144,6 +146,16 @@ export class Effects {
       }
     }
 
+    // Spray: the tyres throw the water up behind the car, more the wetter and the faster.
+    const wetness = Car.weather.wetness;
+    if (alive && wetness > 0.1 && speed > 15 && (car.surfaceFractions?.asphalt ?? 1) > 0.5) {
+      t.spray += dt * wetness * Math.min(1, speed / 70) * 110;
+      for (; t.spray >= 1; t.spray--) {
+        const left = Math.random() < 0.5;
+        this.spray(left ? lx : rx, left ? ly : ry, vx * 0.35, vy * 0.35, 0.18 + 0.2 * wetness);
+      }
+    }
+
     if (alive && car.plankForce > SPARK_PLANK_FORCE && speed > 15) {
       t.sparks += dt * Math.min(400, car.plankForce / 40);
       for (; t.sparks >= 1; t.sparks--) this.spark(car.pos.x - c * 0.6, car.pos.y - s * 0.6, vx * 0.7, vy * 0.7, 6);
@@ -165,6 +177,15 @@ export class Effects {
       x: x + j() * 0.2, y: 0.25, z: y + j() * 0.2,
       vx: vx + j() * 1.2, vy: 0.6 + Math.random() * 0.8, vz: vy + j() * 1.2,
       life: life * (0.7 + Math.random() * 0.6), size0, size1, color, alpha, lift: 0.4, drag: 1.4,
+    });
+  }
+
+  private spray(x: number, y: number, vx: number, vy: number, alpha: number): void {
+    const j = () => (Math.random() - 0.5) * 2;
+    this.smoke.emit({
+      x: x + j() * 0.3, y: 0.3, z: y + j() * 0.3,
+      vx: vx + j() * 2, vy: 1.2 + Math.random() * 1.4, vz: vy + j() * 2,
+      life: 0.6 + Math.random() * 0.5, size0: 0.8, size1: 5, color: this.sprayColor, alpha, lift: -0.6, drag: 2.2,
     });
   }
 

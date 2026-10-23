@@ -10,6 +10,7 @@ import { DriverMistakes } from '../ai/DriverMistakes';
 import { Track, type SurfaceType } from '../track/Track';
 import { getRacingLine, RacingLine } from '../track/RacingLine';
 import { COMPOUND_SPECS, compoundGrip, nextDryCompound, weatherCompound, wrongForConditions, type TyreCompound } from './Tyres';
+import { CONDITION_BANDS, neutralWeather, type TrackConditions, type WeatherState } from './Weather';
 
 export const DEFAULT_STRESS_LAP_SHARE = 0.25;
 /** Stress-lap share from a setting: 0..0.6, anything invalid falls back to the default. */
@@ -503,8 +504,8 @@ export class Car {
    */
   public static readonly SENSOR_NOISE_TAU = 0.05;
   public static readonly TYRE_OPTIMUM = 100;     // deg C
-  public static readonly TYRE_AMBIENT = 25;
-  public static readonly TYRE_TRACK = 38;
+  public static readonly TYRE_AMBIENT = 25;      // air (deg C) of the calibrated reference weather
+  public static readonly TYRE_TRACK = 38;        // track surface (deg C) of the reference weather
   public static readonly TYRE_HEAT_CAPACITY = 12000; // J/K per axle (tread + carcass: ~40 s time constant)
   public static TYRE_HEAT_SCALE = 1;             // calibration of slip / hysteresis heating
   public static TYRE_FRONT_HEAT = 1.6;           // fronts work harder per newton (steering, braking)
@@ -520,10 +521,20 @@ export class Car {
   /** Compound fitted at every pit stop (player choice, or the same set in qualifying); null lets the strategy pick. */
   public nextCompound: TyreCompound | null = null;
   /**
-   * Water on the racing surface, 0 dry .. 1 soaked. Set by the race session for every car;
-   * only race-mode cars feel it, so training laps and records stay dry.
+   * Weather every car drives in (see `Weather.ts`): air and track temperature, water on the
+   * track, the wind. Set by the session each step; the neutral default is the reference weather.
    */
-  public static trackWetness = 0;
+  public static weather: WeatherState = neutralWeather();
+  /** Track-condition class of the session; training laps outside its wetness band do not evaluate a brain. */
+  public static conditions: TrackConditions = 'dry';
+  /** Wetness range seen during the current lap. */
+  private lapWetMin = 0;
+  private lapWetMax = 0;
+  /** Crosswind side force area (Cy*A, m^2) and its centre of pressure behind the centre of gravity (m). */
+  public static SIDE_FORCE_AREA = 1.5;
+  public static SIDE_FORCE_LEVER = 0.3;
+  /** Share of downforce lost per sin^2 of the airflow yaw angle; the front wing loses most. */
+  public static CROSSWIND_DOWNFORCE_LOSS = 0.6;
   public ersEnergy = Car.ERS_CAPACITY * 0.85;
   private ersHarvestedLap = 0;
   public ersDeploying = false;
@@ -891,9 +902,10 @@ export class Car {
       this.ersEnergy = Car.ERS_CAPACITY * 0.85;
       this.tyreTempFront = this.tyreTempRear = 85;
       this.tyreWearFront = this.tyreWearRear = 0;
-      this.tyreCompound = 'medium';
+      this.tyreCompound = weatherCompound(Car.weather.wetness, 'medium');
       this.nextCompound = null;
     }
+    this.lapWetMin = this.lapWetMax = Car.weather.wetness;
     this.ersHarvestedLap = 0;
     this.gear = 1; this.engineRpm = Car.IDLE_RPM; this.shiftCutTimer = 0; this.shiftCooldown = 0;
     this.fullyOffTrack = false;
@@ -988,8 +1000,8 @@ export class Car {
 
   private get tyresActive(): boolean { return this.isRaceMode || Car.TYRE_MODEL_IN_TRAINING; }
 
-  /** Track wetness this car drives on (training is always dry). */
-  get wetness(): number { return this.isRaceMode ? Car.trackWetness : 0; }
+  /** Track wetness this car drives on. */
+  get wetness(): number { return Car.weather.wetness; }
 
   /** Grip the planner can expect from the current tyres (1 on blankets). */
   get tyreGripFront(): number { return this.tyresActive ? Car.tyreGrip(this.tyreTempFront, this.tyreWearFront, this.tyreCompound, this.wetness) : 1; }
@@ -997,13 +1009,15 @@ export class Car {
 
   /**
    * Heat balance of one axle: slip + hysteresis heating against airflow and track cooling.
+   * The air and the track surface come from the weather: a sun-baked track pushes the tyres out
+   * of their window and wears them faster, a cold one keeps them from warming up.
    * Water cools the tyre (spray, cooler surface) and lubricates it, so it wears less.
    */
   private stepTyre(temp: number, wear: number, slipPower: number, load: number, speed: number, dt: number): [number, number] {
-    const wet = this.wetness;
+    const wet = this.wetness, air = Car.weather.airTemp;
     const heat = (slipPower + 0.0075 * load * speed) * Car.TYRE_HEAT_SCALE;
-    const cooling = (2 * (15 + 3.2 * Math.pow(Math.max(0, speed), 0.8)) * (temp - Car.TYRE_AMBIENT) + 60 * (temp - (Car.TYRE_TRACK - 16 * wet))) * (1 + 0.9 * wet);
-    const next = Math.max(Car.TYRE_AMBIENT - 8 * wet, Math.min(180, temp + (heat - cooling) / Car.TYRE_HEAT_CAPACITY * dt));
+    const cooling = (2 * (15 + 3.2 * Math.pow(Math.max(0, speed), 0.8)) * (temp - air) + 60 * (temp - Car.weather.trackTemp)) * (1 + 0.9 * wet);
+    const next = Math.max(air - 8 * wet, Math.min(180, temp + (heat - cooling) / Car.TYRE_HEAT_CAPACITY * dt));
     const wearRate = Car.TYRE_WEAR_RATE * COMPOUND_SPECS[this.tyreCompound].wear * (1 - 0.6 * wet);
     const nextWear = Math.min(1, wear + wearRate * Math.pow(temp / 100, 2) * slipPower * dt);
     return [next, nextWear];
@@ -1026,7 +1040,7 @@ export class Car {
 
   planDrive(track: Track, leaderSpeeds?: number[]): DrivePlan {
     // AI pit strategy: request pit stop if fuel reserve is low
-    const wrongTyres = this.isRaceMode && !this.isManual && wrongForConditions(this.tyreCompound, this.wetness);
+    const wrongTyres = !this.isManual && wrongForConditions(this.tyreCompound, this.wetness);
     if ((this.fuelKg < 12.0 || wrongTyres || (this.tyresActive && Math.max(this.tyreWearFront, this.tyreWearRear) > 0.7)) && !this.isPitting) {
       this.wantsToPit = true;
     }
@@ -1560,10 +1574,19 @@ export class Car {
     const forwardSpeed = this.vel.dot(forwardDir);
     const lateralSpeed = this.vel.dot(rightDir);
     const speedMag = this.vel.mag();
+    // Airflow the car meets: its own motion against the wind. Downforce and drag grow with the
+    // airspeed; downforce fades as the wind turns the flow off the car's axis. Still air: airSpeed = speedMag.
+    const weather = Car.weather;
+    const windy = weather.windX !== 0 || weather.windY !== 0;
+    const windLat = windy ? weather.windX * rightDir.x + weather.windY * rightDir.y : 0;
+    const airFwd = windy ? forwardSpeed - (weather.windX * forwardDir.x + weather.windY * forwardDir.y) : forwardSpeed;
+    const airLat = lateralSpeed - windLat;
+    const airSpeed = windy ? Math.hypot(airFwd, airLat) : speedMag;
+    const crosswindLoss = windy && airSpeed > 1e-6 ? Car.CROSSWIND_DOWNFORCE_LOSS * (airLat / airSpeed) ** 2 : 0;
 
     // 3. Gravity and Aerodynamics Normal Load (Fz)
     const gravityForce = currentMass * Car.GRAVITY; // Gravity F = m * g
-    let downforceMag = 0.5 * this.airDensity * this.downforceCoeff * (1 - 0.35 * this.damage) * (speedMag * speedMag);
+    let downforceMag = 0.5 * this.airDensity * this.downforceCoeff * (1 - 0.35 * this.damage) * (airSpeed * airSpeed) * (1 - crosswindLoss);
     if (Car.RIDE_HEIGHT_AERO && Car.SUSPENSION_DYNAMIC) {
       // The floor works at the height its airflow sees; the body then moves under that load.
       if (Car.PORPOISING) {
@@ -1588,16 +1611,21 @@ export class Car {
     const wakeLostDownforce = downforceMag * (1 - this.wakeDownforce);
     downforceMag -= wakeLostDownforce;
     const totalNormalLoadZ = gravityForce + downforceMag; // Gravity + Aero Downforce
-    const aeroFront = downforceMag * 0.46 - 0.14 * wakeLostDownforce;
+    // A crosswind stalls the front wing first: 60% of its loss comes off the front axle.
+    const crosswindFrontShift = crosswindLoss > 0 ? 0.14 * downforceMag * crosswindLoss / (1 - crosswindLoss) : 0;
+    const aeroFront = downforceMag * 0.46 - 0.14 * wakeLostDownforce - crosswindFrontShift;
     if (Car.SUSPENSION_DYNAMIC) this.stepSuspension(dt, aeroFront, downforceMag - aeroFront, this.longitudinalG * Car.GRAVITY, this.lateralG * Car.GRAVITY);
 
-    // Aerodynamic drag opposes the entire velocity relative to still air.
-    // Plank friction adds to the drag: the floor scrubs along the road against the motion.
+    // Aerodynamic drag opposes the velocity relative to the air (a headwind costs top speed,
+    // a tailwind adds it); plank friction scrubs along the road against the motion. A crosswind
+    // also pushes the car sideways through the side force, centred behind the centre of gravity.
     const plankDrag = Car.SUSPENSION_DYNAMIC ? Car.PLANK_FRICTION * this.plankForce : 0;
-    const dragMagnitude = 0.5 * this.airDensity * this.dragCoeff * this.lapDragFactor * this.wakeDrag * (1 + 0.15 * this.damage) * speedMag * speedMag + plankDrag;
-    const dragScale = speedMag > 0 ? Math.min(dragMagnitude / speedMag, currentMass / dt) : 0;
-    const dragForward = -forwardSpeed * dragScale;
-    const dragLateral = -lateralSpeed * dragScale;
+    const aeroDrag = 0.5 * this.airDensity * this.dragCoeff * this.lapDragFactor * this.wakeDrag * (1 + 0.15 * this.damage) * airSpeed * airSpeed;
+    const aeroScale = airSpeed > 0 ? Math.min(aeroDrag / airSpeed, currentMass / dt) : 0;
+    const plankScale = speedMag > 0 ? Math.min(plankDrag / speedMag, currentMass / dt) : 0;
+    const sideForce = 0.5 * this.airDensity * Car.SIDE_FORCE_AREA * airSpeed * windLat;
+    const dragForward = -airFwd * aeroScale - forwardSpeed * plankScale;
+    const dragLateral = -airLat * aeroScale - lateralSpeed * plankScale + sideForce;
 
     // Keep axle loads positive without inventing extra total normal load.
     const pitchTransfer = -currentMass * this.longitudinalG * Car.GRAVITY * this.cogHeight / this.wheelbase;
@@ -1742,7 +1770,8 @@ export class Car {
       const frontForce = axleForce(alphaFront, frontLoad, frontLateral * Car.FRONT_GRIP_BIAS);
       const rearForce = axleForce(alphaRear, rearLoad, rearLateral);
       const yawInertia = currentMass * Car.YAW_INERTIA_FACTOR;
-      const yawAcceleration = (toFront * frontForce - toRear * rearForce) / yawInertia;
+      // The crosswind side force acts behind the centre of gravity and twists the car with each gust.
+      const yawAcceleration = (toFront * frontForce - toRear * rearForce - Car.SIDE_FORCE_LEVER * sideForce) / yawInertia;
       dynamicFrontForce = frontForce; dynamicRearForce = rearForce;
       frontSlipPower = Car.TYRE_LAT_HEAT * Math.abs(frontForce * u * Math.tan(alphaFront));
       rearSlipPower = Car.TYRE_LAT_HEAT * Math.abs(rearForce * u * Math.tan(alphaRear));
@@ -1761,6 +1790,9 @@ export class Car {
     // Longitudinal creep heats the driven / braked axles too.
     frontSlipPower += Car.TYRE_LONG_HEAT * Math.abs(frontFx) * speedMag;
     rearSlipPower += Car.TYRE_LONG_HEAT * Math.abs(rearFx) * speedMag;
+    const wetNow = this.wetness;
+    if (wetNow < this.lapWetMin) this.lapWetMin = wetNow;
+    if (wetNow > this.lapWetMax) this.lapWetMax = wetNow;
     if (this.tyresActive) {
       [this.tyreTempFront, this.tyreWearFront] = this.stepTyre(this.tyreTempFront, this.tyreWearFront, frontSlipPower * Car.TYRE_FRONT_HEAT, frontLoad, speedMag, dt);
       [this.tyreTempRear, this.tyreWearRear] = this.stepTyre(this.tyreTempRear, this.tyreWearRear, rearSlipPower, rearLoad, speedMag, dt);
@@ -2209,8 +2241,12 @@ export class Car {
           this.raceLapsCompleted++;
           // Substantial lap completion reward inversely proportional to lapTime
           const lapTimeBonus = Math.round(150000 / Math.max(10, finishedLapTime));
-          if (!this.lapCompromised) this.fitness += 30000 + lapTimeBonus;
-          const compromised = this.lapCompromised || this.pressureLearningBlocked;
+          // Training compares laps within one track-condition class: a lap the rain caught is timed, not learnt from.
+          const [bandLow, bandHigh] = CONDITION_BANDS[Car.conditions];
+          const offConditions = !this.isRaceMode && (this.lapWetMin < bandLow || this.lapWetMax > bandHigh);
+          this.lapWetMin = this.lapWetMax = this.wetness;
+          if (!this.lapCompromised && !offConditions) this.fitness += 30000 + lapTimeBonus;
+          const compromised = this.lapCompromised || this.pressureLearningBlocked || offConditions;
           if (!this.isManual) this.pace.finishLap(finishedLapTime, !compromised, this.lapExcursion && !this.lapContact);
           this.lapExcursion = false;
           this.lapContact = false;
@@ -2252,6 +2288,7 @@ export class Car {
         } else {
           // First time crossing the start/finish line from grid slot: start flying lap!
           this.lapTime = 0;
+          this.lapWetMin = this.lapWetMax = this.wetness;
           this.currentLapSplits = [null, null, null, null];
           this.lastCheckpointDelta = null;
           this.currentLapTrajectory = [];

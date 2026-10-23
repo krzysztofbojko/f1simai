@@ -59,6 +59,9 @@ export class ParticleSystem {
   private readonly lift: Float32Array;
   private readonly drag: Float32Array;
   private readonly material: THREE.ShaderMaterial;
+  /** Wind (m/s, world x and z): drag slows particles to the air's speed, not to rest. */
+  windX = 0;
+  windZ = 0;
 
   constructor(capacity: number, blending: THREE.Blending) {
     this.capacity = capacity;
@@ -112,7 +115,8 @@ export class ParticleSystem {
       this.age[i] += dt;
       if (this.age[i] >= this.life[i]) { this.move(--this.count, i); continue; }
       const k = Math.exp(-this.drag[i] * dt);
-      this.vel[i * 3] *= k; this.vel[i * 3 + 2] *= k;
+      this.vel[i * 3] = this.windX + (this.vel[i * 3] - this.windX) * k;
+      this.vel[i * 3 + 2] = this.windZ + (this.vel[i * 3 + 2] - this.windZ) * k;
       this.vel[i * 3 + 1] = this.vel[i * 3 + 1] * k + this.lift[i] * dt;
       this.pos[i * 3] += this.vel[i * 3] * dt;
       this.pos[i * 3 + 1] = Math.max(0.02, this.pos[i * 3 + 1] + this.vel[i * 3 + 1] * dt);

@@ -23,11 +23,23 @@ Przeglądarkowy symulator wyścigów 2D w TypeScript i Vite. Dwadzieścia bolid�
 
 Model uwzględnia masę paliwa, moc i trakcję napędu, docisk, wektor oporu powietrza oraz wspólne koło tarcia dla sił opon. Szerokość toru jest wyrażona w metrach. Telemetria pokazuje przyspieszenie wynikające ze zmiany prędkości.
 
+### Pogoda
+
+Pogodę wybiera się w panelu wyścigu jako prognozę (`src/physics/Weather.ts`): słonecznie (stabilnie, punkt odniesienia kalibracji: powietrze 25 °C, tor 38 °C, bez wiatru), upał, pochmurno, silny wiatr, przelotny deszcz, deszcz, burza i zmienna. Pogoda działa w treningu, kwalifikacjach i wyścigu i zmienia się w czasie symulacji: chmury dryfują, a gdy zgęstnieją, pada deszcz. Słońce nagrzewa tor (w upale do ok. 55 °C), deszcz go chłodzi i moczy, a po opadzie słońce i ciepły asfalt go suszą. Wiatr ma średnią siłę i kierunek, porywy oraz wolno skręcający kierunek. Każdy wyścig i kwalifikacje zaczynają od prognozy z nowym ziarnem.
+
+- **Temperatura toru i powietrza** wchodzą do bilansu cieplnego opon: na gorącym torze opony wychodzą z okna pracy i szybciej się zużywają, na zimnym wolniej się rozgrzewają.
+- **Woda** obniża przyczepność slicków (patrz niżej). AI zjeżdża po intery lub deszczówki, gdy zacznie padać, i wraca na slicki, gdy tor przeschnie.
+- **Wiatr** zmienia prędkość względem powietrza: wiatr czołowy 8 m/s obniża prędkość maksymalną z ok. 310 do 290 km/h, w plecy podnosi ją do ok. 327 km/h. Wiatr boczny zabiera docisk (najbardziej przedniemu skrzydłu), pcha bolid w bok i skręca go, a porywy zmieniają te siły w czasie.
+
+W treningu okrążenia porównuje się w obrębie jednej klasy warunków (sucho / wilgotno / mokro). Okrążenie, na którym warunki wyszły poza klasę sesji, liczy się do czasu, ale nie ocenia sieci. Pierwsze czyste okrążenie w nowych warunkach ustala nowy rekord odniesienia, a sprawdzony mózg zostaje. Wyspy treningowe mają własną pogodę z tej samej prognozy i wymieniają tylko modele z tych samych warunków. Sieć nie dostała nowych wejść, więc zapisane modele nadal się wczytują.
+
+W 3D chmury przełączają niebo na pochmurne i przygaszają słońce, deszcz pada wokół kamery i jest znoszony przez wiatr, mokry asfalt ciemnieje i błyszczy, a bolidy ciągną za sobą pióropusz wody. Dym i spray znosi wiatr. Telemetria pokazuje pogodę, temperatury, wiatr ze strzałką kierunku i stan nawierzchni.
+
 ### Opony i nawierzchnia
 
-W wyścigu i kwalifikacjach bolidy jeżdżą na pięciu mieszankach (`src/physics/Tyres.ts`): Soft (S, czerwona), Medium (M, żółta, punkt odniesienia kalibracji), Hard (H, biała), Intermediate (I, zielona) i Wet (W, niebieska). Mieszanka zmienia szczytową przyczepność (soft +3,5%, hard −3%, intery −12% i deszczówki −18% na suchym), okno temperatury pracy (95 / 100 / 108 / 80 / 70 °C) i tempo zużycia (×1,8 / ×1 / ×0,6 / ×2,6 / ×3,4). Nawierzchnię wybiera się w panelu wyścigu (sucha, przesychająca, wilgotna, mokra, ulewa). Woda obniża przyczepność slicków do ~45% na mokrym, chłodzi opony i zmniejsza zużycie. Intery są najszybsze na wilgotnym torze, deszczówki w ulewie. Trening zawsze odbywa się na suchym torze, więc rekordy pozostają porównywalne.
+W wyścigu i kwalifikacjach bolidy jeżdżą na pięciu mieszankach (`src/physics/Tyres.ts`): Soft (S, czerwona), Medium (M, żółta, punkt odniesienia kalibracji), Hard (H, biała), Intermediate (I, zielona) i Wet (W, niebieska). Mieszanka zmienia szczytową przyczepność (soft +3,5%, hard −3%, intery −12% i deszczówki −18% na suchym), okno temperatury pracy (95 / 100 / 108 / 80 / 70 °C) i tempo zużycia (×1,8 / ×1 / ×0,6 / ×2,6 / ×3,4). Wilgotność toru wynika z pogody. Woda obniża przyczepność slicków do ~45% na mokrym, chłodzi opony i zmniejsza zużycie. Intery są najszybsze na wilgotnym torze, deszczówki w ulewie. W treningu bolid dostaje opony właściwe dla warunków przy resecie i zjeżdża po nie, gdy warunki się zmienią.
 
-AI startuje na mieszance zależnej od pola startowego (medium / soft / hard) albo na oponach dobranych do pogody. W boksie zmienia slicki (na hard, z hard na medium), a gdy nawierzchnia zmieni się w trakcie wyścigu, zjeżdża po opony właściwe dla warunków. Gracz wybiera swoją mieszankę na start i na każdy pit stop. Mieszankę widać w tabeli wyników i telemetrii, a w 3D jako kolorowy pasek na boku opony.
+AI startuje na mieszance zależnej od pola startowego (medium / soft / hard) albo na oponach dobranych do pogody. W boksie zmienia slicki (na hard, z hard na medium), a gdy nawierzchnia zmieni się w trakcie wyścigu (deszcz, przesychanie), zjeżdża po opony właściwe dla warunków. Gracz wybiera swoją mieszankę na start i na każdy pit stop. Mieszankę widać w tabeli wyników i telemetrii, a w 3D jako kolorowy pasek na boku opony.
 
 To model hybrydowy do gry. Nie zawiera pełnej dynamiki yaw, kontaktów między bolidami ani fizycznego przejazdu aleją serwisową. Osiągi nie są kalibrowane względem konkretnego bolidu F1. Szczegóły, stałe i ograniczenia opisuje [PHYSICS.md](PHYSICS.md).
 

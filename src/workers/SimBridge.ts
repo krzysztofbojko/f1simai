@@ -206,8 +206,13 @@ export class SimBridge {
     this.worker?.postMessage({type: 'SET_DRIVER_PRESSURE', value});
   }
 
-  /** Track wetness (0 dry .. 1 soaked) and/or the player's tyre compound. */
-  public setTyres(settings: { wetness?: number; compound?: string }): void {
+  /** Weather forecast (see `Weather.ts`); applies at once and to every following session. */
+  public setWeather(scenario: string, seed?: number): void {
+    this.worker?.postMessage({ type: 'SET_WEATHER', scenario, seed });
+  }
+
+  /** The player's tyre compound. */
+  public setTyres(settings: { compound?: string }): void {
     this.worker?.postMessage({ type: 'SET_TYRES', ...settings });
   }
 

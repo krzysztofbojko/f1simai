@@ -210,6 +210,7 @@
             </div>
 
             <div class="surface-telemetry"><span id="tele-surface">ASFALT</span> · <span id="tele-incident">JAZDA</span> · <span id="tele-pressure">PRESJA 0</span> · <span id="tele-rpm">4000 rpm</span> · <span id="tele-ers">ERS 85%</span> · <span id="tele-tyres">OPONY</span></div>
+            <div class="surface-telemetry"><span id="tele-weather">POGODA</span></div>
             <div class="telemetry-grid">
               <div class="speedo-box">
                 <div class="speed-num" id="tele-speed">0</div>
@@ -336,13 +337,16 @@
             </div>
 
             <div class="race-setup-row race-tyre-row">
-              <label class="control-label" for="select-track-wetness">Nawierzchnia</label>
-              <select id="select-track-wetness" class="f1-select" title="Woda na torze w wyścigu i kwalifikacjach (trening jest zawsze suchy). Zmiana w trakcie wyścigu: AI zjeżdża po właściwe opony.">
-                <option value="0">Sucha</option>
-                <option value="0.3">Przesychająca</option>
-                <option value="0.5">Wilgotna</option>
-                <option value="0.8">Mokra</option>
-                <option value="1">Ulewa</option>
+              <label class="control-label" for="select-weather">Pogoda</label>
+              <select id="select-weather" class="f1-select" title="Prognoza dla treningu, kwalifikacji i wyścigu. Pogoda zmienia się w trakcie sesji: tor nagrzewa się w słońcu, moknie w deszczu i przesycha, wiatr ma porywy. Każda sesja zaczyna od prognozy; AI zjeżdża po opony właściwe dla warunków.">
+                <option value="sunny">Słonecznie, stabilnie</option>
+                <option value="hot">Upał — gorący tor</option>
+                <option value="cloudy">Pochmurno, chłodno</option>
+                <option value="windy">Silny wiatr z porywami</option>
+                <option value="shower">Przelotny deszcz</option>
+                <option value="rain">Deszcz</option>
+                <option value="storm">Burza, ulewa i wichura</option>
+                <option value="changeable">Zmienna</option>
               </select>
             </div>
             <div class="race-setup-row race-tyre-row">

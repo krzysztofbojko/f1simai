@@ -63,8 +63,19 @@ export class TrackMesh {
   private readonly pitLine: THREE.MeshBasicMaterial;
   private readonly pitBox: THREE.MeshBasicMaterial;
   private readonly dashTexture = Textures.dashes();
+  private wetness = -1;
   private builtFor: Track | null = null;
   private builtKey = '';
+
+  /** Water darkens the asphalt and turns it glossy, so the sky shows in it. */
+  setWetness(wetness: number): void {
+    const w = Math.round(Math.max(0, Math.min(1, wetness)) * 50) / 50;
+    if (w === this.wetness) return;
+    this.wetness = w;
+    this.asphalt.color.setScalar(1 - 0.45 * w);
+    this.asphalt.roughness = 1 - 0.65 * w;
+    this.asphalt.envMapIntensity = 1 + 1.5 * w;
+  }
 
   constructor() {
     const asphalt = Textures.asphalt();

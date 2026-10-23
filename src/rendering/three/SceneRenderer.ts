@@ -12,6 +12,8 @@ import { CameraRig } from './Cameras';
 import { Labels } from './Labels';
 import { RaceHud } from './Hud';
 import { Textures } from './Textures';
+import { Rain } from './Rain';
+import type { WeatherState } from '../../physics/Weather';
 
 export interface FrameState {
   track: Track;
@@ -29,6 +31,8 @@ export interface FrameState {
   raceState: string;
   startLights: number;
   winner: string | null;
+  /** Sky, rain and the water on the track. */
+  weather: WeatherState;
 }
 
 /** Sun direction (towards the light): high afternoon sun from the upper left of the top view. */
@@ -61,6 +65,9 @@ export class SceneRenderer {
   private readonly sun = new THREE.DirectionalLight(0xfff1dc, 2.6);
   private readonly hemi = new THREE.HemisphereLight(0xdde8ff, 0x3b4a2c, 0.9);
   private skyKind: SkyKind | null = null;
+  /** The circuit's own sky; clouds turn a day into an overcast one. */
+  private circuitSky: SkyKind = 'day';
+  private readonly rain = new Rain();
   private readonly skies = new Map<SkyKind, { sky: THREE.Texture; env: THREE.Texture }>();
   private readonly trackMesh = new TrackMesh();
   private readonly fleet = new CarFleet();
@@ -102,7 +109,7 @@ export class SceneRenderer {
     this.sun.shadow.bias = -0.0003;
     this.scene.add(this.sun, this.sun.target);
 
-    this.scene.add(this.trackMesh.group, this.trackMesh.checkpoints, this.effects.group, this.fleet.group, this.overlays.group);
+    this.scene.add(this.trackMesh.group, this.trackMesh.checkpoints, this.effects.group, this.fleet.group, this.overlays.group, this.rain.mesh);
 
     const labelLayer = document.createElement('div');
     labelLayer.className = 'label-layer';
@@ -178,7 +185,8 @@ export class SceneRenderer {
     const badge = this.overlays.setDrawing(f.drawMode && f.drawing ? f.drawing.points : null, f.drawing?.mouse ?? null, f.drawing?.anchor ?? null);
     this.trackMesh.checkpoints.visible = this.showCheckpoints;
 
-    this.updateSun();
+    const view = this.updateSun();
+    this.applyWeather(f.weather, view, f.drawMode, f.frozen ? 0 : dt);
     const perspective = rig.isPerspective;
     this.scene.background = perspective ? this.sky : this.groundColor;
     this.scene.fog = perspective ? this.fog : null;
@@ -196,6 +204,7 @@ export class SceneRenderer {
   setCircuit(trackFile = ''): void {
     const sky: SkyKind = /^(sg|ae|bh|sa|qa)-|las-vegas/.test(trackFile) ? 'night'
       : /^(gb|be|de|nl)-/.test(trackFile) ? 'overcast' : 'day';
+    this.circuitSky = sky;
     this.setSky(sky);
     this.trackMesh.setScenery(/^(mc|sg|az|sa)-|las-vegas|miami/.test(trackFile), sky === 'night');
   }
@@ -238,8 +247,24 @@ export class SceneRenderer {
     return shift > size * 0.1 || resize > size * 0.25;
   }
 
-  /** The shadow frustum covers what is in view, so a close camera gets sharp car shadows. */
-  private updateSun(): void {
+  /**
+   * Weather on screen: heavy cloud swaps a day sky for the overcast one and dims the sun, rain
+   * falls around the focus and thickens the haze, water darkens the asphalt and makes it shine.
+   */
+  private applyWeather(w: WeatherState, view: number, drawMode: boolean, dt: number): void {
+    this.setSky(this.circuitSky === 'day' && w.cloud > 0.6 ? 'overcast' : this.circuitSky);
+    const look = SKIES[this.skyKind ?? 'day'];
+    const dim = this.skyKind === 'night' ? 1 - 0.15 * w.rain : 1 - 0.35 * w.cloud - 0.2 * w.rain;
+    this.sun.intensity = look.sun * dim;
+    this.hemi.intensity = look.hemi * (1 - 0.15 * w.rain);
+    this.fog.near = 300 - 220 * w.rain;
+    this.fog.far = 2600 - 1800 * w.rain;
+    this.trackMesh.setWetness(w.wetness);
+    this.rain.update(drawMode ? 0 : w.rain, this.focusPoint, THREE.MathUtils.clamp(view * 0.6, 20, 1200), w.windX, w.windY, dt);
+  }
+
+  /** The shadow frustum covers what is in view, so a close camera gets sharp car shadows. Returns the view size. */
+  private updateSun(): number {
     const view = this.cameras.focus(this.focusPoint);
     const extent = THREE.MathUtils.clamp(view * 0.6, 30, 1400);
     const cam = this.sun.shadow.camera;
@@ -252,5 +277,6 @@ export class SceneRenderer {
     this.sun.target.position.copy(this.focusPoint);
     this.sun.position.copy(this.focusPoint).addScaledVector(SUN, 1200);
     this.sun.target.updateMatrixWorld();
+    return view;
   }
 }

@@ -6,6 +6,7 @@ import { normalizePressure } from '../ai/DriverPressure';
 import { SerializedTrack, deserializeTrack, exportDriver, mergeBetterDrivers } from '../ai/Islands';
 import { Track } from '../track/Track';
 import { Car, clampStressShare } from '../physics/Car';
+import { Weather, isWeatherScenario } from '../physics/Weather';
 
 export interface IslandSetup {
   type: 'SETUP';
@@ -18,6 +19,8 @@ export interface IslandSetup {
   startingFuelKg: number;
   stressLapShare: number;
   drivers: any[];
+  weatherScenario: string;
+  weatherSeed: number;
 }
 
 /** Simulated seconds between model exchanges with the main worker. */
@@ -33,12 +36,19 @@ let running = false;
 let sinceExchange = 0;
 let steps = 0;
 let busyMs = 0;
+/** The island's own weather: the main field's forecast, its own seed. */
+const weather = new Weather();
+Car.weather = weather.state;
 
 function slice(): void {
   if (!running || !population || !track) return;
   const start = performance.now();
   while (performance.now() - start < SLICE_MS) {
-    for (let i = 0; i < 20; i++) population.update(DT, track);
+    for (let i = 0; i < 20; i++) {
+      weather.step(DT);
+      population.setConditions(weather.conditions);
+      population.update(DT, track);
+    }
     steps += 20;
     sinceExchange += 20 * DT;
   }
@@ -66,6 +76,8 @@ self.onmessage = (e: MessageEvent) => {
       population.mutationRate = setup.mutationRate;
       population.startingFuelKg = setup.startingFuelKg;
       Car.STRESS_LAP_SHARE = clampStressShare(setup.stressLapShare);
+      weather.reset(isWeatherScenario(setup.weatherScenario) ? setup.weatherScenario : 'sunny', setup.weatherSeed);
+      population.setConditions(weather.conditions);
       // Start from the main field's best models; the island's own seeds diverge from there.
       mergeBetterDrivers(population, setup.drivers, Infinity);
       version = setup.version;
@@ -78,6 +90,10 @@ self.onmessage = (e: MessageEvent) => {
       population.mutationRate = data.mutationRate;
       population.startingFuelKg = data.startingFuelKg;
       Car.STRESS_LAP_SHARE = clampStressShare(data.stressLapShare);
+      if (isWeatherScenario(data.weatherScenario) && data.weatherScenario !== weather.scenario) {
+        weather.reset(data.weatherScenario, (Math.random() * 0x7fffffff) | 0);
+        population.setConditions(weather.conditions);
+      }
       break;
     }
     case 'MODELS': {

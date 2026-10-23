@@ -47,7 +47,7 @@ Podczas pomyłki i odzyskiwania kontroli replay jest wyłączony i czyszczony. D
 
 ## Ograniczenia
 
-Brak wiatru i pełnej mapy aero (docisk zależy od prześwitu, opór od niego nie zależy). Uszkodzenia ograniczają się do jednego skalara (docisk/opór). Zawieszenie, opony (temperatura, zużycie, wrażliwość na obciążenie) i skrzynię biegów opisują osobne sekcje. Model nie był kalibrowany względem danych konkretnego bolidu F1. Dawne czasy okrążeń i wagi AI nie są porównywalne z wynikami po zmianie fizyki oraz szerokości toru; zalecany jest nowy trening.
+Wiatr jest jednorodny na całym torze (bez osłonięć trybunami). Brak pełnej mapy aero (docisk zależy od prześwitu, opór od niego nie zależy). Uszkodzenia ograniczają się do jednego skalara (docisk/opór). Zawieszenie, opony (temperatura, zużycie, wrażliwość na obciążenie) i skrzynię biegów opisują osobne sekcje. Model nie był kalibrowany względem danych konkretnego bolidu F1. Dawne czasy okrążeń i wagi AI nie są porównywalne z wynikami po zmianie fizyki oraz szerokości toru; zalecany jest nowy trening.
 
 ## Weryfikacja
 
@@ -143,12 +143,24 @@ Jednostka napędowa według regulaminu 2026 (bez MGU-H):
 - Na torze Grand Prix (szer. 14 m) bateria waha się w trakcie okrążenia o ok. 30 punktów procentowych: sieć neuronowa ok. 32–69%, ekspert 25–55%. W modelu sprzed zmiany (120 kW oddawania, 350 kW odzysku) bateria w aplikacji stała zwykle na 90–95%.
 - Przy ograniczeniu trakcją (niskie prędkości) dodatkowa moc nie przyspiesza; różnicę widać powyżej ok. 60 m/s. W telemetrii: „ERS xx%”.
 
+## Pogoda (`src/physics/Weather.ts`)
+
+- Stan: zachmurzenie, deszcz, temperatura powietrza i toru, wilgotność toru W, wiatr (średnia, kierunek, mnożnik porywu). Ewoluuje z krokiem symulacji, z własnym generatorem (mulberry32) z ziarnem, niezależnym od `random()` symulacji.
+- Zachmurzenie: proces Ornsteina-Uhlenbecka wokół średniej prognozy; „przelotny deszcz” ma jedno okno opadu (start po 3–8 min, 4–8 min). Deszcz = `skala·(chmury − próg)/(1 − próg)`.
+- Tor: relaksacja (τ = 240 s) do `T_pow + 13·słońce·(1 − chmury)·(1 − 0,8·W) − 2·deszcz`. Powietrze: baza − 4 °C·deszcz (τ = 300 s).
+- Woda: deszcz moczy tor do poziomu `0,35 + 0,75·deszcz` (pełna ulewa w ok. 2 min), parowanie `W/520 s · (0,3 + słońce·(1 − chmury))·(T_toru − 5)/30`.
+- Wiatr: porywy OU (τ = 3 s, σ wg prognozy), kierunek dryfuje o ok. ±15° (τ = 60 s).
+- Aero: prędkość względem powietrza `v_pow = v − wiatr`. Opór `½ρ·CdA·|v_pow|²` przeciw `v_pow`, docisk `½ρ·ClA·|v_pow|²·(1 − 0,6·sin²β)`, gdzie β to kąt napływu; 60% straty z wiatru bocznego pochodzi z przedniej osi. Siła boczna `½ρ·1,5 m²·|v_pow|·v_wiatru,bok` działa 0,3 m za środkiem masy i daje moment odchylający w modelu dynamicznym. W bezwietrznej pogodzie wzory redukują się do poprzednich.
+- Trening: klasa warunków sesji (sucho < 0,15 ≤ wilgotno < 0,6 ≤ mokro, z histerezą) i pasma okrążenia (0–0,2 / 0,1–0,65 / 0,55–1). Okrążenie poza pasmem jest „skompromitowane” dla uczenia. `Population.setConditions` przy zmianie klasy ustala nowy rekord odniesienia przy pierwszym czystym okrążeniu, a mózg mistrza zostaje.
+- Test: `npm run test:weather`.
+
 ## Opony: temperatura i zużycie (na oś)
 
 - Stan: temperatura i zużycie osi przedniej i tylnej. Bilans: ciepło z mocy poślizgu bocznego (`siła · prędkość · tan α`, ×2), z pełzania wzdłużnego (1,2% `|Fx|·v`), z histerezy (`0,0075·Fz·v`), oś przednia ×1,6; chłodzenie konwekcją `∝ v^0,8` i torem; pojemność 12 kJ/K (stała czasowa ok. 40 s).
 - Mnożnik przyczepności osi: dzwon temperaturowy (optimum 100 °C, zimno do 0,80, przegrzanie do 0,75) razy zużycie (do −25% przy W=1). Wchodzi do limitów osi i do planowanej przyczepności (kierowca zwalnia na zimnych/zużytych oponach).
 - Model opon działa w treningu i w wyścigu (`Car.TYRE_MODEL_IN_TRAINING = true` domyślnie); `false` przywraca „koce” (100 °C, zużycie 0) w treningu. Auto startuje z 85 °C; pit stop daje nowy komplet. Zużycie > 70% wywołuje zjazd do boksu.
 - Kalibracja (`npm run diag:nn`; `NOTYRES=1` wyłącza opony): temperatury ok. 80–115 °C, tempo wyścigowe ok. 3–5% wolniejsze od treningowego.
+- Pogoda (`Weather.ts`): powietrze i nawierzchnia z bieżącej pogody zastępują stałe 25 / 38 °C (`TYRE_AMBIENT` / `TYRE_TRACK` to wartości pogody odniesienia). Chłodzenie: `2·(15 + 3,2·v^0,8)·(T − T_pow) + 60·(T − T_toru)`, razy `(1 + 0,9·W)` na mokrym.
 - Niezależność od kroku (`test-suspension`): prosta, stały zakręt oraz cykl hamowanie/przyspieszanie, każdy po 20 s przy 30/60/120 Hz. Różnice temperatury < 1,5 °C, zużycia < 5% (zmierzone: 0,9 °C i 2,3% w zakręcie).
 
 ## Ochrona przed wartościami nieskończonymi (19.10.2026)

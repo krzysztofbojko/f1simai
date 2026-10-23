@@ -8,6 +8,7 @@ import { captureMotion, avoidTraffic, resolveTraffic, computeWake } from '../phy
 import { Car, LapFinishEvent, TrajectoryPoint, driverInputCount } from '../physics/Car';
 import { NeuralNetwork, TopologySpecifier } from './NeuralNetwork';
 import { Track } from '../track/Track';
+import type { TrackConditions } from '../physics/Weather';
 
 export interface F1TeamDef {
   teamName: string;
@@ -25,6 +26,8 @@ export interface TeamRecord {
   bestFitness: number;
   bestLapTime: number | null;
   bestLapPressure?: number;
+  /** Track-condition class the best lap was set in (absent: dry). */
+  bestLapConditions?: TrackConditions;
   bestLapSplits: (number | null)[] | null;
   lastLapTime: number | null;
   avgSpeed: number;
@@ -64,6 +67,19 @@ export class Population {
   /** Called after every completed lap of a population car (session timing, e.g. qualifying). */
   public onLapCompleted?: (car: Car, event: LapFinishEvent) => void;
   public driverPressure = 0;
+  /** Track-condition class of the session (see `Weather.ts`). */
+  public conditions: TrackConditions = 'dry';
+  /**
+   * New track conditions: in training the first clean lap in them sets each team's new reference,
+   * so a lap slowed by rain never sends a brain back to the dry-weather one, nor a dry lap the other way.
+   */
+  setConditions(conditions: TrackConditions): void {
+    Car.conditions = conditions;
+    if (conditions === this.conditions) return;
+    this.conditions = conditions;
+    if (!this.isRaceMode) this.globalBestLap = null;
+  }
+
   setDriverPressure(value: number, immediate = false): void {
     this.driverPressure = normalizePressure(value);
     for (const car of this.cars) car.setDriverPressure(this.driverPressure, immediate);
@@ -296,9 +312,11 @@ export class Population {
     if (t) {
       t.lapsCount++;
       t.lastLapTime = lapEvent.lapTime;
-      if (!t.bestLapTime || lapEvent.lapTime < t.bestLapTime) {
+      const newConditions = !this.isRaceMode && (t.bestLapConditions ?? 'dry') !== this.conditions;
+      if (!t.bestLapTime || newConditions || lapEvent.lapTime < t.bestLapTime) {
         t.bestLapTime = lapEvent.lapTime;
         t.bestLapPressure = lapPressure;
+        t.bestLapConditions = this.conditions;
         car.bestLapPressure = lapPressure;
         t.bestLapSplits = [...car.bestLapSplits];
         t.avgSpeed = lapEvent.avgSpeed;
@@ -308,7 +326,8 @@ export class Population {
         t.stagnationCounter = 0;
         t.currentMutationRate = Math.max(0.025, t.currentMutationRate * 0.85);
         car.explorationTrial = false;
-        if (car.brain) {
+        // The first lap in new conditions only resets the reference time; the proven brain stays.
+        if (car.brain && !(newConditions && t.bestBrain)) {
           t.bestBrain = car.brain.clone();
         }
         car.safeBrainBackup = car.brain ? car.brain.clone() : null;

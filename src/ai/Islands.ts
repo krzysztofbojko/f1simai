@@ -4,6 +4,11 @@ import { Car } from '../physics/Car';
 import { Track } from '../track/Track';
 import { TrackPoint } from '../math/Spline';
 import { Vector2 } from '../math/Vector2';
+import type { TrackConditions } from '../physics/Weather';
+
+function isConditions(value: unknown): value is TrackConditions {
+  return value === 'dry' || value === 'damp' || value === 'wet';
+}
 
 /** Track geometry as plain data; `deserializeTrack` rebuilds the identical track in another worker. */
 export interface SerializedTrack {
@@ -38,6 +43,7 @@ export function exportDriver(population: Population, index: number): any {
     bestBrain: record?.bestBrain ? JSON.parse(record.bestBrain.toJSON()) : null,
     bestLapTime: record?.bestLapTime || car.bestLapTime,
     bestLapPressure: record?.bestLapPressure ?? car.bestLapPressure,
+    bestLapConditions: record?.bestLapConditions ?? 'dry',
     bestLapSplits: record?.bestLapSplits ? [...record.bestLapSplits] : (car.bestLapSplits ? [...car.bestLapSplits] : null),
     bestFitness: record?.bestFitness || car.fitness,
     lastLapTime: record?.lastLapTime ?? car.lastLapTime,
@@ -78,6 +84,7 @@ export function applyDriverModel(car: Car, record: TeamRecord | undefined, drive
     car.safeBrainPressure = car.bestLapPressure;
     if (record) record.bestLapPressure = car.bestLapPressure;
     if (record) record.bestLapTime = driverData.bestLapTime;
+    if (record) record.bestLapConditions = isConditions(driverData.bestLapConditions) ? driverData.bestLapConditions : 'dry';
   }
   if (Array.isArray(driverData.bestLapSplits) && driverData.bestLapSplits.length === 4) {
     car.bestLapSplits = [...driverData.bestLapSplits];
@@ -120,7 +127,9 @@ export function mergeBetterDrivers(population: Population, drivers: any[], maxAd
     const car = population.cars[i], record = population.teamRecords[i];
     const data = drivers.find(d => d?.color === car.color);
     if (!data || typeof data.bestLapTime !== 'number' || !(data.bestLapTime > 0) || !data.bestBrain) continue;
-    const own = record?.bestLapTime ?? car.bestLapTime;
+    // Only a lap in the conditions this field is driving in now; an own record from other conditions does not count.
+    if ((isConditions(data.bestLapConditions) ? data.bestLapConditions : 'dry') !== population.conditions) continue;
+    const own = (record?.bestLapConditions ?? 'dry') === population.conditions ? record?.bestLapTime ?? car.bestLapTime : null;
     if (own !== null && own !== undefined && own > 0 && data.bestLapTime >= own - 1e-3) continue;
     if (normalizePressure(data.bestLapPressure ?? 0) !== car.driverPressure) continue;
     if (!car.brain || !Array.isArray(data.bestBrain.layerSizes) || data.bestBrain.layerSizes.join() !== car.brain.layerSizes.join()) continue;
