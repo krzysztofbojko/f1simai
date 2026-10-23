@@ -292,7 +292,7 @@ export class Population {
     const brain = record.bestBrain.clone();
     brain.mutate(rate, rate * 2.5);
     car.brain = brain;
-    // A race-time rescue restores the proven brain, never the trial.
+    // A respawn or a failed lap restores the proven brain, never the trial.
     car.safeBrainBackup = record.bestBrain.clone();
     car.explorationTrial = true;
     car.replayBuffer = [];

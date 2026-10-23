@@ -1595,10 +1595,6 @@ export class Car {
     this.understeerSlip = frontSlip >= rearSlip ? slipRatio : 0;
     this.oversteerSlip = this.understeerSlip > 0 ? 0 : slipRatio;
 
-    if (!this.lapCompromised && this.safeBrainPressure === this.driverPressure && this.isRaceMode && this.safeBrainBackup && this.brain && this.isSkidding && (this.oversteerSlip > 0.45 || Math.abs(this.angularVelocity) > 3.2)) {
-      this.brain = this.safeBrainBackup.clone();
-      this.replayBuffer = [];
-    }
     if (this.isSkidding && random() < 0.28) {
       this.skidMarks.push(this.pos.clone());
       if (this.skidMarks.length > 60) this.skidMarks.shift();

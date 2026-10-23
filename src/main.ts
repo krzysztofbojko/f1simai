@@ -1075,7 +1075,6 @@ class App {
     document.getElementById('race-info-banner')?.classList.add('hidden');
     document.getElementById('quali-info-banner')?.classList.add('hidden');
 
-    this.population.isRaceMode = false;
     this.sync.session.raceState = 'IDLE';
     this.resetCarPositions();
     this.sync.session.standings = [];
@@ -1085,7 +1084,6 @@ class App {
     for (let i = 0; i < this.population.cars.length; i++) {
       const car = this.population.cars[i];
       const record = this.population.teamRecords[i];
-      car.isRaceMode = false;
       // CRITICAL: Preserve learned neural network! Restore the bestBrain without destroying it!
       if (record && record.bestBrain && !car.isManual) {
         car.brain = record.bestBrain.clone();
@@ -1105,7 +1103,6 @@ class App {
       car.wantsToPit = false;
     }
     if (this.playerCar) {
-      this.playerCar.isRaceMode = false;
       const slot = this.track.getGridSlot(this.population.cars.length);
       const nextCpIdx = (slot.checkpointIdx + 1) % this.track.checkpoints.length;
       this.playerCar.reset(slot.pos, slot.heading, true, nextCpIdx);
