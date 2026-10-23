@@ -43,7 +43,7 @@ Każdy tor generuje oddzielne krawędzie asfaltu, pas trawy, żwir i bandy. Bazo
 
 Nawierzchnia jest próbkowana pod czterema kołami (rozstaw osi 3,6 m, szerokość 1,8 m). Wypadkowe μ stanowi średnią udziałów: asfalt 1,85, trawa 0,45, żwir 0,60. Dodatkowy opór przeciwny do całego wektora prędkości wynosi 0,04 g na trawie i 0,35 g na żwirze przy pełnym udziale nawierzchni. Impuls nie może odwrócić ruchu. To parametry uproszczonego modelu, nie kalibracja konkretnego toru. Pełny postój w żwirze może uniemożliwić ponowne ruszenie.
 
-Przekroczenie białej linii nie powoduje DNF. Po lekkim kontakcie z bandą usuwana jest prędkość skierowana w bandę, a pozostała mnożona przez 0,8; bolid jest odsuwany o 3 cm. Prędkość prostopadła do bandy co najmniej 12 m/s kończy jazdę. W wyścigu nie ma respawnu; trening przywraca auto po 0,5 s. Telemetria pokazuje nawierzchnię i przyczynę eliminacji. Odzyskiwanie kontroli dostaje do 30 s bez checkpointu, pozostała jazda zachowuje dotychczasowy limit 10 s.
+Przekroczenie białej linii nie powoduje DNF. Po lekkim kontakcie z bandą usuwana jest prędkość skierowana w bandę, a pozostała mnożona przez 0,8; bolid jest odsuwany o 3 cm. Prędkość prostopadła do bandy co najmniej 12 m/s kończy jazdę. Rozbite auto zostaje na torze jako wrak z lokalną żółtą flagą przez 15 s (`WRECK_CLEAR_SECONDS`), w treningu tak samo jak w wyścigu. W wyścigu nie ma respawnu; trening przywraca auto dopiero po usunięciu wraku. Telemetria pokazuje nawierzchnię i przyczynę eliminacji. Odzyskiwanie kontroli dostaje do 30 s bez checkpointu, pozostała jazda zachowuje dotychczasowy limit 10 s.
 
 ## Pomyłki AI i ochrona uczenia
 
@@ -75,7 +75,7 @@ Po utracie rywala, poślizgu, pomyłce, wyjeździe na pobocze lub zgłoszeniu pi
 
 Bolidy w wyścigu mają nieprzenikające prostokątne obrysy 5,5 × 1,8 m. Ciągły test osi rozdzielających wykrywa kontakt na całej drodze ruchu; obrót dzielony jest na małe odcinki. Lekkie uderzenie rozdziela auta i stosuje niesprężysty impuls w punkcie styku, z tarciem (szczegóły w sekcji „Kontakt auto–auto: obrót i tarcie”). Składowa prędkości względnej skierowana w kontakt ≥ 12 m/s (`Car.CRASH_CLOSING_SPEED`) oznacza wypadek i DNF obu uczestników. Jest to uproszczony próg modelu. Uszkodzone auta pozostają przeszkodami. Telemetria podaje „WYPADEK Z INNYM BOLIDEM”. Zdarzenie wyklucza okrążenie z oceny sieci, ale czas wyścigu nadal liczy się normalnie.
 
-AI ogranicza gaz i hamuje przed pojazdem w swoim korytarzu jazdy, uwzględniając odległość i prędkość zbliżania. Dotyczy to także dublowanych i zatrzymanych samochodów. Atak ustępuje hamowaniu bezpieczeństwa. Sterowanie ręczne nie jest korygowane, ale jego kolizje są fizyczne. Trening również uwzględnia kontakt i unikanie innych aut. Po wypadku model jest zachowany, a bolid wraca po 0,5 s, gdy jego miejsce startowe jest wolne. Wyprzedzanie korzysta z bocznego przesunięcia celu sterowania, opisanego niżej.
+AI ogranicza gaz i hamuje przed pojazdem w swoim korytarzu jazdy, uwzględniając odległość i prędkość zbliżania. Dotyczy to także dublowanych i zatrzymanych samochodów. Atak ustępuje hamowaniu bezpieczeństwa. Sterowanie ręczne nie jest korygowane, ale jego kolizje są fizyczne. Trening również uwzględnia kontakt i unikanie innych aut. Po wypadku model jest zachowany, a bolid stoi jako wrak 15 s (żółte flagi jak w wyścigu) i wraca, gdy porządkowi go usuną, a jego miejsce startowe jest wolne. Wyprzedzanie korzysta z bocznego przesunięcia celu sterowania, opisanego niżej.
 
 `npm run test:traffic` sprawdza najechanie od tyłu przy dużej prędkości, krzyżowanie trajektorii, lekkie kontakty, rozdzielenie obrysów, energię oraz hamowanie przed wolniejszym i zatrzymanym rywalem.
 
@@ -185,7 +185,7 @@ Model działa zawsze, w treningu i w wyścigu, bez przełącznika.
 
 ## Ochrona przed wartościami nieskończonymi (19.10.2026)
 
-Po całkowaniu, a przed przesunięciem auta, `updatePhysics` sprawdza stan dynamiczny: pozycję, prędkość, kurs, prędkość kątową, heave/pitch/roll z prędkościami, temperatury opon, ERS i paliwo. Wartość NaN lub ∞ zostałaby w stanie auta na zawsze, a pozycja NaN psuje też zapytania toru. Taki krok jest więc odrzucany. Pozycja zostaje ostatnią skończoną, zawieszenie wraca do statyki, złe wartości są resetowane, a auto kończy jazdę jak po uderzeniu w bandę (w treningu respawn po 0,5 s). Pierwsze takie zdarzenie trafia do `console.warn`. Test w `test-suspension`.
+Po całkowaniu, a przed przesunięciem auta, `updatePhysics` sprawdza stan dynamiczny: pozycję, prędkość, kurs, prędkość kątową, heave/pitch/roll z prędkościami, temperatury opon, ERS i paliwo. Wartość NaN lub ∞ zostałaby w stanie auta na zawsze, a pozycja NaN psuje też zapytania toru. Taki krok jest więc odrzucany. Pozycja zostaje ostatnią skończoną, zawieszenie wraca do statyki, złe wartości są resetowane, a auto kończy jazdę jak po uderzeniu w bandę (w treningu respawn po usunięciu wraku). Pierwsze takie zdarzenie trafia do `console.warn`. Test w `test-suspension`.
 
 ## Alokacje w kroku fizyki (19.10.2026)
 

@@ -3,7 +3,7 @@ import { normalizePressure, pressureProfile } from './DriverPressure';
 import { LineSearch } from './LineSearch';
 import { LineNet } from './LineNet';
 import { distillLineNetwork } from './Distill';
-import { updateRaceSafety, planRaceLine } from './RaceTraffic';
+import { updateRaceSafety, planRaceLine, WRECK_CLEAR_SECONDS } from './RaceTraffic';
 import { captureMotion, avoidTraffic, resolveTraffic, computeWake } from '../physics/Traffic';
 import { Car, LapFinishEvent, TrajectoryPoint, driverInputCount } from '../physics/Car';
 import { NeuralNetwork, TopologySpecifier } from './NeuralNetwork';
@@ -118,7 +118,7 @@ export class Population {
   public graceMaxTime: number = 15.0;            // Maximum grace period in seconds to close in-progress lap
   public generationMinTime: number = 8.0;        // Minimum duration before stagnation/all-dead trigger can end generation
   public stagnationMaxTime: number = 150.0;      // Max seconds without generation checkpoint/lap advancement before emergency evolve
-  public allDeadMaxTime: number = 6.0;           // Max seconds with 0 alive cars before emergency evolve
+  public allDeadMaxTime: number = WRECK_CLEAR_SECONDS + 3; // Max seconds with 0 alive cars before emergency evolve (wrecks clear first)
   public generationTimer: number = 0;            // Current generation elapsed time in seconds
   public stagnationTimer: number = 0;            // Time elapsed since last checkpoint/lap progress in current generation
   public graceTimer: number = 0;                 // Time elapsed in current grace period
@@ -465,7 +465,8 @@ export class Population {
 
   update(dt: number, track: Track, extraCars: Car[] = []): void {
     const traffic = [...this.cars, ...extraCars];
-    if (this.isRaceMode) updateRaceSafety(traffic, track, dt);
+    // Every session: a crashed car stays a wreck under local yellows until the marshals clear it.
+    updateRaceSafety(traffic, track, dt);
     const motion = captureMotion(traffic);
     computeWake(traffic, track);
     const laps: { car: Car; event: LapFinishEvent }[] = [];
@@ -582,7 +583,8 @@ export class Population {
         car.respawnTimer -= dt;
         if (!car.isManual && car.respawnTimer > 0 && car.respawnTimer <= dt && (car.eliminationReason === 'barrier' || car.eliminationReason === 'stuck' || car.eliminationReason === 'wrong-way')) car.pace.fail();
         car.mistakes.cooldown = Math.max(0, car.mistakes.cooldown - dt);
-        if (car.respawnTimer <= 0) {
+        // The wreck stays on track (as in the race) until the marshals clear it, then the car respawns.
+        if (car.respawnTimer <= 0 && car.wreckRemoved) {
           // Own grid slot first, then the nearest free one. With every slot taken the wreck leaves
           // the track while it waits: a car queued behind it may be the one holding its slot.
           const free = (k: number) => {

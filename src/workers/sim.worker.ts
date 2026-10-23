@@ -376,8 +376,9 @@ function runSimulationSteps(): void {
       if (!playerCar.isAlive) {
         playerCar.coastWreck(fixedDt, track);
         if (session.state === 'IDLE') {
+          // As for the AI: the wreck stays until the marshals clear it (Population.update ages it).
           playerCar.respawnTimer -= fixedDt;
-          if (playerCar.respawnTimer <= 0) {
+          if (playerCar.respawnTimer <= 0 && playerCar.wreckRemoved) {
             playerCar.reset(track.startPosition, track.startAngle, true);
             playerCar.isAlive = true;
           }

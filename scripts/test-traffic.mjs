@@ -95,7 +95,7 @@ try {
  // An occupied start slot sends the respawn to the nearest free one, never onto another car.
  const slot=circuit.getGridSlot(0);
  trainingFront.isAlive=true;trainingFront.pos=slot.pos.clone();trainingFront.vel.set(0,0);trainingFront.speed=0;
- trainingRear.respawnTimer=0;
+ trainingRear.respawnTimer=0;trainingRear.wreckRemoved=true;
  training.update(1/60,circuit);
  assert.equal(trainingRear.isAlive,true,'an occupied own slot blocked the respawn');
  assert.ok(trainingRear.pos.dist(trainingFront.pos)>6,'respawn placed a car in an occupied slot');

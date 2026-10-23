@@ -62,7 +62,7 @@ try {
   {
     const { population, car, record, saved } = fixture();
     car.brain.layers[0].weights[0][0] = 12345;
-    car.peakFitness = 20000; car.isAlive = false; car.respawnTimer = 0;
+    car.peakFitness = 20000; car.isAlive = false; car.respawnTimer = 0; car.wreckRemoved = true;
     car.replayBuffer = [{ inputs: [], targets: [0, 0, 0], reward: 1 }]; car.replayStepTimer = 89;
     population.update(1 / 60, track);
     assert.equal(parameters(record.bestBrain), saved);
