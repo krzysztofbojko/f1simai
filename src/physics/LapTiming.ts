@@ -168,7 +168,8 @@ export function checkTrackProgress(car: Car, track: Track): LapFinishEvent | nul
           sectorTime: timeSector(car, 3, finishedLapTime),
         };
 
-        const finishedTrajectory = [...car.currentLapTrajectory];
+        // Handed over as it is: the car starts a fresh array for the next lap below.
+        const finishedTrajectory = car.currentLapTrajectory;
         const finishedMaxSpeedKmh = Math.round(car.maxSpeedInLap * 3.6);
         const avgSpeedKmh = finishedLapTime > 0
           ? Math.round((track.totalLength / finishedLapTime) * 3.6 * 10) / 10

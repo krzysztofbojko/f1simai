@@ -90,15 +90,26 @@ export class NeuralNetwork {
     }
   }
 
+  /**
+   * Network outputs for `inputs`. Inputs and every layer's activations are written into buffers
+   * the network keeps, so a step allocates nothing: the returned array is the output layer's
+   * activations and is overwritten by the next call (read it, or copy it to keep it).
+   */
   forward(inputs: number[]): number[] {
-    this.lastInputs = [...inputs];
-    let current = [...inputs];
+    const last = this.lastInputs;
+    if (last !== inputs) {
+      last.length = inputs.length;
+      for (let i = 0; i < inputs.length; i++) last[i] = inputs[i];
+    }
+    let current = last;
 
     for (let l = 0; l < this.layers.length; l++) {
       const layer = this.layers[l];
-      const nextActivations: number[] = [];
+      const outputs = layer.biases.length;
+      let next = layer.activations;
+      if (next === current || next.length !== outputs) next = layer.activations = new Array(outputs).fill(0);
 
-      for (let o = 0; o < layer.biases.length; o++) {
+      for (let o = 0; o < outputs; o++) {
         let sum = layer.biases[o];
         const row = layer.weights[o];
         for (let i = 0; i < current.length; i++) {
@@ -106,28 +117,25 @@ export class NeuralNetwork {
         }
 
         // Tanh activation for bounded smooth outputs and stable gradients
-        nextActivations.push(Math.tanh(sum));
+        next[o] = Math.tanh(sum);
       }
 
-      layer.activations = nextActivations;
-      current = nextActivations;
+      current = next;
     }
 
     return current;
   }
 
+  /** An independent copy. Built without the constructor, so no weights are drawn only to be overwritten. */
   clone(): NeuralNetwork {
-    const copy = new NeuralNetwork(this.layerSizes);
+    const copy: NeuralNetwork = Object.create(NeuralNetwork.prototype);
+    copy.layerSizes = [...this.layerSizes];
     copy.lastInputs = [...this.lastInputs];
-    for (let l = 0; l < this.layers.length; l++) {
-      for (let o = 0; o < this.layers[l].biases.length; o++) {
-        copy.layers[l].biases[o] = this.layers[l].biases[o];
-        for (let i = 0; i < this.layers[l].weights[o].length; i++) {
-          copy.layers[l].weights[o][i] = this.layers[l].weights[o][i];
-        }
-      }
-      copy.layers[l].activations = [...this.layers[l].activations];
-    }
+    copy.layers = this.layers.map(layer => ({
+      weights: layer.weights.map(row => row.slice()),
+      biases: layer.biases.slice(),
+      activations: layer.activations.slice(),
+    }));
     return copy;
   }
 

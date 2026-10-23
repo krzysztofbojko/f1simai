@@ -446,6 +446,23 @@ export class Population {
     return list;
   }
 
+  /**
+   * The session champion: the team with the fastest lap if its brain is kept, else (before any
+   * lap) the team with the highest fitness above zero. Ties go to the first team. One pass, no sort.
+   */
+  private championRecord(): TeamRecord | null {
+    let fastest: TeamRecord | null = null;
+    for (const t of this.teamRecords) {
+      if (t.bestLapTime !== null && (fastest === null || t.bestLapTime < fastest.bestLapTime!)) fastest = t;
+    }
+    if (fastest?.bestBrain) return fastest;
+    let fittest: TeamRecord | null = null;
+    for (const t of this.teamRecords) {
+      if (t.bestBrain !== null && (fittest === null || t.bestFitness > fittest.bestFitness)) fittest = t;
+    }
+    return fittest && fittest.bestFitness > 0 ? fittest : null;
+  }
+
   update(dt: number, track: Track, extraCars: Car[] = []): void {
     const traffic = [...this.cars, ...extraCars];
     if (this.isRaceMode) updateRaceSafety(traffic, track, dt);
@@ -455,26 +472,9 @@ export class Population {
     let maxFitness = -Infinity;
     let leader: Car | null = null;
 
-    // Find current session champion brain across all teams (by lap time if available, or best partial fitness)
-    let championBrain: NeuralNetwork | null = null;
-    let eliteRecord: TeamRecord | null = null;
-    const sortedByLap = this.teamRecords
-      .filter(t => t.bestLapTime !== null)
-      .sort((a, b) => a.bestLapTime! - b.bestLapTime!);
-
-    if (sortedByLap.length > 0 && sortedByLap[0].bestBrain) {
-      eliteRecord = sortedByLap[0];
-      championBrain = sortedByLap[0].bestBrain;
-    } else {
-      // Prior to any car finishing a full lap, select the brain with the highest partial fitness
-      const sortedByFit = [...this.teamRecords]
-        .filter(t => t.bestBrain !== null)
-        .sort((a, b) => b.bestFitness - a.bestFitness);
-      if (sortedByFit.length > 0 && sortedByFit[0].bestBrain && sortedByFit[0].bestFitness > 0) {
-        eliteRecord = sortedByFit[0];
-        championBrain = sortedByFit[0].bestBrain;
-      }
-    }
+    // Current session champion across all teams (by lap time if available, or best partial fitness).
+    const eliteRecord = this.championRecord();
+    const championBrain = eliteRecord?.bestBrain ?? null;
     const eliteIndex = eliteRecord ? this.teamRecords.indexOf(eliteRecord) : -1;
 
     for (let i = 0; i < this.cars.length; i++) {
@@ -746,24 +746,8 @@ export class Population {
     }
 
     // 2. Identify session champion brain across all drivers (PB lap if available, otherwise highest bestFitness)
-    let championBrain: NeuralNetwork | null = null;
-    let eliteRecord: TeamRecord | null = null;
-    const sortedByLap = this.teamRecords
-      .filter(t => t.bestLapTime !== null)
-      .sort((a, b) => a.bestLapTime! - b.bestLapTime!);
-
-    if (sortedByLap.length > 0 && sortedByLap[0].bestBrain) {
-      eliteRecord = sortedByLap[0];
-      championBrain = sortedByLap[0].bestBrain;
-    } else {
-      const sortedByFit = [...this.teamRecords]
-        .filter(t => t.bestBrain !== null)
-        .sort((a, b) => b.bestFitness - a.bestFitness);
-      if (sortedByFit.length > 0 && sortedByFit[0].bestBrain && sortedByFit[0].bestFitness > 0) {
-        eliteRecord = sortedByFit[0];
-        championBrain = sortedByFit[0].bestBrain;
-      }
-    }
+    const eliteRecord = this.championRecord();
+    const championBrain = eliteRecord?.bestBrain ?? null;
     const eliteTeamIndex = eliteRecord ? this.teamRecords.indexOf(eliteRecord) : -1;
 
     const maxRecordFitness = Math.max(...this.teamRecords.map(r => r.bestFitness), 0);

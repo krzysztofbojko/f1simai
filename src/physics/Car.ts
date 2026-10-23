@@ -101,6 +101,30 @@ export function encodeDriverTargets(t: ArrayLike<number>): [number, number, numb
   ];
 }
 
+/** Numbers kept per body during a LiDAR scan: heading cos/sin, half width, ray origin relative to it, bounding radius. */
+const SCAN_FRAME = 6;
+
+/**
+ * Entry distance of a ray into an oriented 5.5 m body (heading `fx, fy`, half width `half`), the
+ * ray starting at `ox, oy` relative to the body with unit direction `dx, dy`; Infinity if it misses
+ * within `maxDist` or starts inside.
+ */
+function slabEntry(fx: number, fy: number, half: number, ox: number, oy: number, dx: number, dy: number, maxDist: number): number {
+  // Slabs of the oriented box: along the heading (half length 2.75 m) and across it (half width).
+  let enter = 0, leave = maxDist;
+  for (let axis = 0; axis < 2; axis++) {
+    const o = axis ? oy * fx - ox * fy : ox * fx + oy * fy;
+    const d = axis ? dy * fx - dx * fy : dx * fx + dy * fy;
+    const extent = axis ? half : 2.75;
+    if (Math.abs(d) < 1e-9) { if (Math.abs(o) > extent) return Infinity; continue; }
+    const t1 = (-extent - o) / d, t2 = (extent - o) / d;
+    enter = Math.max(enter, Math.min(t1, t2));
+    leave = Math.min(leave, Math.max(t1, t2));
+    if (enter > leave) return Infinity;
+  }
+  return enter > 0 ? enter : Infinity;
+}
+
 export class Car {
   // Identification
   public id: number = Math.floor(random() * 9000) + 1000;
@@ -541,6 +565,7 @@ export class Car {
   /** Stress-lap LiDAR error seen by the network: per-reading noise and a per-lap calibration bias. */
   private sensorNoise = 0;
   private sensorBias = 0;
+  private readonly noisyRays: number[] = [];
   /** Per-ray noise state: a Gauss-Markov drift and the error that follows it (see `SENSOR_NOISE_TAU`). */
   private sensorDrift: number[] = [];
   private sensorError: number[] = [];
@@ -604,6 +629,9 @@ export class Car {
   /** The car each ray hit, or null when it ended on the track edge. */
   public rayCars: (Car | null)[] = [];
   public rayHits: IntersectionResult[] = [];
+  /** Scan buffers of `updateSensors`: the bodies in reach and SCAN_FRAME numbers per body. */
+  private readonly scanBodies: Car[] = [];
+  private readonly scanFrames: number[] = [];
 
   public static generateRayAngles(count: number): number[] {
     const maxAngle = Math.PI * 0.60; // 108 degrees left and right (216 deg total field of view)
@@ -929,11 +957,15 @@ export class Car {
     }
     const k = Math.exp(-this.lastStepDt / Car.SENSOR_NOISE_TAU);
     const kick = this.sensorNoise * Math.SQRT2 * Math.sqrt(1 - k * k);
-    return this.rayDistances.map((d, i) => {
+    // Overwritten in place every step; the planner copies it into the network inputs.
+    const noisy = this.noisyRays;
+    noisy.length = n;
+    for (let i = 0; i < n; i++) {
       this.sensorDrift[i] = this.sensorDrift[i] * k + gauss() * kick;
       this.sensorError[i] += (this.sensorDrift[i] - this.sensorError[i]) * (1 - k);
-      return Math.max(0, Math.min(1, d + this.sensorBias + this.sensorError[i]));
-    });
+      noisy[i] = Math.max(0, Math.min(1, this.rayDistances[i] + this.sensorBias + this.sensorError[i]));
+    }
+    return noisy;
   }
 
   /**
@@ -948,8 +980,19 @@ export class Car {
     this.rayDistances.length = n;
     this.rayWallDistances.length = n;
     this.rayCars.length = n;
+    // The bodies in reach, each with its frame worked out once per scan instead of once per ray.
     const reach = (Car.RAY_MAX_DIST + 3.5) ** 2;
-    const bodies = cars.filter(o => o !== this && !o.wreckRemoved && !o.isPitting && !o.isFinishedRace && o.pos.distSq(this.pos) < reach);
+    const bodies = this.scanBodies, frames = this.scanFrames;
+    bodies.length = 0;
+    for (const o of cars) {
+      if (o === this || o.wreckRemoved || o.isPitting || o.isFinishedRace || o.pos.distSq(this.pos) >= reach) continue;
+      const k = bodies.length * SCAN_FRAME;
+      const half = o.width / 2;
+      frames[k] = Math.cos(o.heading); frames[k + 1] = Math.sin(o.heading); frames[k + 2] = half;
+      frames[k + 3] = this.pos.x - o.pos.x; frames[k + 4] = this.pos.y - o.pos.y;
+      frames[k + 5] = Math.hypot(2.75, half) + 0.01; // bounding circle, a little generous
+      bodies.push(o);
+    }
     for (let i = 0; i < n; i++) {
       const rayAngle = this.heading + this.rayAngles[i];
       let hit = track.castRay(this.pos, rayAngle, Car.RAY_MAX_DIST);
@@ -958,9 +1001,13 @@ export class Car {
       if (bodies.length) {
         const dx = Math.cos(rayAngle), dy = Math.sin(rayAngle);
         let nearest = hit.dist;
-        for (const body of bodies) {
-          const t = body.rayEntry(this.pos, dx, dy, nearest);
-          if (t < nearest) { nearest = t; seen = body; }
+        for (let b = 0; b < bodies.length; b++) {
+          const k = b * SCAN_FRAME, ox = frames[k + 3], oy = frames[k + 4], radius = frames[k + 5];
+          // A ray that misses the bounding circle within `nearest` misses the body.
+          const along = -(ox * dx + oy * dy);
+          if (along < -radius || along - radius >= nearest || Math.abs(ox * dy - oy * dx) > radius) continue;
+          const t = slabEntry(frames[k], frames[k + 1], frames[k + 2], ox, oy, dx, dy, nearest);
+          if (t < nearest) { nearest = t; seen = bodies[b]; }
         }
         if (seen) hit = { point: new Vector2(this.pos.x + dx * nearest, this.pos.y + dy * nearest), dist: nearest };
       }
@@ -971,22 +1018,8 @@ export class Car {
   }
 
   /** Distance along a ray from `origin` (unit direction dx, dy) to where it enters this body; Infinity if it misses within `maxDist` or starts inside. */
-  private rayEntry(origin: Vector2, dx: number, dy: number, maxDist: number): number {
-    const fx = Math.cos(this.heading), fy = Math.sin(this.heading);
-    const ox = origin.x - this.pos.x, oy = origin.y - this.pos.y;
-    // Slabs of the oriented box: along the heading (half length 2.75 m) and across it (half width).
-    let enter = 0, leave = maxDist;
-    for (let axis = 0; axis < 2; axis++) {
-      const o = axis ? oy * fx - ox * fy : ox * fx + oy * fy;
-      const d = axis ? dy * fx - dx * fy : dx * fx + dy * fy;
-      const half = axis ? this.width / 2 : 2.75;
-      if (Math.abs(d) < 1e-9) { if (Math.abs(o) > half) return Infinity; continue; }
-      const t1 = (-half - o) / d, t2 = (half - o) / d;
-      enter = Math.max(enter, Math.min(t1, t2));
-      leave = Math.min(leave, Math.max(t1, t2));
-      if (enter > leave) return Infinity;
-    }
-    return enter > 0 ? enter : Infinity;
+  rayEntry(origin: Vector2, dx: number, dy: number, maxDist: number): number {
+    return slabEntry(Math.cos(this.heading), Math.sin(this.heading), this.width / 2, origin.x - this.pos.x, origin.y - this.pos.y, dx, dy, maxDist);
   }
 
   /**
@@ -1013,14 +1046,16 @@ export class Car {
    * of their window and wears them faster, a cold one keeps them from warming up.
    * Water cools the tyre (spray, cooler surface) and lubricates it, so it wears less.
    */
-  private stepTyre(temp: number, wear: number, slipPower: number, load: number, speed: number, dt: number): [number, number] {
+  private stepTyre(front: boolean, slipPower: number, load: number, speed: number, dt: number): void {
+    const temp = front ? this.tyreTempFront : this.tyreTempRear, wear = front ? this.tyreWearFront : this.tyreWearRear;
     const wet = this.wetness, air = Car.config.weather.airTemp;
     const heat = (slipPower + 0.0075 * load * speed) * Car.TYRE_HEAT_SCALE;
     const cooling = (2 * (15 + 3.2 * Math.pow(Math.max(0, speed), 0.8)) * (temp - air) + 60 * (temp - Car.config.weather.trackTemp)) * (1 + 0.9 * wet);
     const next = Math.max(air - 8 * wet, Math.min(180, temp + (heat - cooling) / Car.TYRE_HEAT_CAPACITY * dt));
     const wearRate = Car.TYRE_WEAR_RATE * COMPOUND_SPECS[this.tyreCompound].wear * (1 - 0.6 * wet);
     const nextWear = Math.min(1, wear + wearRate * Math.pow(temp / 100, 2) * slipPower * dt);
-    return [next, nextWear];
+    if (front) { this.tyreTempFront = next; this.tyreWearFront = nextWear; }
+    else { this.tyreTempRear = next; this.tyreWearRear = nextWear; }
   }
 
   /** Compound fitted at the next stop: the player's request, else the strategy for the conditions (PitStrategy.ts). */
@@ -1426,8 +1461,8 @@ export class Car {
     const wetNow = this.wetness;
     if (wetNow < this.lapWetMin) this.lapWetMin = wetNow;
     if (wetNow > this.lapWetMax) this.lapWetMax = wetNow;
-    [this.tyreTempFront, this.tyreWearFront] = this.stepTyre(this.tyreTempFront, this.tyreWearFront, frontSlipPower * Car.TYRE_FRONT_HEAT, frontLoad, speedMag, dt);
-    [this.tyreTempRear, this.tyreWearRear] = this.stepTyre(this.tyreTempRear, this.tyreWearRear, rearSlipPower, rearLoad, speedMag, dt);
+    this.stepTyre(true, frontSlipPower * Car.TYRE_FRONT_HEAT, frontLoad, speedMag, dt);
+    this.stepTyre(false, rearSlipPower, rearLoad, speedMag, dt);
     this.tireUtilization = Math.min(1, Math.hypot(frontFx + rearFx, lateralForce) / Math.max(1, frontLimit + rearLimit));
     const drifting = Math.abs(lateralSpeed) > 4.5 && speedMag > 18;
     this.isSkidding = slipRatio > 0.01 || drifting;

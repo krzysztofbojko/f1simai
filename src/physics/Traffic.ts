@@ -80,8 +80,13 @@ export function computeWake(cars: Car[], track?: Track): void {
 // Continuous separating-axis test for oriented 5.5 × 1.9 m physical bodies.
 // Angular substeps bound rotational motion; translation is swept analytically.
 function contact(a: Car, b: Car, ma: Motion, mb: Motion): { time: number; normal: Vector2 } | null {
-  const da = a.pos.sub(ma.pos), db = b.pos.sub(mb.pos);
   const turnA = a.heading - ma.heading, turnB = b.heading - mb.heading;
+  // Broadphase: the centres never come closer than |offset| - |relative motion|; two bodies (with
+  // the rotation allowance of the substeps) cannot touch beyond 5.5 m + both half widths.
+  const reach = 5.5 + (a.width + b.width) / 2 + 3 * (Math.abs(turnA) + Math.abs(turnB)) + 0.1;
+  const relX = (b.pos.x - mb.pos.x) - (a.pos.x - ma.pos.x), relY = (b.pos.y - mb.pos.y) - (a.pos.y - ma.pos.y);
+  if (Math.hypot(mb.pos.x - ma.pos.x, mb.pos.y - ma.pos.y) - Math.hypot(relX, relY) > reach) return null;
+  const da = a.pos.sub(ma.pos), db = b.pos.sub(mb.pos);
   const steps = Math.max(1, Math.ceil(Math.max(Math.abs(turnA), Math.abs(turnB)) / .02));
   for (let step = 0; step < steps; step++) {
     const start = step / steps, end = (step + 1) / steps;

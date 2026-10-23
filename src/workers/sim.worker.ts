@@ -304,7 +304,8 @@ function createSnapshot(): SimSnapshot {
     raceStartLights: session.startLights,
     raceWinner: session.winner,
     raceChequered: session.chequered,
-    raceStandings: session.standings(),
+    // Training shows the team standings; the race classification exists from qualifying on.
+    raceStandings: session.state === 'IDLE' ? [] : session.standings(),
     weather: { ...weather.state },
     weatherScenario: weather.scenario,
     qualifying: session.qualifyingSnapshot(),

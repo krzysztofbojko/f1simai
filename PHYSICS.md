@@ -177,6 +177,15 @@ Po całkowaniu, a przed przesunięciem auta, `updatePhysics` sprawdza stan dynam
 
 Wyniki promieni (`rayDistances`, `rayHits`), udziały nawierzchni pod kołami i `currentControl` są nadpisywane w miejscu, bez tworzenia nowych obiektów co krok. Średnie lewych i prawych promieni liczone są bez `slice`. Odbiorcy kopiują te dane (wejścia sieci przez spread, snapshot workera przez structured clone). Wynik symulacji jest identyczny bit w bit: skróty stanu `bench:step` dla trzech ziaren się nie zmieniły, a `diag:nn` dla ziarna 1 daje ten sam wynik. Krok przyspieszył z ok. 537 do ok. 465 µs (−13%).
 
+## Gorąca ścieżka kroku (23.10.2026)
+
+- LiDAR: auta w zasięgu i ich układ (cos/sin kursu, połowa szerokości, położenie) liczone raz na skan, nie raz na promień; promień omija auto, którego okręgu opisującego nie przecina przed bieżącym trafieniem. Bufor aut i szumu LiDAR-u jest używany ponownie.
+- Kontakty auto–auto: wczesne odrzucenie par, których środki nie zbliżą się w kroku na odległość, przy której bryły mogłyby się zetknąć.
+- Sieć: `forward` zapisuje wejścia i aktywacje do buforów sieci (zwracana tablica jest nadpisywana przy następnym wywołaniu); `clone()` kopiuje wagi bez losowania nowych, które i tak były nadpisywane.
+- Mistrz sesji wybierany jednym przejściem zamiast dwóch sortowań na krok; opona liczy się w polach auta bez krotki; trajektoria okrążenia przekazywana bez kopii; klasyfikacja wyścigu nie jest liczona w treningu.
+- Wszystkie zmiany poza `clone()` dają identyczne skróty stanu `bench:step`. `clone()` przestał zużywać strumień `random()`, więc przebiegi z ziarnem są inne niż wcześniej (statystycznie równoważne).
+- `npm run bench:step -- 60` (3 ziarna, na przemian przed/po): ok. 620 → ok. 520 µs na krok (−16%).
+
 ## Skrzynia 8-biegowa
 
 - Przełożenia całkowite (bieg × przekładnia główna) maleją geometrycznie od 14,0 (1.) do 5,5 (8.) przy kole 0,36 m: 15 000 obr./min na 8. biegu to ok. 103 m/s (371 km/h). Dokument z `propozycje/` miał tabelę niezgodną z własnymi obrotami (bieg 8 ≈ 590 km/h), więc przełożenia policzono od nowa.
