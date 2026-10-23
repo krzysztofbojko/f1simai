@@ -69,6 +69,7 @@ npm run test:units     # szybkie testy jednostkowe: przyczepność mieszanek, wy
 npm run test:learning  # ochrona wiedzy AI i zmiany generacji
 npm run test:qualifying # zasady Q1–Q3, siatka startowa
 npm run test:islands   # wyspy treningowe: przenoszenie toru i reguły wymiany modeli
+npm run test:parity    # trening = wyścig: wrak i żółta flaga 15 s, holowanie, obrona, atak, trudne okrążenia, paliwo
 npm run test:robustness # trudne okrążenia, próby wyjścia ze stagnacji, limit migracji
 node scripts/bench-laptime.mjs 1800 145,456,789 # pomiar postępu nauki (ok. 15 min)
 npm run bench:step     # przepustowość fizyki: µs na krok i skrót stanu (do porównań po optymalizacjach)
