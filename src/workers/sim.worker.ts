@@ -190,7 +190,8 @@ export interface SimSnapshot {
   cpuCores: number;
   speedMultiplier: number | 'max';
   timingGates: TimingGate[];
-  sessionBestSplits: (number | null)[];
+  /** Fastest valid time of each of the four sectors in this session. */
+  sessionBestSectors: (number | null)[];
   raceState: RaceState;
   raceTotalLaps: number;
   raceCurrentLap: number;
@@ -294,7 +295,7 @@ let playerCar: Car | null = null;
 let playerControl: CarControl = { steer: 0, throttle: 0, brake: 0 };
 let activeSelectedColor: string | null = null;
 let manualCarColor: string | null = null;
-let sessionBestSplits: (number | null)[] = [null, null, null, null];
+let sessionBestSectors: (number | null)[] = [null, null, null, null];
 const detectedCores = typeof navigator !== 'undefined' ? (navigator.hardwareConcurrency || 8) : 8;
 
 // Training islands: extra workers train their own headless fields on this track
@@ -368,18 +369,27 @@ function islandStatus(): IslandStatus {
   return { count: islands.length, max: maxIslands, running: islandsRunning, stepsPerSecond: Math.round(stepsPerSecond), adopted: islandsAdopted };
 }
 
-function serializeCar(car: Car, ctrl?: CarControl, isHeadless: boolean = false): SerializedCar {
-  let delta: CheckpointDelta | null = car.lastCheckpointDelta ? { ...car.lastCheckpointDelta } : null;
-  if (delta) {
-    const g = delta.gateIndex;
-    if (sessionBestSplits[g] === null || delta.splitTime <= sessionBestSplits[g]!) {
-      sessionBestSplits[g] = delta.splitTime;
-      delta.isPurple = true;
-    } else {
-      delta.isPurple = false;
-    }
-  }
+/**
+ * A sector just completed by `car`: a valid one may set the session best, and the car's last
+ * gate delta shows purple when its sector is the session's fastest so far.
+ */
+function recordSector(car: Car): void {
+  const event = car.sectorEvent;
+  if (!event) return;
+  car.sectorEvent = null;
+  const g = event.gateIndex, best = sessionBestSectors[g];
+  const purple = event.valid && (best === null || event.sectorTime <= best);
+  if (purple) sessionBestSectors[g] = event.sectorTime;
+  if (car.lastCheckpointDelta?.gateIndex === g) car.lastCheckpointDelta.isPurple = purple;
+}
 
+function resetSessionBestSectors(): void {
+  sessionBestSectors = [null, null, null, null];
+}
+
+/** Snapshot of one car; reads the car only. */
+function serializeCar(car: Car, ctrl?: CarControl, isHeadless: boolean = false): SerializedCar {
+  const delta: CheckpointDelta | null = car.lastCheckpointDelta ? { ...car.lastCheckpointDelta } : null;
   return {
     id: car.id,
     color: car.color,
@@ -670,7 +680,7 @@ function createSnapshot(): SimSnapshot {
     speedMultiplier,
     simTime,
     timingGates: track.timingGates.map(g => ({ ...g })),
-    sessionBestSplits: [...sessionBestSplits],
+    sessionBestSectors: [...sessionBestSectors],
     raceState,
     raceTotalLaps,
     raceCurrentLap,
@@ -923,6 +933,7 @@ function runSimulationSteps(): void {
         }
       }
     }
+    for (const car of sessionCars()) recordSector(car);
     if (raceState === 'QUALIFYING') retireStoppedQualifiers();
 
     if (raceState === 'RACING') {
@@ -1048,6 +1059,7 @@ self.onmessage = (e: MessageEvent) => {
         const newPoints = Spline.generateClosedTrack(source, nextWidth, 18, !!data.keepOrder);
         const nextTrack = new Track(newPoints, nextWidth);
         trackWidth = nextWidth; track = nextTrack;
+        resetSessionBestSectors();
         population.resetAll(track);
         if (playerCar) {
           playerCar.reset(track.startPosition, track.startAngle, true);
@@ -1067,6 +1079,7 @@ self.onmessage = (e: MessageEvent) => {
         track = Presets.createGrandPrixTrack(dims.effectiveTrackWidth);
       }
       population = createPopulation();
+      resetSessionBestSectors();
       if (playerCar) {
         playerCar.reset(track.startPosition, track.startAngle, true);
         playerCar.updateDimensionsForTrackWidth(trackWidth);
@@ -1084,6 +1097,7 @@ self.onmessage = (e: MessageEvent) => {
         const nextTrack = new Track(splinePoints, nextWidth);
         trackWidth = nextWidth; track = nextTrack;
         population = createPopulation();
+        resetSessionBestSectors();
         if (playerCar) {
           playerCar.reset(track.startPosition, track.startAngle, true);
           playerCar.updateDimensionsForTrackWidth(trackWidth);
@@ -1180,6 +1194,7 @@ self.onmessage = (e: MessageEvent) => {
       raceTotalLaps = Math.max(10, Math.min(200, data.totalLaps || 50));
       raceWinner = null;
       frozenRaceStandings = null;
+      resetSessionBestSectors();
       isPaused = false;
       population.isRaceMode = true;
       weather.reset(weather.scenario, typeof data.weatherSeed === 'number' ? data.weatherSeed : weatherSeed());
@@ -1239,7 +1254,7 @@ self.onmessage = (e: MessageEvent) => {
       qualiRelease.clear();
       raceWinner = null;
       frozenRaceStandings = null;
-      sessionBestSplits = [null, null, null, null];
+      resetSessionBestSectors();
       islandsAdopted = 0;
       population = createPopulation();
       if (playerCar) {
@@ -1259,6 +1274,7 @@ self.onmessage = (e: MessageEvent) => {
 
     case 'STOP_RACE': {
       raceState = 'IDLE';
+      resetSessionBestSectors();
       qualifying = null;
       qualifyingGrid = null;
       qualiRelease.clear();
@@ -1355,7 +1371,7 @@ self.onmessage = (e: MessageEvent) => {
     }
 
     case 'RESET_BEST_TIMES': {
-      sessionBestSplits = [null, null, null, null];
+      resetSessionBestSectors();
       population.resetBestTimes();
       if (playerCar) {
         playerCar.bestLapTime = null;

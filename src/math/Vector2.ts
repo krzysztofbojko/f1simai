@@ -166,6 +166,24 @@ export function segmentsIntersect(p1: Vector2, p2: Vector2, p3: Vector2, p4: Vec
 }
 
 /**
+ * Where the line through p1 -> p2 meets the (infinite) line through p3 -> p4, as a fraction of
+ * p1 -> p2 (0 at p1, 1 at p2, beyond either end outside them); null when the lines are parallel.
+ */
+export function lineCrossingT(p1: Vector2, p2: Vector2, p3: Vector2, p4: Vector2): number | null {
+  const rx = p2.x - p1.x, ry = p2.y - p1.y, sx = p4.x - p3.x, sy = p4.y - p3.y;
+  const den = rx * sy - ry * sx;
+  if (Math.abs(den) < 1e-12) return null;
+  return ((p3.x - p1.x) * sy - (p3.y - p1.y) * sx) / den;
+}
+
+/** Fraction of p1 -> p2 at which it crosses segment p3 -> p4, or null when the segments do not intersect. */
+export function segmentIntersectionT(p1: Vector2, p2: Vector2, p3: Vector2, p4: Vector2): number | null {
+  if (!segmentsIntersect(p1, p2, p3, p4)) return null;
+  const t = lineCrossingT(p1, p2, p3, p4);
+  return t === null ? null : Math.max(0, Math.min(1, t));
+}
+
+/**
  * Distance from point P to line segment AB
  */
 export function distToSegment(p: Vector2, a: Vector2, b: Vector2): number {

@@ -4,7 +4,7 @@ import { PaceSearch } from '../ai/PaceSearch';
 import { LineSearch } from '../ai/LineSearch';
 import { LineProfile } from '../ai/LineProfile';
 import type { LineNet } from '../ai/LineNet';
-import { Vector2, IntersectionResult, segmentsIntersect } from '../math/Vector2';
+import { Vector2, IntersectionResult, lineCrossingT, segmentIntersectionT } from '../math/Vector2';
 import { BattlePush } from '../ai/BattlePush';
 import { DriverMistakes } from '../ai/DriverMistakes';
 import { Track, type SurfaceType } from '../track/Track';
@@ -31,7 +31,18 @@ export interface CheckpointDelta {
   gateName: string;     // "CP 1", "CP 2", "CP 3", "CP 4"
   delta: number;        // in seconds (e.g. -0.150 or +0.210)
   splitTime: number;    // current elapsed lap time at checkpoint
-  isPurple?: boolean;   // overall session best
+  /** Time of the sector that ends at this gate (null when the lap was not timed from its start). */
+  sectorTime: number | null;
+  isPurple?: boolean;   // session best sector
+}
+
+/** A timed sector, left in `Car.sectorEvent` for the session to read in the same step. */
+export interface SectorEvent {
+  gateIndex: number;
+  sectorTime: number;
+  splitTime: number;
+  /** A flying lap without an excursion beyond the track limits (and not a training stress lap). */
+  valid: boolean;
 }
 
 export interface TrajectoryPoint {
@@ -732,6 +743,12 @@ export class Car {
   public currentLapSplits: (number | null)[] = [null, null, null, null];
   public bestLapSplits: (number | null)[] = [null, null, null, null];
   public lastCheckpointDelta: CheckpointDelta | null = null;
+  /** The current lap started at the line (not on the grid or at a respawn): its splits and sectors are timed. */
+  public flyingLap = false;
+  /** Sector completed in the last step; the session takes it (and clears it) for the session-best sectors. */
+  public sectorEvent: SectorEvent | null = null;
+  /** Race time at the last crossing of the start/finish line, interpolated within the step. */
+  public lineCrossingRaceTime = 0;
   public currentLap: number = 0;
   public currentCheckpointIdx: number = 0;
   public checkpointsCleared: number = 0;
@@ -885,6 +902,9 @@ export class Car {
     this.currentLapTrajectory = [];
     this.currentLapSplits = [null, null, null, null];
     this.lastCheckpointDelta = null;
+    this.flyingLap = false;
+    this.sectorEvent = null;
+    this.lineCrossingRaceTime = 0;
     this.wantsToPit = false;
     this.isPitting = false;
     this.pitTimer = 0;
@@ -1452,6 +1472,7 @@ export class Car {
    */
   updatePhysics(control: CarControl, dt: number, track: Track): LapFinishEvent | null {
     this.lastStepDt = dt;
+    this.sectorEvent = null;
     if (!this.isAlive) {
       this.effectiveThrottle = 0;
       this.lateralG = 0;
@@ -2062,6 +2083,18 @@ export class Car {
     this.replayStepTimer = 0;
   }
 
+  /**
+   * Sector ending at gate `g` (0..3), from the previous split. Leaves the sector in `sectorEvent`
+   * and returns its time, or null when the lap was not timed from the line.
+   */
+  private timeSector(g: number, split: number): number | null {
+    const start = g === 0 ? 0 : this.currentLapSplits[g - 1];
+    if (!this.flyingLap || start === null || start === undefined) return null;
+    const sectorTime = split - start;
+    this.sectorEvent = { gateIndex: g, sectorTime, splitTime: split, valid: !this.lapExcursion && !this.stressLap };
+    return sectorTime;
+  }
+
   private checkTrackProgress(track: Track): LapFinishEvent | null {
     if (this.fitness > this.peakFitness) {
       this.peakFitness = this.fitness;
@@ -2114,8 +2147,9 @@ export class Car {
     const nextCp = track.checkpoints[clearedCpIdx];
     const distToCp = this.pos.dist(nextCp.center);
 
-    // Cheap AABB broadphase before exact segmentsIntersect
+    // Cheap AABB broadphase before the exact segment crossing
     let crossedGate = false;
+    let crossingT: number | null = null;
     const minX1 = Math.min(this.prevPos.x, this.pos.x);
     const maxX1 = Math.max(this.prevPos.x, this.pos.x);
     const minY1 = Math.min(this.prevPos.y, this.pos.y);
@@ -2127,7 +2161,8 @@ export class Car {
     const maxY2 = Math.max(nextCp.p1.y, nextCp.p2.y);
 
     if (maxX1 >= minX2 && minX1 <= maxX2 && maxY1 >= minY2 && minY1 <= maxY2) {
-      crossedGate = segmentsIntersect(this.prevPos, this.pos, nextCp.p1, nextCp.p2);
+      crossingT = segmentIntersectionT(this.prevPos, this.pos, nextCp.p1, nextCp.p2);
+      crossedGate = crossingT !== null;
     }
 
     const isNearCp = clearedCpIdx !== 0 && distToCp < Math.min(3, track.width * 0.2) && this.withinTrackLimits;
@@ -2154,6 +2189,12 @@ export class Car {
 
     if (this.withinTrackLimits && isMovingForwardAlongTrack && (crossedGate || isNearCp)) {
       this.checkpointsCleared++;
+      // Seconds between the moment the car met the gate line and the end of this step: the step
+      // ends past the line by (1 - t) of its length. A gate taken just before its line (close to its
+      // centre) is timed where the car will meet the line at its present speed.
+      const gateT = crossingT ?? lineCrossingT(this.prevPos, this.pos, nextCp.p1, nextCp.p2);
+      const overshoot = gateT === null ? 0 : Math.max(-0.5, Math.min(this.lastStepDt, (1 - Math.max(0, gateT)) * this.lastStepDt));
+      const gateTime = this.lapTime - overshoot;
 
       const forwardDir = Vector2.fromAngle(this.heading);
       const trackAlignment = forwardDir.dot(nextCp.tangent);
@@ -2196,8 +2237,8 @@ export class Car {
       if (track.timingGates && track.timingGates.length === 4) {
         for (let g = 0; g < 3; g++) {
           const gate = track.timingGates[g];
-          if (this.currentLapSplits[g] === null && clearedCpIdx === gate.pointIndex && this.lapTime > 1.2) {
-            const split = this.lapTime;
+          if (this.currentLapSplits[g] === null && clearedCpIdx === gate.pointIndex && gateTime > 1.2) {
+            const split = gateTime;
             this.currentLapSplits[g] = split;
             const prevPbSplit = this.bestLapSplits[g];
             const delta = prevPbSplit !== null ? (split - prevPbSplit) : 0;
@@ -2205,7 +2246,8 @@ export class Car {
               gateIndex: g,
               gateName: gate.name,
               delta,
-              splitTime: split
+              splitTime: split,
+              sectorTime: this.timeSector(g, split),
             };
             // Positive reinforcement on sector improvement (fitness bonus)
             if (delta < 0) {
@@ -2219,8 +2261,9 @@ export class Car {
       // Completed a full lap crossing the start/finish line (cleared checkpoint 0)!
       if (clearedCpIdx === 0) {
         this.ersHarvestedLap = 0;
+        this.lineCrossingRaceTime = this.totalRaceTime - overshoot;
         if (this.checkpointsCleared >= track.checkpoints.length * 0.8) {
-          const finishedLapTime = this.lapTime;
+          const finishedLapTime = gateTime;
           this.lastLapTime = finishedLapTime;
           this.currentLapSplits[3] = finishedLapTime;
           const prevPbFinish = this.bestLapSplits[3] || this.bestLapTime;
@@ -2228,7 +2271,8 @@ export class Car {
             gateIndex: 3,
             gateName: 'CP 4 (META)',
             delta: prevPbFinish !== null ? (finishedLapTime - prevPbFinish) : 0,
-            splitTime: finishedLapTime
+            splitTime: finishedLapTime,
+            sectorTime: this.timeSector(3, finishedLapTime),
           };
 
           const finishedTrajectory = [...this.currentLapTrajectory];
@@ -2273,7 +2317,9 @@ export class Car {
           this.currentLapTrajectory = [];
           this.maxSpeedInLap = 0;
           this.distanceCoveredInLap = 0;
-          this.lapTime = 0;
+          // The part of this step beyond the line already belongs to the new lap.
+          this.lapTime = overshoot;
+          this.flyingLap = true;
           this.currentLapSplits = [null, null, null, null];
 
           return {
@@ -2287,7 +2333,8 @@ export class Car {
           };
         } else {
           // First time crossing the start/finish line from grid slot: start flying lap!
-          this.lapTime = 0;
+          this.lapTime = overshoot;
+          this.flyingLap = true;
           this.lapWetMin = this.lapWetMax = this.wetness;
           this.currentLapSplits = [null, null, null, null];
           this.lastCheckpointDelta = null;
