@@ -4,13 +4,17 @@ import { PaceSearch } from '../ai/PaceSearch';
 import { LineSearch } from '../ai/LineSearch';
 import { LineProfile } from '../ai/LineProfile';
 import type { LineNet } from '../ai/LineNet';
-import { Vector2, IntersectionResult, lineCrossingT, segmentIntersectionT } from '../math/Vector2';
+import { Vector2, IntersectionResult } from '../math/Vector2';
 import { BattlePush } from '../ai/BattlePush';
 import { DriverMistakes } from '../ai/DriverMistakes';
 import { Track, type SurfaceType } from '../track/Track';
 import { getRacingLine, RacingLine } from '../track/RacingLine';
-import { COMPOUND_SPECS, compoundGrip, nextDryCompound, weatherCompound, wrongForConditions, type TyreCompound } from './Tyres';
-import { CONDITION_BANDS, neutralWeather, type TrackConditions, type WeatherState } from './Weather';
+import { COMPOUND_SPECS, compoundGrip, weatherCompound, type TyreCompound } from './Tyres';
+import { neutralWeather, type TrackConditions, type WeatherState } from './Weather';
+import { checkTrackProgress } from './LapTiming';
+import { scoreStep } from './Fitness';
+import { pitCompound, servicePitStop } from './PitStrategy';
+import { planDrive } from './DrivePlanner';
 
 export const DEFAULT_STRESS_LAP_SHARE = 0.25;
 /** Stress-lap share from a setting: 0..0.6, anything invalid falls back to the default. */
@@ -538,16 +542,16 @@ export class Car {
   public static weather: WeatherState = neutralWeather();
   /** Track-condition class of the session; training laps outside its wetness band do not evaluate a brain. */
   public static conditions: TrackConditions = 'dry';
-  /** Wetness range seen during the current lap. */
-  private lapWetMin = 0;
-  private lapWetMax = 0;
+  /** Wetness range seen during the current lap (LapTiming). */
+  public lapWetMin = 0;
+  public lapWetMax = 0;
   /** Crosswind side force area (Cy*A, m^2) and its centre of pressure behind the centre of gravity (m). */
   public static SIDE_FORCE_AREA = 1.5;
   public static SIDE_FORCE_LEVER = 0.3;
   /** Share of downforce lost per sin^2 of the airflow yaw angle; the front wing loses most. */
   public static CROSSWIND_DOWNFORCE_LOSS = 0.6;
   public ersEnergy = Car.ERS_CAPACITY * 0.85;
-  private ersHarvestedLap = 0;
+  public ersHarvestedLap = 0;
   public ersDeploying = false;
   public readonly maxSteerAngle: number = 0.40; // ~23 degrees
   public readonly dragCoeff: number = 1.00; // Cd * A [m^2]
@@ -684,7 +688,7 @@ export class Car {
   /** The line this car really drives; the braking planner reads corner radii from it. Kept across resets. */
   public lineProfile: LineProfile | null = null;
   /** Track point last blended into the line profile: one sample per pass, not per frame. */
-  private lineProfileIndex = -1;
+  public lineProfileIndex = -1;
   public pace = new PaceSearch();
   /** The car left the asphalt or touched a barrier by itself during the current lap. */
   public lapExcursion = false;
@@ -692,7 +696,7 @@ export class Car {
   public lapContact = false;
   /** Smoothed spare grip in the current corner (0..1), see PLAN_PUSH_MAX. */
   public cornerPush = 0;
-  private lastStepDt = 1 / 60;
+  public lastStepDt = 1 / 60;
   public lineSearchSeed = this.id % 5;
   public lineSearchByPressure = new Map<number, LineSearch>();
   /** Learned racing line (sensor-driven network); falls back to `lineSearch` when absent. */
@@ -704,7 +708,7 @@ export class Car {
   public safeBrainPressure = 0;
   public pressureLearningBlocked = false;
   private pressureStart = 0;
-  private pressureElapsed = 2;
+  public pressureElapsed = 2;
   public racingLineLabel = '';
   public overtakingTargetName = '';
   public yellowFlag = false;
@@ -937,7 +941,7 @@ export class Car {
    * reading's error has the standard deviation `sensorNoise` and is band-limited: Gauss-Markov
    * drift (exact in dt) smoothed once more, so it varies over tenths of a second at any step rate.
    */
-  private noisyRayDistances(): number[] {
+  noisyRayDistances(): number[] {
     const gauss = () => (random() + random() + random() - 1.5) * 2; // ~N(0, 1)
     const n = this.rayDistances.length;
     if (this.sensorError.length !== n) {
@@ -1018,7 +1022,7 @@ export class Car {
     return thermal * (1 - 0.25 * Math.pow(Math.max(0, Math.min(1, wear)), 1.4)) * compoundGrip(compound, wetness);
   }
 
-  private get tyresActive(): boolean { return this.isRaceMode || Car.TYRE_MODEL_IN_TRAINING; }
+  get tyresActive(): boolean { return this.isRaceMode || Car.TYRE_MODEL_IN_TRAINING; }
 
   /** Track wetness this car drives on. */
   get wetness(): number { return Car.weather.wetness; }
@@ -1043,332 +1047,17 @@ export class Car {
     return [next, nextWear];
   }
 
-  /** Compound fitted at the next stop: the player's request, else the strategy for the conditions. */
+  /** Compound fitted at the next stop: the player's request, else the strategy for the conditions (PitStrategy.ts). */
   pitCompound(): TyreCompound {
-    if (this.nextCompound) return this.nextCompound;
-    const dry = nextDryCompound(this.tyreCompound);
-    return weatherCompound(this.wetness, dry);
+    return pitCompound(this);
   }
 
-  /**
-   * Sensor-to-feature pipeline plus a rule-based "expert" controller. The expert is
-   * the teacher used to pre-train networks and the guardian that takes over in
-   * emergencies; ordinary driving is decided by the neural network.
-   */
   /** This driver's racing line on `track` (shared by every car with the same apex style). */
   racingLine(track: Track): RacingLine { return getRacingLine(track, this.apexStyle); }
 
+  /** Network inputs and the expert's controls for this step (DrivePlanner.ts). */
   planDrive(track: Track, leaderSpeeds?: number[]): DrivePlan {
-    // AI pit strategy: request pit stop if fuel reserve is low
-    const wrongTyres = !this.isManual && wrongForConditions(this.tyreCompound, this.wetness);
-    if ((this.fuelKg < 12.0 || wrongTyres || (this.tyresActive && Math.max(this.tyreWearFront, this.tyreWearRear) > 0.7)) && !this.isPitting) {
-      this.wantsToPit = true;
-    }
-
-    const n = track.checkpoints.length;
-    const racingLine = this.racingLine(track);
-    if (!this.lineProfile || !this.lineProfile.matches(track)) this.lineProfile = LineProfile.fromLine(track, racingLine.offsets);
-    const here = track.sampleSurface(this.pos);
-    if (here.surface === 'asphalt' && !this.isPitting && this.recoveryTimer <= 0 && !this.incidentActive && this.speed > 15) {
-      if (here.index !== this.lineProfileIndex) this.lineProfile.record(here.index, here.lateral);
-      this.lineProfileIndex = here.index;
-    }
-    // Project onto nearby centerline segments and aim a short physical distance
-    // ahead. A whole checkpoint of lookahead cuts across narrow hairpins.
-    let nearestDistance = Infinity;
-    let segmentIndex = (this.currentCheckpointIdx - 1 + n) % n;
-    let segmentFraction = 0;
-    for (let offset = -3; offset <= 3; offset++) {
-      const index = (this.currentCheckpointIdx + offset + n) % n;
-      const start = track.checkpoints[index].center;
-      const end = track.checkpoints[(index + 1) % n].center;
-      const edge = end.sub(start);
-      const fraction = Math.max(0, Math.min(1, this.pos.sub(start).dot(edge) / Math.max(0.001, edge.magSq())));
-      const distance = this.pos.distSq(start.add(edge.mul(fraction)));
-      if (distance < nearestDistance) { nearestDistance = distance; segmentIndex = index; segmentFraction = fraction; }
-    }
-    let remaining = Math.max(8, Math.min(14, 5 + this.speed * 0.25));
-    let targetPosition = track.checkpoints[segmentIndex].center;
-    for (let step = 0; step < n; step++) {
-      const start = track.checkpoints[segmentIndex].center;
-      const end = track.checkpoints[(segmentIndex + 1) % n].center;
-      const length = start.dist(end);
-      const available = length * (1 - segmentFraction);
-      if (remaining <= available) {
-        targetPosition = Vector2.lerp(start, end, segmentFraction + remaining / Math.max(0.001, length));
-        break;
-      }
-      remaining -= available;
-      segmentIndex = (segmentIndex + 1) % n;
-      segmentFraction = 0;
-      targetPosition = end;
-    }
-    {
-      // The racing line where the car will be, shifted by the deliberate move off it.
-      const road = track.sampleSurface(targetPosition), bounds = racingLine.limits(road.index);
-      const lateral = racingLine.offsetAt(road.index, road.fraction) + this.raceLineOffset - this.raceLineBaseline;
-      targetPosition = targetPosition.add(road.tangent.normal().mul(Math.max(bounds.lower, Math.min(bounds.upper, lateral))));
-    }
-    const toTarget = targetPosition.sub(this.pos).normalize();
-    const headingVec = Vector2.fromAngle(this.heading);
-    const cpAngleDiff = Math.atan2(headingVec.cross(toTarget), headingVec.dot(toTarget)) / Math.PI;
-
-    const normalizedSpeed = Math.min(1.0, this.speed / 95.0);
-
-    // 2. Speed-dependent multi-checkpoint braking zone calculation
-    // Lookahead up to 24 steps (~430m) to provide ample runway for high-speed braking
-    const lookaheadSteps = Math.max(8, Math.min(24, Math.ceil(this.speed / 3.4)));
-    let maxOverspeed = -1.0;
-    let maxUpcomingCurvature = 0;
-
-    // Planned grip: friction coefficient (tyre state, pressure, learned pace) acting on weight plus downforce.
-    const pressure = pressureProfile(this.yellowFlag || this.isPitting || this.recoveryTimer > 0 || !this.withinTrackLimits
-      ? Math.min(0, this.effectiveDriverPressure) : this.effectiveDriverPressure);
-    const paceMargin = this.pace.value(this.isRaceMode);
-    const pushing = this.battlePush.remaining > 0;
-    const tyreMu = this.baseTireGrip * Math.min(this.tyreGripFront, this.tyreGripRear);
-    const muCorner = tyreMu * (Car.PLAN_CORNER_GRIP + (pressure.cornerGrip - 0.45) * 0.25) * paceMargin;
-    const muBrake = tyreMu * Math.min(0.9, (Car.PLAN_BRAKE_GRIP + (pressure.braking - 1) * 0.15) * this.brakingAggression * (1 + (paceMargin - 1) * 0.5) * (pushing ? 1.08 : 1));
-    const aeroPerV2 = 0.5 * this.airDensity * this.downforceCoeff * this.wakeDownforce * (1 - 0.35 * this.damage) * Car.PLAN_AERO_SHARE / this.totalMass;
-    const dragPerV2 = 0.5 * this.airDensity * this.dragCoeff / this.totalMass;
-    // Braking from v to w (both squared) at a = muBrake·(g + aero·v²) + drag·v²: d(v²)/ds = 2(A + B·v²).
-    const brakeA = muBrake * Car.GRAVITY, brakeB = muBrake * aeroPerV2 + dragPerV2;
-    const brakingDistance = (v2: number, w2: number) => v2 <= w2 ? 0 : Math.log((v2 + brakeA / brakeB) / (w2 + brakeA / brakeB)) / (2 * brakeB);
-    const entrySpeedSq = (w2: number, d: number) => (w2 + brakeA / brakeB) * Math.exp(2 * brakeB * d) - brakeA / brakeB;
-
-    // Spare grip felt right now: rises slowly while every condition holds, drops at once otherwise.
-    const turnSign = Math.sign(track.points[here.index]?.curvature ?? 0);
-    const outsideRoom = track.width / 2 + turnSign * here.lateral - this.width / 2;
-    const free = (Car.PUSH_UTILISATION_FULL - this.tireUtilization) / (Car.PUSH_UTILISATION_FULL - Car.PUSH_UTILISATION_FREE);
-    const canPush = !this.isSliding && here.surface === 'asphalt' && !this.yellowFlag && !this.isPitting && this.recoveryTimer <= 0
-      && Math.max(this.tyreTempFront, this.tyreTempRear) < Car.PUSH_TYRE_MAX_TEMP && outsideRoom > Car.PUSH_EDGE_ROOM;
-    const pushTarget = canPush ? Math.max(0, Math.min(1, free)) : 0;
-    this.cornerPush = pushTarget < this.cornerPush ? pushTarget
-      : this.cornerPush + (pushTarget - this.cornerPush) * Math.min(1, this.lastStepDt / Car.PUSH_RISE_TIME);
-
-    let accumulatedDist = 0;
-    let prevPos = this.pos;
-    // Deceleration still needed to reach the safe speed of the most demanding corner ahead,
-    // and the braking distance that takes relative to the distance left (1 = brake now).
-    let requiredDecel = 0;
-    let brakingNeed = 0;
-    // Safe speed of the corner the car is in when that corner is the binding limit ahead.
-    let holdSpeed = Infinity;
-
-    for (let k = 0; k <= lookaheadSteps; k++) {
-      const cp = track.checkpoints[(this.currentCheckpointIdx + k) % n];
-      // Distances along the racing line: shorter on the inside, longer around the outside.
-      const linePoint = racingLine.point(cp.index);
-      accumulatedDist += prevPos.dist(linePoint);
-      prevPos = linePoint;
-
-      // Radius of the line actually driven through this point, not of the centreline.
-      const curK = this.lineProfile.curvature(track, cp.index);
-      if (curK > maxUpcomingCurvature) {
-        maxUpcomingCurvature = curK;
-      }
-
-      if (curK > 0.002) {
-        // Steady-state limit v²·κ = μ(g + aero·v²); below the aero threshold the corner is flat out.
-        const room = curK - muCorner * aeroPerV2;
-        const gripV = room > 0 ? Math.min(Car.PLAN_MAX_SPEED, Math.sqrt(muCorner * Car.GRAVITY / room)) : Car.PLAN_MAX_SPEED;
-        // Only the corner under the car is pushed: corners ahead are still braked for as planned.
-        const underCar = accumulatedDist < Math.max(25, this.speed * 0.5);
-        const push = underCar ? 1 + Car.PLAN_PUSH_MAX * this.cornerPush : 1;
-        const safeV = Math.max(5, gripV * push * (pushing ? 1.04 : 1) * (this.lineDeviation > .8 ? .88 : 1));
-        if (safeV >= Car.PLAN_MAX_SPEED) continue;
-
-        // A hairpin sampled at its apex is entered well before it: reach the safe speed where
-        // the arc starts (about half of a hairpin's arc before the apex), while still braking straight.
-        const brakeDist = curK >= Car.PLAN_HAIRPIN_CURVATURE ? Math.max(0, accumulatedDist - Math.min(15, 1.2 / curK)) : accumulatedDist;
-        const maxAllowedV = Math.sqrt(entrySpeedSq(safeV * safeV, brakeDist));
-
-        const overspeed = (this.speed - maxAllowedV) / Math.max(8.0, safeV * 0.35);
-        if (overspeed > maxOverspeed) {
-          maxOverspeed = overspeed;
-          holdSpeed = accumulatedDist < Math.max(25, this.speed * 0.5) ? safeV : Infinity;
-        }
-        if (this.speed > safeV) {
-          // Over at least 0.4 s of travel: inside the corner a small overspeed must not read as a stop.
-          const horizon = Math.max(2, brakeDist, this.speed * 0.4);
-          requiredDecel = Math.max(requiredDecel, (this.speed * this.speed - safeV * safeV) / (2 * horizon));
-          brakingNeed = Math.max(brakingNeed, brakingDistance(this.speed * this.speed, safeV * safeV) / horizon);
-        }
-      }
-    }
-
-    const curvatureInput = Math.min(1.0, maxUpcomingCurvature * 25.0);
-    const overspeedDelta = Math.max(-1.0, Math.min(1.0, maxOverspeed));
-
-    const inputs: number[] = [
-      ...(this.stressLap && !this.isRaceMode ? this.noisyRayDistances() : this.rayDistances),
-      normalizedSpeed,
-      Math.max(-1.0, Math.min(1.0, this.angularVelocity * 1.5)),
-      cpAngleDiff,
-      curvatureInput,
-      overspeedDelta,
-      // Vehicle state: lets the network learn tyre / hybrid / gearbox dependent driving.
-      Math.max(0, Math.min(1, (this.tyreTempFront - 60) / 80)),
-      Math.max(0, Math.min(1, (this.tyreTempRear - 60) / 80)),
-      Math.max(0, Math.min(1, Math.max(this.tyreWearFront, this.tyreWearRear))),
-      Math.max(0, Math.min(1, this.ersEnergy / Car.ERS_CAPACITY)),
-      this.gear / 8,
-      Math.max(0, Math.min(1, (this.engineRpm - Car.IDLE_RPM) / (Car.REV_LIMIT - Car.IDLE_RPM))),
-      // Ride height relative to static (0 = on the plank, 1 = 1.5x static): floor near its stall.
-      Math.max(0, Math.min(1, this.rideHeightFront / (1.5 * Car.FRH_STATIC))),
-      Math.max(0, Math.min(1, this.rideHeightRear / (1.5 * Car.RRH_STATIC))),
-    ];
-
-    // Walls only: the clearance thresholds are calibrated to the track edges; cars are handled below.
-    const walls = this.rayWallDistances.length === this.rayDistances.length ? this.rayWallDistances : this.rayDistances;
-    const midRay = Math.floor(walls.length / 2);
-    let leftRaySum = 0, rightRaySum = 0;
-    for (let i = 0; i < midRay; i++) leftRaySum += walls[i];
-    for (let i = midRay + 1; i < walls.length; i++) rightRaySum += walls[i];
-    const leftRayAvg = leftRaySum / Math.max(1, midRay);
-    const rightRayAvg = rightRaySum / Math.max(1, midRay);
-    const wallRepulsion = (rightRayAvg - leftRayAvg) * 0.8;
-
-    const lookaheadDistance = Math.max(8, targetPosition.dist(this.pos));
-    const pursuitAngle = Math.atan2(2 * this.wheelbase * Math.sin(cpAngleDiff * Math.PI), lookaheadDistance);
-    // Yaw-rate feedback: steer toward the yaw rate the pursuit arc needs (catches
-    // slides and spins that a purely geometric controller cannot see).
-    const desiredYawRate = this.speed * 2 * Math.sin(cpAngleDiff * Math.PI) / lookaheadDistance;
-    const yawFeedback = this.speed > 6 ? Math.max(-0.6, Math.min(0.6, Car.YAW_FEEDBACK * (desiredYawRate - this.angularVelocity) / this.maxSteerAngle)) : 0;
-    // Steering lock usable at this speed: the kinematic angle for the grip-limited turn
-    // plus a slip-angle allowance; more lock only saturates the front axle.
-    const gripSteer = Math.min(1, (this.baseTireGrip * Car.GRAVITY * this.wheelbase / Math.max(1, this.speed * this.speed) + 0.14) / this.maxSteerAngle);
-    // Cars the LiDAR sees in the path (the corridor the car sweeps, plus a margin) that it is closing
-    // on: the most urgent one (shortest time to contact) is steered round, away from its centre,
-    // and braked for, both harder as the time to contact shrinks.
-    // A car alongside (bodies overlapping lengthwise) that is close or closing in sideways pushes
-    // the steering away from it: the buffer grows with the speed at which the gap closes.
-    let carUrgency = 0, carSide = 0, sideUrgency = 0, sideSign = 0;
-    const forwardVec = Vector2.fromAngle(this.heading), leftVec = forwardVec.normal();
-    for (let i = 0; i < this.rayCars.length; i++) {
-      const other = this.rayCars[i];
-      if (!other) continue;
-      const dist = this.rayDistances[i] * Car.RAY_MAX_DIST, angle = this.rayAngles[i];
-      const ahead = dist * Math.cos(angle), lateral = dist * Math.sin(angle);
-      if (Math.abs(ahead) <= 2.75 + Car.CAR_AVOID_MARGIN) {
-        const side = Math.sign(lateral);
-        const gap = Math.abs(lateral) - this.width / 2;
-        const closingSide = Math.max(0, this.vel.sub(other.vel).dot(leftVec) * side);
-        const urgency = 1 - gap / (Car.CAR_SIDE_GAP + Car.CAR_SIDE_LOOKAHEAD * closingSide);
-        if (urgency > sideUrgency) { sideUrgency = Math.min(1, urgency); sideSign = side; }
-      }
-      // Beyond the nose (half length 2.75 m) and inside the swept corridor: in the path ahead.
-      const nose = ahead - 2.75;
-      if (nose <= 0 || Math.abs(lateral) > this.width / 2 + Car.CAR_AVOID_MARGIN) continue;
-      const closing = this.vel.sub(other.vel).dot(forwardVec);
-      if (closing < 0.5) continue;
-      const urgency = 1 - nose / closing / Car.CAR_AVOID_TTC;
-      if (urgency <= carUrgency) continue;
-      carUrgency = urgency;
-      // Dead centre ahead: go round on the side with more room to the walls.
-      carSide = Math.sign(other.pos.sub(this.pos).dot(leftVec)) || -Math.sign(wallRepulsion) || 1;
-    }
-    const avoidLock = Math.atan(Car.CAR_AVOID_G * Car.GRAVITY * this.wheelbase / Math.max(1, this.speed * this.speed)) / this.maxSteerAngle;
-    const avoidSteer = Math.max(-avoidLock, Math.min(avoidLock, -(carSide * carUrgency + sideSign * sideUrgency) * avoidLock));
-    const idealSteer = Math.max(-gripSteer, Math.min(gripSteer, pursuitAngle / this.maxSteerAngle + wallRepulsion * 0.1 + yawFeedback + avoidSteer));
-    let steer = idealSteer;
-
-    // Check forward clearance using central LiDAR rays. A neighbouring ray that meets the white line
-    // beside the car's path (the racing line runs close to it) is no wall ahead: it only counts
-    // when its hit lies inside the corridor the car sweeps going straight on.
-    const forwardDistNorm = walls[midRay] ?? 1.0;
-    const inCorridor = (i: number) => {
-      const d = walls[i] ?? 1.0;
-      return d * Car.RAY_MAX_DIST * Math.abs(Math.sin(this.rayAngles[i] ?? 0)) <= this.width / 2 + Car.CORRIDOR_MARGIN ? d : 1.0;
-    };
-    const leftForwardNorm = inCorridor(Math.max(0, midRay - 1));
-    const rightForwardNorm = inCorridor(Math.min(walls.length - 1, midRay + 1));
-    const minCenterClearance = Math.min(forwardDistNorm, leftForwardNorm, rightForwardNorm) * (Car.CLEARANCE_REF_WIDTH / Math.max(5, track.width));
-
-    // 3. F1 Racing Throttle & Braking Policy:
-    let throttle: number;
-    let brake: number;
-
-    if (brakingNeed > Car.BRAKE_ONSET) {
-      // Braking zone: one progressive application. The pedal asks for the deceleration still needed,
-      // converted with the tyre grip (with downforce) and drag at this speed, so it eases off by
-      // itself as the speed approaches the corner's safe speed instead of pulsing on and off.
-      throttle = 0.0;
-      const v2 = this.speed * this.speed;
-      const tyreDecel = this.baseTireGrip * Math.min(this.tyreGripFront, this.tyreGripRear) * (Car.GRAVITY + 0.5 * this.airDensity * this.downforceCoeff * this.wakeDownforce * v2 / this.totalMass);
-      const dragDecel = 0.5 * this.airDensity * this.dragCoeff * v2 / this.totalMass;
-      const onset = Math.min(1, (brakingNeed - Car.BRAKE_ONSET) / (1 - Car.BRAKE_ONSET));
-      brake = Math.min(1, Math.max(0, requiredDecel * onset - dragDecel) / Math.max(1, tyreDecel));
-    } else if (overspeedDelta > -pressure.coastMargin && holdSpeed < Infinity) {
-      // Inside the corner that limits the speed: hold it with partial throttle (drag compensation
-      // plus a proportional term) instead of coasting down and re-accelerating through the arc.
-      brake = 0.0;
-      const dragPower = 0.5 * this.airDensity * this.dragCoeff * this.speed * this.speed * this.speed;
-      throttle = Math.max(0, Math.min(0.7, dragPower / Car.ICE_POWER + 0.12 * (holdSpeed * 0.98 - this.speed)));
-    } else if (overspeedDelta > -pressure.coastMargin) {
-      // Transition / lift & coast zone: cut throttle, prevent violent bang-bang throttle spikes
-      throttle = 0.0;
-      brake = 0.0;
-    } else {
-      // In acceleration or cruising zone - NO BRAKING!
-      brake = 0.0;
-      if (minCenterClearance > Car.CLEAR_FULL) {
-        if (Math.abs(steer) < 0.35) {
-          // Straights, gentle sweepers, and corner exits: 100% FLAT OUT
-          throttle = 1.0;
-        } else {
-          // Apex cornering: traction control modulation
-          const steerExcess = Math.abs(steer) - 0.35;
-          throttle = Math.max(0.35, 1.0 - steerExcess * 0.80);
-        }
-      } else if (minCenterClearance > Car.CLEAR_LIFT) {
-        // Approaching barrier/wall: lift to maintain control, never demand acceleration
-        throttle = 0.20;
-      } else {
-        // Emergency wall proximity: cut throttle and brake; once nearly stopped creep
-        // along the pursuit path instead of waiting in front of the wall forever.
-        if (this.speed < 4) { throttle = 0.3; brake = 0; }
-        else { throttle = 0.0; brake = 0.40; }
-      }
-
-      // Telemetry coaching from session leader (only when firmly outside braking zones and clear of walls):
-      if (leaderSpeeds && leaderSpeeds.length > 0 && overspeedDelta <= -0.20 && minCenterClearance > Car.CLEAR_COACH) {
-        const leaderV = leaderSpeeds[this.currentCheckpointIdx % leaderSpeeds.length];
-        if (leaderV && this.speedKmh < leaderV - 8) {
-          throttle = 1.0;
-        }
-      }
-    }
-
-    // 4. Traction & Stability Control:
-    if (this.isSliding) {
-      throttle = Math.min(throttle, 0.20);
-    }
-    const currentCp = track.checkpoints[this.currentCheckpointIdx % n];
-    if (currentCp && headingVec.dot(currentCp.tangent) < 0.90) {
-      throttle = Math.min(throttle, 0.45);
-    }
-    if (carUrgency > 0) {
-      throttle = 0;
-      brake = Math.max(brake, Math.min(1, 0.3 + carUrgency));
-    }
-
-    const offRoad = (track.sampleSurface?.(this.pos).surface ?? 'asphalt') !== 'asphalt';
-    if (offRoad) {
-      // The geometric pursuit target remains on asphalt; at low speed it brings
-      // the car back without the asphalt-edge LiDAR treating escape as a wall.
-      steer = Math.max(-1, Math.min(1, pursuitAngle / this.maxSteerAngle));
-      throttle = this.speed > 12 ? 0 : Math.abs(pursuitAngle) < 0.8 ? 0.22 : 0.1;
-      // Soft ground can hold a car at a standstill: push harder the longer it has not moved.
-      this.offRoadStillTime = this.speed < 1.5 ? this.offRoadStillTime + 1 / 60 : 0;
-      if (this.speed < 4) throttle = Math.min(1, Math.max(throttle, 0.22) + this.offRoadStillTime * 0.4);
-      brake = this.speed > 18 ? 0.45 : this.speed > 10 ? 0.15 : 0;
-    }
-    const expert: CarControl = { steer, throttle, brake };
-    return {
-      inputs, expert, idealSteer, pushing, offRoad, overspeedDelta, minCenterClearance,
-      guarded: offRoad || minCenterClearance <= Car.CLEAR_LIFT || Math.max(carUrgency, sideUrgency) > Car.CAR_AVOID_GUARD || this.yellowFlag || this.isPitting || this.recoveryTimer > 0,
-    };
+    return planDrive(this, track, leaderSpeeds);
   }
 
   /**
@@ -1523,33 +1212,7 @@ export class Car {
     }
 
     if (this.isPitting) {
-      this.effectiveThrottle = 0;
-      this.fuelBurnRatePerSec = 0;
-      this.lateralG = 0;
-      this.longitudinalG = 0;
-      const serviceDt = Math.min(dt, Math.max(0, this.pitTimer));
-      this.pitTimer = Math.max(0, this.pitTimer - dt);
-      this.lapTime += dt;
-      if (!this.isFinishedRace) {
-        this.totalRaceTime += dt;
-      }
-      this.framesSinceLastCheckpoint = 0; // Prevent timeout while in pit box
-      this.resetSuspension();
-      this.vel.set(0, 0);
-      this.speed = 0;
-      this.speedKmh = 0;
-      // Refueling during pit stop
-      this.fuelKg = Math.min(Car.MAX_FUEL_CAPACITY, this.fuelKg + 28.0 * serviceDt);
-      if (this.pitTimer <= 0) {
-        this.isPitting = false;
-        this.wantsToPit = false;
-        this.damage = 0; // nose/wing change during the stop
-        this.tyreCompound = this.pitCompound();
-        this.tyreWearFront = this.tyreWearRear = 0; // fresh, pre-heated set
-        this.tyreTempFront = this.tyreTempRear = 85;
-        this.isOutOfFuel = false;
-        this.fuelKg = Math.min(Car.MAX_FUEL_CAPACITY, this.fuelKg);
-      }
+      servicePitStop(this, dt);
       return null;
     }
 
@@ -1905,76 +1568,8 @@ export class Car {
     this.maxSpeedInLap = Math.max(this.maxSpeedInLap, this.speed);
     this.distanceCoveredInLap += stepDelta.mag();
 
-    // 7b. Directional Progress along Track & Penalties
-    const cpCount = track.checkpoints.length;
-    if (cpCount > 0) {
-      const targetCp = track.checkpoints[this.currentCheckpointIdx % cpCount];
-      const prevCp = track.checkpoints[(this.currentCheckpointIdx - 1 + cpCount) % cpCount];
-      const trackTangent = targetCp.tangent;
-      const trackAlignment = newForwardDir.dot(trackTangent);
-      const directionalSpeed = this.vel.dot(trackTangent);
-
-      // Local curve detection: avoid false positive wrong-way in tight hairpins
-      const isHighCurvature = Math.abs(targetCp.curvature) > 0.0025 || Math.abs(prevCp.curvature) > 0.0025;
-      const toTarget = targetCp.center.sub(this.pos);
-      const distToTarget = toTarget.mag();
-      const toTargetDir = distToTarget > 0.001 ? toTarget.div(distToTarget) : trackTangent;
-      const approachAlignment = newForwardDir.dot(toTargetDir);
-      const approachSpeed = this.vel.dot(toTargetDir);
-
-      const effectiveAlignment = isHighCurvature ? Math.max(trackAlignment, approachAlignment) : trackAlignment;
-      const effectiveSpeed = isHighCurvature ? Math.max(directionalSpeed, approachSpeed) : directionalSpeed;
-
-      // Positive directional progress along track
-      if (this.withinTrackLimits && effectiveSpeed > 0 && effectiveAlignment > 0) {
-        const alignBonus = Math.max(0.15, effectiveAlignment);
-        this.fitness += effectiveSpeed * alignBonus * 0.15 * dt;
-      } else if (effectiveSpeed < 0 && !isHighCurvature) {
-        // Penalty for moving backwards along track
-        this.fitness = Math.max(0, this.fitness + effectiveSpeed * 0.45 * dt);
-      }
-
-      // Penalty for wrong heading / driving in reverse direction (never terminate on high curvature)
-      if (this.recoveryTimer <= 0 && effectiveAlignment < -0.20 && !isHighCurvature) {
-        const wrongWayPenalty = (250.0 * Math.abs(effectiveAlignment) + Math.abs(this.speed) * 6.0) * dt;
-        this.fitness = Math.max(0, this.fitness - wrongWayPenalty);
-
-        if (effectiveAlignment < -0.45 && directionalSpeed < -5.0 && this.speed > 8.0) {
-          this.wrongWayTimer += dt;
-          if (this.wrongWayTimer > 1.6) {
-            // Terminate car driving backwards at speed on straight/gentle corner
-            this.eliminationReason = 'wrong-way';
-            this.isAlive = false;
-            this.effectiveThrottle = 0;
-            this.lateralG = 0;
-            this.longitudinalG = 0;
-            this.vel.set(0, 0);
-            this.speed = 0;
-            this.speedKmh = 0;
-            this.respawnTimer = 0.5;
-            // Fixed penalty preserving relative progress info
-            this.fitness = Math.max(0, this.fitness - 1500);
-            return null;
-          }
-        } else {
-          this.wrongWayTimer = Math.max(0, this.wrongWayTimer - dt * 0.5);
-        }
-      } else {
-        this.wrongWayTimer = 0;
-      }
-    }
-
-    // Leaving the track is never rewarded: it costs fitness for as long as the car is beyond the limits.
-    if (!this.withinTrackLimits) {
-      this.fitness = Math.max(0, this.fitness - (80 + this.speed * 5) * (1 - this.surfaceFractions.asphalt * 0.5) * dt);
-    }
-
-    // Penalty for skidding and loss of adhesion
-    if (this.isSkidding) {
-      const slipMagnitude = Math.abs(this.vel.dot(newForwardDir.normal())) + (this.understeerSlip + this.oversteerSlip) * 14.0;
-      const skidPenalty = (45.0 + slipMagnitude * 6.0) * dt;
-      this.fitness = Math.max(0, this.fitness - skidPenalty);
-    }
+    // 7b. Directional progress along the track, wrong-way retirement and penalties (Fitness.ts)
+    if (scoreStep(this, track, newForwardDir, dt)) return null;
 
     // 8. Trajectory Recording for Racing Line
     const lastPt = this.currentLapTrajectory[this.currentLapTrajectory.length - 1];
@@ -2019,7 +1614,7 @@ export class Car {
     if (this.speed < 0.05) { this.vel.set(0, 0); this.speed = this.speedKmh = 0; }
   }
 
-  private footprint(halfLength: number): Vector2[] {
+  footprint(halfLength: number): Vector2[] {
     const forward = Vector2.fromAngle(this.heading), side = forward.normal();
     return [-1, 1].flatMap(front => [-1, 1].map(left => this.pos.add(forward.mul(front * halfLength)).add(side.mul(left * this.width / 2))));
   }
@@ -2069,7 +1664,7 @@ export class Car {
     this.eliminate('barrier', 0.45);
   }
 
-  private eliminate(reason: 'barrier', penalty: number, keepMomentum = false): void {
+  eliminate(reason: 'barrier', penalty: number, keepMomentum = false): void {
     this.eliminationReason = reason;
     this.isAlive = false;
     this.effectiveThrottle = 0;
@@ -2083,268 +1678,9 @@ export class Car {
     this.replayStepTimer = 0;
   }
 
-  /**
-   * Sector ending at gate `g` (0..3), from the previous split. Leaves the sector in `sectorEvent`
-   * and returns its time, or null when the lap was not timed from the line.
-   */
-  private timeSector(g: number, split: number): number | null {
-    const start = g === 0 ? 0 : this.currentLapSplits[g - 1];
-    if (!this.flyingLap || start === null || start === undefined) return null;
-    const sectorTime = split - start;
-    this.sectorEvent = { gateIndex: g, sectorTime, splitTime: split, valid: !this.lapExcursion && !this.stressLap };
-    return sectorTime;
-  }
-
+  /** Gates, laps and splits (LapTiming.ts). */
   private checkTrackProgress(track: Track): LapFinishEvent | null {
-    if (this.fitness > this.peakFitness) {
-      this.peakFitness = this.fitness;
-    }
-    // Asphalt is a surface transition, not a collision. Legacy test doubles
-    // without barrier geometry retain their explicitly supplied hard boundary.
-    if (!track.sweepBarrier) {
-      const corners = this.footprint(2.75);
-      if (track.isOutOfBounds(this.pos) || corners.some(corner => track.isOutOfBounds(corner))) {
-        this.eliminate('barrier', 0.45); return null;
-      }
-    } else if (track.sampleSurface(this.pos).outsideBarrier) {
-      // Safety fallback for invalid/spawned positions already outside the fence.
-      this.eliminate('barrier', 0.45); return null;
-    }
-
-    if (this.isOutOfFuel && this.speed < 1.0) {
-      this.eliminationReason = 'fuel';
-      this.isAlive = false;
-      this.effectiveThrottle = 0;
-      this.lateralG = 0;
-      this.longitudinalG = 0;
-      this.vel.set(0, 0);
-      this.speed = 0;
-      this.speedKmh = 0;
-      this.respawnTimer = 0.5;
-      this.fitness = Math.max(0, Math.round(this.fitness * 0.75));
-      return null;
-    }
-
-    // A car that cannot rejoin the asphalt within OFF_TRACK_RECOVERY_TIME is retired instead of idling for half a minute.
-    if (this.framesSinceLastCheckpoint > (this.recoveryTimer > 0 ? 1800 : 600) || (!this.isManual && this.offTrackTime > Car.OFF_TRACK_RECOVERY_TIME)) {
-      this.eliminationReason = 'stuck';
-      this.isAlive = false;
-      this.effectiveThrottle = 0;
-      this.lateralG = 0;
-      this.longitudinalG = 0;
-      this.vel.set(0, 0);
-      this.speed = 0;
-      this.speedKmh = 0;
-      this.respawnTimer = 0.5;
-      // Stagnation penalty preserving relative ranking
-      this.fitness = Math.max(0, Math.round(this.fitness * 0.50));
-      return null;
-    }
-
-    const cpCount = track.checkpoints.length;
-    if (cpCount === 0) return null;
-    const clearedCpIdx = this.currentCheckpointIdx % cpCount;
-    const nextCp = track.checkpoints[clearedCpIdx];
-    const distToCp = this.pos.dist(nextCp.center);
-
-    // Cheap AABB broadphase before the exact segment crossing
-    let crossedGate = false;
-    let crossingT: number | null = null;
-    const minX1 = Math.min(this.prevPos.x, this.pos.x);
-    const maxX1 = Math.max(this.prevPos.x, this.pos.x);
-    const minY1 = Math.min(this.prevPos.y, this.pos.y);
-    const maxY1 = Math.max(this.prevPos.y, this.pos.y);
-
-    const minX2 = Math.min(nextCp.p1.x, nextCp.p2.x);
-    const maxX2 = Math.max(nextCp.p1.x, nextCp.p2.x);
-    const minY2 = Math.min(nextCp.p1.y, nextCp.p2.y);
-    const maxY2 = Math.max(nextCp.p1.y, nextCp.p2.y);
-
-    if (maxX1 >= minX2 && minX1 <= maxX2 && maxY1 >= minY2 && minY1 <= maxY2) {
-      crossingT = segmentIntersectionT(this.prevPos, this.pos, nextCp.p1, nextCp.p2);
-      crossedGate = crossingT !== null;
-    }
-
-    const isNearCp = clearedCpIdx !== 0 && distToCp < Math.min(3, track.width * 0.2) && this.withinTrackLimits;
-    // (1) Checkpoint zaliczaj tylko przy ruchu zgodnym z tangentem toru
-    const isMovingForwardAlongTrack = this.vel.dot(nextCp.tangent) > 0.5;
-
-    // A car that rejoins the asphalt beyond gates it passed off the road resumes at the gate ahead.
-    // The skipped gates earn nothing and spoil the lap; without this the car could never clear
-    // them and would be retired as stuck while driving, leaving a wreck on the racing line.
-    if (this.framesSinceLastCheckpoint > 30 && this.withinTrackLimits && isMovingForwardAlongTrack && !crossedGate && !isNearCp) {
-      const missed = (track.sampleSurface(this.pos).index - clearedCpIdx + cpCount) % cpCount + 1;
-      // On the inside of a hairpin the nearest centreline segment is already the next one before
-      // the car reaches the gate: one gate counts as missed only once the car is beyond its line.
-      const beyondGate = missed > 1 || this.pos.sub(nextCp.center).dot(nextCp.tangent) > 0;
-      // Never past the start/finish gate (index 0), which counts the lap.
-      if (beyondGate && missed <= Car.MAX_REJOIN_SKIPPED_GATES && clearedCpIdx !== 0 && clearedCpIdx + missed <= cpCount) {
-        this.currentCheckpointIdx = (clearedCpIdx + missed) % cpCount;
-        this.framesSinceLastCheckpoint = 0;
-        this.lapCompromised = true;
-        this.lapExcursion = true;
-        return null;
-      }
-    }
-
-    if (this.withinTrackLimits && isMovingForwardAlongTrack && (crossedGate || isNearCp)) {
-      this.checkpointsCleared++;
-      // Seconds between the moment the car met the gate line and the end of this step: the step
-      // ends past the line by (1 - t) of its length. A gate taken just before its line (close to its
-      // centre) is timed where the car will meet the line at its present speed.
-      const gateT = crossingT ?? lineCrossingT(this.prevPos, this.pos, nextCp.p1, nextCp.p2);
-      const overshoot = gateT === null ? 0 : Math.max(-0.5, Math.min(this.lastStepDt, (1 - Math.max(0, gateT)) * this.lastStepDt));
-      const gateTime = this.lapTime - overshoot;
-
-      const forwardDir = Vector2.fromAngle(this.heading);
-      const trackAlignment = forwardDir.dot(nextCp.tangent);
-      const isClean = !this.isSkidding && trackAlignment > 0.45 && Math.abs(this.angularVelocity) < 2.0;
-
-      // Base checkpoint reward; a gate taken with a wheel off the asphalt earns nothing and costs fitness
-      const onAsphalt = this.withinTrackLimits;
-      if (onAsphalt) this.fitness += 1200;
-      else this.fitness = Math.max(0, this.fitness - 600);
-
-      // Clean checkpoint bonus: grip and stability count, the lateral position does not, so the
-      // whole width of the asphalt is free for the racing line.
-      if (isClean && onAsphalt) {
-        this.fitness += 1000;
-      } else if (this.isSkidding) {
-        // Slid through checkpoint sideways / out of control
-        this.fitness = Math.max(0, this.fitness - 200);
-      }
-
-      // Point 2: Racing-line and exit speed rewards
-      if (Math.abs(nextCp.curvature) > 0.003) {
-        // On the racing line through the corner: wide on entry, at the kerb on the apex, wide on exit.
-        const offLine = Math.abs(track.sampleSurface(this.pos).lateral - this.racingLine(track).offsetAt(nextCp.index));
-        if (offLine < 1.2 && isClean && onAsphalt) {
-          this.fitness += 800;
-        }
-      } else if (clearedCpIdx > 0) {
-        const prevCp = track.checkpoints[(clearedCpIdx - 1 + cpCount) % cpCount];
-        if (Math.abs(prevCp.curvature) > 0.003 && this.speed > 22 && isClean && onAsphalt) {
-          // High speed corner exit acceleration reward!
-          this.fitness += 600 + Math.round(this.speedKmh * 2);
-        }
-      }
-
-      this.framesSinceLastCheckpoint = 0;
-      this.currentCheckpointIdx = (clearedCpIdx + 1) % cpCount;
-      this.lineNet?.passPoint(clearedCpIdx, cpCount, this.lapTime);
-
-      // Check 4 timing checkpoints (CP1, CP2, CP3)
-      if (track.timingGates && track.timingGates.length === 4) {
-        for (let g = 0; g < 3; g++) {
-          const gate = track.timingGates[g];
-          if (this.currentLapSplits[g] === null && clearedCpIdx === gate.pointIndex && gateTime > 1.2) {
-            const split = gateTime;
-            this.currentLapSplits[g] = split;
-            const prevPbSplit = this.bestLapSplits[g];
-            const delta = prevPbSplit !== null ? (split - prevPbSplit) : 0;
-            this.lastCheckpointDelta = {
-              gateIndex: g,
-              gateName: gate.name,
-              delta,
-              splitTime: split,
-              sectorTime: this.timeSector(g, split),
-            };
-            // Positive reinforcement on sector improvement (fitness bonus)
-            if (delta < 0) {
-              const sectorBonus = Math.min(3000, Math.round(Math.abs(delta) * 1000));
-              this.fitness += 1500 + sectorBonus;
-            }
-          }
-        }
-      }
-
-      // Completed a full lap crossing the start/finish line (cleared checkpoint 0)!
-      if (clearedCpIdx === 0) {
-        this.ersHarvestedLap = 0;
-        this.lineCrossingRaceTime = this.totalRaceTime - overshoot;
-        if (this.checkpointsCleared >= track.checkpoints.length * 0.8) {
-          const finishedLapTime = gateTime;
-          this.lastLapTime = finishedLapTime;
-          this.currentLapSplits[3] = finishedLapTime;
-          const prevPbFinish = this.bestLapSplits[3] || this.bestLapTime;
-          this.lastCheckpointDelta = {
-            gateIndex: 3,
-            gateName: 'CP 4 (META)',
-            delta: prevPbFinish !== null ? (finishedLapTime - prevPbFinish) : 0,
-            splitTime: finishedLapTime,
-            sectorTime: this.timeSector(3, finishedLapTime),
-          };
-
-          const finishedTrajectory = [...this.currentLapTrajectory];
-          const finishedMaxSpeedKmh = Math.round(this.maxSpeedInLap * 3.6);
-          const avgSpeedKmh = finishedLapTime > 0
-            ? Math.round((track.totalLength / finishedLapTime) * 3.6 * 10) / 10
-            : 0;
-
-          this.currentLap++;
-          this.raceLapsCompleted++;
-          // Substantial lap completion reward inversely proportional to lapTime
-          const lapTimeBonus = Math.round(150000 / Math.max(10, finishedLapTime));
-          // Training compares laps within one track-condition class: a lap the rain caught is timed, not learnt from.
-          const [bandLow, bandHigh] = CONDITION_BANDS[Car.conditions];
-          const offConditions = !this.isRaceMode && (this.lapWetMin < bandLow || this.lapWetMax > bandHigh);
-          this.lapWetMin = this.lapWetMax = this.wetness;
-          if (!this.lapCompromised && !offConditions) this.fitness += 30000 + lapTimeBonus;
-          const compromised = this.lapCompromised || this.pressureLearningBlocked || offConditions;
-          if (!this.isManual) this.pace.finishLap(finishedLapTime, !compromised, this.lapExcursion && !this.lapContact);
-          this.lapExcursion = false;
-          this.lapContact = false;
-          if (!compromised && (!this.bestLapTime || finishedLapTime < this.bestLapTime)) {
-            this.bestLapTime = finishedLapTime;
-            this.bestLapPressure = this.driverPressure;
-            this.bestLapSplits = [...this.currentLapSplits];
-            if (this.brain) {
-              this.safeBrainBackup = this.brain.clone();
-              this.safeBrainPressure = this.driverPressure;
-            }
-          }
-
-          // Trigger pit stop upon crossing start/finish line if requested
-          if (this.wantsToPit) {
-            this.isPitting = true;
-            this.pitTimer = Math.max(3.2, (Car.MAX_FUEL_CAPACITY - this.fuelKg) / 28);
-            this.pitStopsCount++;
-          }
-
-          this.pressureLearningBlocked = this.pressureElapsed < 2;
-          this.lapCompromised = this.incidentActive || this.recoveryTimer > 0 || this.pressureLearningBlocked;
-          this.rollLapPerformanceVariation();
-          this.currentLapTrajectory = [];
-          this.maxSpeedInLap = 0;
-          this.distanceCoveredInLap = 0;
-          // The part of this step beyond the line already belongs to the new lap.
-          this.lapTime = overshoot;
-          this.flyingLap = true;
-          this.currentLapSplits = [null, null, null, null];
-
-          return {
-            compromised,
-            pressure: this.driverPressure,
-            lapTime: finishedLapTime,
-            trajectory: finishedTrajectory,
-            maxSpeed: finishedMaxSpeedKmh,
-            avgSpeed: avgSpeedKmh,
-            fuelRemaining: Math.round(this.fuelKg * 10) / 10,
-          };
-        } else {
-          // First time crossing the start/finish line from grid slot: start flying lap!
-          this.lapTime = overshoot;
-          this.flyingLap = true;
-          this.lapWetMin = this.lapWetMax = this.wetness;
-          this.currentLapSplits = [null, null, null, null];
-          this.lastCheckpointDelta = null;
-          this.currentLapTrajectory = [];
-          this.maxSpeedInLap = 0;
-          this.distanceCoveredInLap = 0;
-        }
-      }
-    }
-
-    return null;
+    return checkTrackProgress(this, track);
   }
+
 }
