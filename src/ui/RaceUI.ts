@@ -92,7 +92,7 @@ export class RaceUI {
         raceTag.className = 'panel-tag';
         raceTag.style.background = '#e10600';
       } else if (this.session.raceState === 'RACING') {
-        raceTag.textContent = 'WYŚCIG TRWA';
+        raceTag.textContent = this.session.chequered ? 'FLAGA W SZACHOWNICĘ' : 'WYŚCIG TRWA';
         raceTag.className = 'panel-tag cyan';
         raceTag.style.background = '';
       } else if (this.session.raceState === 'FINISHED') {
@@ -233,7 +233,9 @@ export class RaceUI {
 
         // 2. Czas aktualny (bieżący przejazd)
         let currentTimeStr: string;
-        if (car && car.isPitting) {
+        if (isRace && this.session.standings.find(s => s.carColor === entry.carColor)?.finished) {
+          currentTimeStr = '🏁 META';
+        } else if (car && car.isPitting) {
           currentTimeStr = `PIT (${car.pitTimer.toFixed(1)}s)`;
         } else if (car && !car.isAlive) {
           if (this.session.raceState !== 'IDLE') {

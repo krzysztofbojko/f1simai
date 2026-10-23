@@ -14,6 +14,8 @@ export interface SessionView {
   currentLap: number;
   startLights: number;
   winner: string | null;
+  /** The winner has taken the chequered flag; the others finish at their next crossing of the line. */
+  chequered: boolean;
   standings: RaceStanding[];
   weather: WeatherState;
   qualifying: QualifyingSnapshot | null;
@@ -22,7 +24,7 @@ export interface SessionView {
 }
 
 export function emptySessionView(): SessionView {
-  return { raceState: 'IDLE', totalLaps: 50, currentLap: 1, startLights: 0, winner: null, standings: [], weather: neutralWeather(), qualifying: null, teamStandings: [] };
+  return { raceState: 'IDLE', totalLaps: 50, currentLap: 1, startLights: 0, winner: null, chequered: false, standings: [], weather: neutralWeather(), qualifying: null, teamStandings: [] };
 }
 
 /** What a snapshot updates on the page: the display copy of the field and the car interpolation. */
@@ -76,6 +78,7 @@ export class SnapshotSync {
     session.currentLap = snapshot.raceCurrentLap;
     session.startLights = snapshot.raceStartLights;
     session.winner = snapshot.raceWinner;
+    session.chequered = snapshot.raceChequered;
     session.standings = snapshot.raceStandings || [];
     if (snapshot.weather) session.weather = snapshot.weather;
     session.qualifying = snapshot.qualifying ?? null;

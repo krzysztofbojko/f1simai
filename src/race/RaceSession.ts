@@ -33,6 +33,8 @@ export interface RaceStanding {
   lastLap: number | null;
   totalTime: number;
   isPlayer: boolean;
+  /** Took the chequered flag (with `lapsCompleted` laps). */
+  finished: boolean;
 }
 
 /** What the session reads from the simulation around it; the worker swaps track and field. */
@@ -68,6 +70,11 @@ export class RaceSession {
   static readonly QUALI_FUEL_KG = 20;
   /** Seconds between cars leaving the garage. */
   static readonly QUALI_RELEASE_INTERVAL = 1.5;
+  /**
+   * After the chequered flag the race ends when every running car has crossed the line, or after
+   * this many of the winner's last lap: a car stopped on the circuit is classified where it stands.
+   */
+  static readonly CHEQUERED_TIMEOUT_LAPS = 1.5;
 
   state: RaceState = 'IDLE';
   totalLaps = 50;
@@ -75,6 +82,11 @@ export class RaceSession {
   /** 0: off, 1..5: red lights, -1: lights out. */
   startLights = 0;
   winner: string | null = null;
+  /**
+   * The winner has taken the chequered flag: from then on every car finishes at its next crossing
+   * of the line, lapped cars a lap or more down.
+   */
+  chequered = false;
   qualifying: Qualifying | null = null;
   /** Starting order from the last qualifying, used by the next race start. */
   qualifyingGrid: string[] | null = null;
@@ -84,6 +96,14 @@ export class RaceSession {
   sessionBestSectors: (number | null)[] = [null, null, null, null];
 
   private startTimer = 0;
+  private lastDt = 1 / 60;
+  /** Seconds since the chequered flag. */
+  private chequeredTime = 0;
+  /** Race clock when the winner crossed the line; cars crossing it before that still have a lap to go. */
+  private flagTime = Infinity;
+  private winnerCar: Car | null = null;
+  /** Cars that crossed the line in this step (race only); the flag is decided once the step is over. */
+  private readonly lineCrossings: Car[] = [];
   private frozenStandings: RaceStanding[] | null = null;
   private readonly qualiRelease = new Map<Car, { delay: number; slot: number }>();
   private readonly qualiLapStartExits = new Map<Car, number>();
@@ -111,17 +131,25 @@ export class RaceSession {
     this.qualifying = null;
     this.qualifyingGrid = null;
     this.qualiRelease.clear();
-    this.winner = null;
-    this.frozenStandings = null;
+    this.resetRaceFinish();
     this.resetSectors();
+  }
+
+  private resetRaceFinish(): void {
+    this.winner = null;
+    this.winnerCar = null;
+    this.chequered = false;
+    this.chequeredTime = 0;
+    this.flagTime = Infinity;
+    this.lineCrossings.length = 0;
+    this.frozenStandings = null;
   }
 
   /** Qualifying (when asked for) or the race from the grid; the weather starts again from its forecast. */
   start(options: RaceStartOptions): void {
     const { population, track, weather } = this.ctx;
     this.totalLaps = Math.max(10, Math.min(200, options.totalLaps || 50));
-    this.winner = null;
-    this.frozenStandings = null;
+    this.resetRaceFinish();
     this.resetSectors();
     population.isRaceMode = true;
     weather.reset(weather.scenario, options.weatherSeed);
@@ -209,6 +237,7 @@ export class RaceSession {
 
   /** Called before every physics step. */
   beforeStep(dt: number): StepPhase {
+    this.lastDt = dt;
     if (this.state === 'QUALIFYING' && !this.stepQualifying(dt)) return this.state === 'QUALIFYING' ? 'skip' : 'halt';
     if (this.state === 'GRID_START') {
       this.startTimer += dt;
@@ -231,20 +260,21 @@ export class RaceSession {
     for (const car of this.cars()) this.recordSector(car);
     if (this.state === 'QUALIFYING') this.retireStoppedQualifiers();
     if (this.state !== 'RACING') return false;
+    this.takeLineCrossings();
     let maxLaps = 0;
-    let aliveCount = 0;
+    let running = 0;
     const cars = this.cars();
     for (const c of cars) {
-      if (c.isAlive) aliveCount++;
+      if (c.isAlive && !c.isFinishedRace) running++;
       if (c.raceLapsCompleted > maxLaps) maxLaps = c.raceLapsCompleted;
     }
     this.currentLap = Math.min(this.totalLaps, maxLaps + 1);
-    if (this.winner) return false;
-    const winner = cars.find(c => c.raceLapsCompleted >= this.totalLaps);
-    if (winner) {
-      winner.isFinishedRace = true;
-      this.winner = winner.driverName;
-    } else if (aliveCount === 0) {
+    if (this.chequered) {
+      this.chequeredTime += this.lastDt;
+      const winner = this.winnerCar;
+      const lap = winner?.lastLapTime ?? winner?.bestLapTime ?? (winner && winner.raceLapsCompleted > 0 ? winner.totalRaceTime / winner.raceLapsCompleted : 120);
+      if (running > 0 && this.chequeredTime < RaceSession.CHEQUERED_TIMEOUT_LAPS * lap) return false;
+    } else if (running === 0) {
       this.winner = 'BRAK (WSZYSCY ROZBICI - DNF)';
     } else return false;
     this.state = 'FINISHED';
@@ -252,8 +282,48 @@ export class RaceSession {
     return true;
   }
 
-  /** Times a completed lap; a lap after the chequered flag sends the car back to the garage. */
+  /**
+   * Lines crossed in the last step. The first car to complete the race distance (the smallest
+   * interpolated race time, not the first in the field's order) takes the chequered flag; every
+   * car crossing the line from that moment on finishes, with the laps it has.
+   */
+  private takeLineCrossings(): void {
+    const crossings = this.lineCrossings;
+    if (!crossings.length) return;
+    if (!this.chequered) {
+      for (const car of crossings) {
+        if (car.raceLapsCompleted >= this.totalLaps && car.lineCrossingRaceTime < this.flagTime) {
+          this.flagTime = car.lineCrossingRaceTime;
+          this.winnerCar = car;
+        }
+      }
+      if (this.winnerCar) {
+        this.chequered = true;
+        this.chequeredTime = 0;
+        this.winner = this.winnerCar.driverName;
+      }
+    }
+    if (this.chequered) {
+      for (const car of crossings) if (!car.isFinishedRace && car.lineCrossingRaceTime >= this.flagTime) this.finish(car);
+    }
+    crossings.length = 0;
+  }
+
+  /** The car takes the flag: its race time stops where it met the line. It drives on, out of the race. */
+  private finish(car: Car): void {
+    car.isFinishedRace = true;
+    car.totalRaceTime = car.lineCrossingRaceTime;
+  }
+
+  /**
+   * A completed lap. In the race it is a crossing of the line (the flag is decided after the step);
+   * in qualifying it is timed, and a lap after the session's flag sends the car back to the garage.
+   */
   onLapCompleted(car: Car, event: Pick<LapFinishEvent, 'lapTime'>): void {
+    if (this.state === 'RACING') {
+      if (!car.isFinishedRace) this.lineCrossings.push(car);
+      return;
+    }
     if (this.state !== 'QUALIFYING' || !this.qualifying) return;
     const valid = car.trackLimitExits === (this.qualiLapStartExits.get(car) ?? 0);
     this.qualiLapStartExits.set(car, car.trackLimitExits);
@@ -414,16 +484,15 @@ export class RaceSession {
 
   private calculateStandings(): RaceStanding[] {
     const { track } = this.ctx;
-    const totalLaps = this.totalLaps;
     const allRacingCars = this.cars();
     const cpCount = track.checkpoints.length || 1;
     const cpCumulativeDist = RaceSession.checkpointDistance(track);
     const accumDist = cpCumulativeDist[cpCumulativeDist.length - 1];
     const trackTotalLen = accumDist > 0 ? accumDist : (track.totalLength || 1000);
 
+    // A finished car stands at the line with the laps it completed (fewer when it was lapped).
     const getCarProgressMeters = (car: Car): number => {
-      if (car.isFinishedRace || car.raceLapsCompleted >= totalLaps) return totalLaps * trackTotalLen;
-      if (track.checkpoints.length === 0) return car.raceLapsCompleted * trackTotalLen;
+      if (car.isFinishedRace || track.checkpoints.length === 0) return car.raceLapsCompleted * trackTotalLen;
       const nextCpIdx = (car.currentCheckpointIdx || 0) % cpCount;
       const prevCpIdx = (nextCpIdx - 1 + cpCount) % cpCount;
       const pPrev = track.checkpoints[prevCpIdx].center;
@@ -442,14 +511,13 @@ export class RaceSession {
 
     const progressMap = new Map<Car, number>();
     for (const car of allRacingCars) progressMap.set(car, getCarProgressMeters(car));
-    const finished = (car: Car) => car.isFinishedRace || car.raceLapsCompleted >= totalLaps;
+    const finished = (car: Car) => car.isFinishedRace;
+    // Still classified: finished or running. A car out of the race (DNF) is behind all of them.
+    const classified = (car: Car) => car.isFinishedRace || car.isAlive;
 
+    // Distance covered decides; on the same lap at the line (finishers) the race time does.
     allRacingCars.sort((a, b) => {
-      const aFinished = finished(a), bFinished = finished(b);
-      if (aFinished && bFinished) return a.totalRaceTime - b.totalRaceTime;
-      if (aFinished) return -1;
-      if (bFinished) return 1;
-      if (a.isAlive !== b.isAlive) return a.isAlive ? -1 : 1;
+      if (classified(a) !== classified(b)) return classified(a) ? -1 : 1;
       const progA = progressMap.get(a) || 0;
       const progB = progressMap.get(b) || 0;
       if (Math.abs(progB - progA) > 0.05) return progB - progA;
@@ -470,6 +538,8 @@ export class RaceSession {
 
     const formatGap = (targetCar: Car, referenceCar: Car): string => {
       if (finished(targetCar) && finished(referenceCar)) {
+        const lapsDown = referenceCar.raceLapsCompleted - targetCar.raceLapsCompleted;
+        if (lapsDown >= 1) return `+${lapsDown} OKR`;
         const timeDiff = targetCar.totalRaceTime - referenceCar.totalRaceTime;
         return timeDiff > 0 ? `+${timeDiff.toFixed(2)}s` : '+0.00s';
       }
@@ -511,6 +581,7 @@ export class RaceSession {
         lastLap: car.lastLapTime,
         totalTime: Math.round(car.totalRaceTime * 10) / 10,
         isPlayer: car.isManual,
+        finished: car.isFinishedRace,
       };
     });
   }

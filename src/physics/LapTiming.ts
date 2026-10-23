@@ -175,13 +175,15 @@ export function checkTrackProgress(car: Car, track: Track): LapFinishEvent | nul
           : 0;
 
         car.currentLap++;
-        car.raceLapsCompleted++;
+        // Laps after the chequered flag are not raced: they neither count nor set a time.
+        const afterFlag = car.isFinishedRace;
+        if (!afterFlag) car.raceLapsCompleted++;
         // Training compares laps within one track-condition class: a lap the rain caught is timed, not learnt from.
         const [bandLow, bandHigh] = CONDITION_BANDS[Car.config.conditions];
         const offConditions = !car.isRaceMode && (car.lapWetMin < bandLow || car.lapWetMax > bandHigh);
         car.lapWetMin = car.lapWetMax = car.wetness;
         if (!car.lapCompromised && !offConditions) scoreLap(car, finishedLapTime);
-        const compromised = car.lapCompromised || car.pressureLearningBlocked || offConditions;
+        const compromised = car.lapCompromised || car.pressureLearningBlocked || offConditions || afterFlag;
         if (!car.isManual) car.pace.finishLap(finishedLapTime, !compromised, car.lapExcursion && !car.lapContact);
         car.lapExcursion = false;
         car.lapContact = false;

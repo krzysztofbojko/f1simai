@@ -89,6 +89,8 @@ export interface SimSnapshot {
   raceCurrentLap: number;
   raceStartLights: number;
   raceWinner: string | null;
+  /** The winner has taken the chequered flag; the others finish at their next crossing of the line. */
+  raceChequered: boolean;
   raceStandings: RaceStanding[];
   /** Weather now: sun, rain, temperatures, water on the track and the wind. */
   weather: WeatherState;
@@ -301,6 +303,7 @@ function createSnapshot(): SimSnapshot {
     raceCurrentLap: session.currentLap,
     raceStartLights: session.startLights,
     raceWinner: session.winner,
+    raceChequered: session.chequered,
     raceStandings: session.standings(),
     weather: { ...weather.state },
     weatherScenario: weather.scenario,
