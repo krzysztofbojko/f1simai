@@ -9,7 +9,7 @@ import { pathToFileURL } from 'node:url';
 
 const output = await mkdtemp(join(tmpdir(), 'f1-physics-'));
 try {
-  await build({ configFile: false, logLevel: 'silent', plugins: [{ name: 'audit-worker-access', transform(code, id) { if (id.endsWith('/src/workers/sim.worker.ts')) return code + '\nexport function auditCars() { return population.cars; } export function auditRace() { return { raceState, raceWinner }; } export function auditTrack() { return track; }'; } }], build: {
+  await build({ configFile: false, logLevel: 'silent', plugins: [{ name: 'audit-worker-access', transform(code, id) { if (id.endsWith('/src/workers/sim.worker.ts')) return code + '\nexport function auditCars() { return population.cars; } export function auditRace() { return { raceState: session.state, raceWinner: session.winner }; } export function auditTrack() { return track; }'; } }], build: {
     outDir: output, emptyOutDir: true, minify: false,
     lib: { entry: { car: resolve('src/physics/Car.ts'), population: resolve('src/ai/Population.ts'), presets: resolve('src/track/Presets.ts'), worker: resolve('src/workers/sim.worker.ts') }, formats: ['es'], fileName: (_, name) => name + '.mjs' },
   } });

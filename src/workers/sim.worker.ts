@@ -7,24 +7,12 @@ import { Car, CarControl, TrajectoryPoint, CheckpointDelta, driverInputCount, cl
 import { Spline } from '../math/Spline';
 import { Vector2 } from '../math/Vector2';
 import { TopologySpecifier } from '../ai/NeuralNetwork';
-import { Qualifying, QualifyingPhase, QualifyingStanding } from '../race/Qualifying';
-import { isCompound, startingDryCompound, weatherCompound, type TyreCompound } from '../physics/Tyres';
+import { RaceSession, type RaceState, type RaceStanding, type QualifyingSnapshot } from '../race/RaceSession';
+import { isCompound, type TyreCompound } from '../physics/Tyres';
 import { Weather, isWeatherScenario, type WeatherScenario, type WeatherState } from '../physics/Weather';
 import { applyDriverModel, exportDriver, mergeBetterDrivers, serializeTrack } from '../ai/Islands';
 
-export type { TopologySpecifier };
-
-export type RaceState = 'IDLE' | 'QUALIFYING' | 'QUALI_FINISHED' | 'GRID_START' | 'RACING' | 'FINISHED';
-
-export interface QualifyingSnapshot {
-  /** 0 = Q1, 1 = Q2, 2 = Q3. */
-  session: number;
-  phase: QualifyingPhase;
-  timeLeft: number;
-  /** Cars knocked out if the session ended now: the slowest five, or more when cars have no time. */
-  eliminatedAfter: number;
-  standings: QualifyingStanding[];
-}
+export type { TopologySpecifier, RaceState, RaceStanding, QualifyingSnapshot };
 
 export type ComputeProfile = 'eco' | 'balanced' | 'performance' | 'turbo';
 
@@ -72,24 +60,6 @@ export const COMPUTE_PROFILE_PRESETS: Record<ComputeProfile, ComputeProfileConfi
     maxSubStepsBudget: 300
   }
 };
-
-export interface RaceStanding {
-  rank: number;
-  driverName: string;
-  carColor: string;
-  lapsCompleted: number;
-  gap: string;
-  gapToLeader: string;
-  gapToPrevious: string;
-  pitStops: number;
-  trackLimitExits: number;
-  isPitting: boolean;
-  isAlive: boolean;
-  bestLap: number | null;
-  lastLap: number | null;
-  totalTime: number;
-  isPlayer: boolean;
-}
 
 export interface SerializedRay {
   x: number;
@@ -265,28 +235,10 @@ let speedMultiplier: number | 'max' = 1;
 let isPaused = true;
 let isPlayerDriving = false;
 
-// Race Mode State
-let raceState: RaceState = 'IDLE';
-let raceTotalLaps: number = 50;
-let raceCurrentLap: number = 1;
-let raceStartLights: number = 0; // 0: off, 1..5: red lights, -1: lights out (go!)
-let raceStartTimer: number = 0;
-let raceWinner: string | null = null;
-let frozenRaceStandings: RaceStanding[] | null = null;
-/** The player's compound: fitted at the start and at every stop of their car. */
-let playerCompound: TyreCompound = 'medium';
 /** Weather of training and every session; a race or qualifying starts again from the forecast. */
 const weather = new Weather();
 Car.weather = weather.state;
 const weatherSeed = () => (Math.random() * 0x7fffffff) | 0;
-
-// Qualifying State
-const QUALI_FUEL_KG = 20; // topped up on every lap: runs between short refuelling visits are not modelled
-const QUALI_RELEASE_INTERVAL = 1.5; // seconds between cars leaving the garage
-let qualifying: Qualifying | null = null;
-let qualifyingGrid: string[] | null = null;
-const qualiRelease = new Map<Car, { delay: number; slot: number }>();
-const qualiLapStartExits = new Map<Car, number>();
 
 let dims = Car.getDimensionsForTrackWidth(trackWidth);
 let track = Presets.createGrandPrixTrack(dims.effectiveTrackWidth);
@@ -295,7 +247,14 @@ let playerCar: Car | null = null;
 let playerControl: CarControl = { steer: 0, throttle: 0, brake: 0 };
 let activeSelectedColor: string | null = null;
 let manualCarColor: string | null = null;
-let sessionBestSectors: (number | null)[] = [null, null, null, null];
+/** Qualifying, race and session-best sectors; training runs while it is IDLE. */
+const session = new RaceSession({
+  get population() { return population; },
+  get track() { return track; },
+  weather,
+  get playerCar() { return playerCar && isPlayerDriving ? playerCar : null; },
+  get manualCarColor() { return manualCarColor; },
+});
 const detectedCores = typeof navigator !== 'undefined' ? (navigator.hardwareConcurrency || 8) : 8;
 
 // Training islands: extra workers train their own headless fields on this track
@@ -320,7 +279,7 @@ function islandSetupMessage(): object {
 function onIslandMessage(worker: Worker, message: any): void {
   if (message?.type !== 'MODELS' || message.version !== islandVersion) return;
   if (message.busyMs > 0) islandRates.set(worker, message.steps / (message.busyMs / 1000));
-  if (raceState !== 'IDLE') return;
+  if (session.state !== 'IDLE') return;
   islandsAdopted += mergeBetterDrivers(population, message.drivers);
   worker.postMessage({ type: 'MODELS', version: islandVersion, drivers: exportAllDrivers() });
 }
@@ -357,7 +316,7 @@ function configureIslands(): void {
 
 /** Islands train only while the main field trains: not when paused, in qualifying or in a race. */
 function updateIslandRun(): void {
-  const run = islands.length > 0 && !isPaused && raceState === 'IDLE';
+  const run = islands.length > 0 && !isPaused && session.state === 'IDLE';
   if (run === islandsRunning) return;
   islandsRunning = run;
   for (const worker of islands) worker.postMessage({ type: 'RUN', running: run });
@@ -367,24 +326,6 @@ function islandStatus(): IslandStatus {
   let stepsPerSecond = 0;
   for (const rate of islandRates.values()) stepsPerSecond += rate;
   return { count: islands.length, max: maxIslands, running: islandsRunning, stepsPerSecond: Math.round(stepsPerSecond), adopted: islandsAdopted };
-}
-
-/**
- * A sector just completed by `car`: a valid one may set the session best, and the car's last
- * gate delta shows purple when its sector is the session's fastest so far.
- */
-function recordSector(car: Car): void {
-  const event = car.sectorEvent;
-  if (!event) return;
-  car.sectorEvent = null;
-  const g = event.gateIndex, best = sessionBestSectors[g];
-  const purple = event.valid && (best === null || event.sectorTime <= best);
-  if (purple) sessionBestSectors[g] = event.sectorTime;
-  if (car.lastCheckpointDelta?.gateIndex === g) car.lastCheckpointDelta.isPurple = purple;
-}
-
-function resetSessionBestSectors(): void {
-  sessionBestSectors = [null, null, null, null];
 }
 
 /** Snapshot of one car; reads the car only. */
@@ -472,161 +413,6 @@ function serializeCar(car: Car, ctrl?: CarControl, isHeadless: boolean = false):
   };
 }
 
-function calculateRaceStandings(): RaceStanding[] {
-  const allRacingCars: Car[] = [...population.cars];
-  if (playerCar && isPlayerDriving) {
-    allRacingCars.push(playerCar);
-  }
-
-  const cpCount = track.checkpoints.length || 1;
-  const cpCumulativeDist: number[] = [0];
-  let accumDist = 0;
-  if (track.checkpoints.length > 0) {
-    for (let i = 0; i < cpCount; i++) {
-      const nextIdx = (i + 1) % cpCount;
-      const pCurr = track.checkpoints[i].center;
-      const pNext = track.checkpoints[nextIdx].center;
-      accumDist += pCurr.dist(pNext);
-      cpCumulativeDist.push(accumDist);
-    }
-  }
-  const trackTotalLen = accumDist > 0 ? accumDist : (track.totalLength || 1000);
-
-  const getCarProgressMeters = (car: Car): number => {
-    if (car.isFinishedRace || car.raceLapsCompleted >= raceTotalLaps) {
-      return raceTotalLaps * trackTotalLen;
-    }
-    if (track.checkpoints.length === 0) {
-      return car.raceLapsCompleted * trackTotalLen;
-    }
-    const nextCpIdx = (car.currentCheckpointIdx || 0) % cpCount;
-    const prevCpIdx = (nextCpIdx - 1 + cpCount) % cpCount;
-
-    const pPrev = track.checkpoints[prevCpIdx].center;
-    const pNext = track.checkpoints[nextCpIdx].center;
-
-    const segX = pNext.x - pPrev.x;
-    const segY = pNext.y - pPrev.y;
-    const segLenSq = segX * segX + segY * segY;
-
-    let frac = 0;
-    if (segLenSq > 0.001) {
-      const toCarX = car.pos.x - pPrev.x;
-      const toCarY = car.pos.y - pPrev.y;
-      frac = (toCarX * segX + toCarY * segY) / segLenSq;
-      frac = Math.max(0, Math.min(1, frac));
-    }
-
-    const segLen = Math.sqrt(segLenSq);
-    const baseDist = cpCumulativeDist[prevCpIdx] ?? 0;
-    const lapDist = Math.max(0, Math.min(trackTotalLen, baseDist + frac * segLen));
-
-    return car.raceLapsCompleted * trackTotalLen + lapDist;
-  };
-
-  const progressMap = new Map<Car, number>();
-  for (const car of allRacingCars) {
-    progressMap.set(car, getCarProgressMeters(car));
-  }
-
-  allRacingCars.sort((a, b) => {
-    const aFinished = a.isFinishedRace || a.raceLapsCompleted >= raceTotalLaps;
-    const bFinished = b.isFinishedRace || b.raceLapsCompleted >= raceTotalLaps;
-
-    if (aFinished && bFinished) {
-      return a.totalRaceTime - b.totalRaceTime;
-    }
-    if (aFinished) return -1;
-    if (bFinished) return 1;
-
-    if (a.isAlive !== b.isAlive) {
-      return a.isAlive ? -1 : 1;
-    }
-
-    const progA = progressMap.get(a) || 0;
-    const progB = progressMap.get(b) || 0;
-    if (Math.abs(progB - progA) > 0.05) {
-      return progB - progA;
-    }
-
-    return a.totalRaceTime - b.totalRaceTime;
-  });
-
-  const raceLeader = allRacingCars[0];
-  const refSpeed = ((): number => {
-    if (raceLeader && typeof raceLeader.bestLapTime === 'number' && raceLeader.bestLapTime > 0) {
-      return Math.max(20, Math.min(80, trackTotalLen / raceLeader.bestLapTime));
-    }
-    if (raceLeader && raceLeader.raceLapsCompleted > 0 && raceLeader.totalRaceTime > 0) {
-      return Math.max(20, Math.min(80, (raceLeader.raceLapsCompleted * trackTotalLen) / raceLeader.totalRaceTime));
-    }
-    if (raceLeader && raceLeader.speedKmh > 30) {
-      return Math.max(20, Math.min(80, raceLeader.speedKmh / 3.6));
-    }
-    return 55.0; // ~198 km/h fallback
-  })();
-
-  const formatGap = (targetCar: Car, referenceCar: Car): string => {
-    const targetFinished = targetCar.isFinishedRace || targetCar.raceLapsCompleted >= raceTotalLaps;
-    const refFinished = referenceCar.isFinishedRace || referenceCar.raceLapsCompleted >= raceTotalLaps;
-
-    if (targetFinished && refFinished) {
-      const timeDiff = targetCar.totalRaceTime - referenceCar.totalRaceTime;
-      return timeDiff > 0 ? `+${timeDiff.toFixed(2)}s` : '+0.00s';
-    }
-
-    const refProg = progressMap.get(referenceCar) || 0;
-    const targetProg = progressMap.get(targetCar) || 0;
-    const distDiff = Math.max(0, refProg - targetProg);
-
-    const lapDiff = Math.floor(distDiff / trackTotalLen);
-    if (lapDiff >= 1) {
-      return `+${lapDiff} OKR`;
-    }
-
-    const timeDiff = distDiff / refSpeed;
-    return timeDiff > 0 ? `+${timeDiff.toFixed(2)}s` : '+0.00s';
-  };
-
-  return allRacingCars.map((car, idx) => {
-    const carFinished = car.isFinishedRace || car.raceLapsCompleted >= raceTotalLaps;
-    const isCarDnf = !car.isAlive && !carFinished && raceState !== 'IDLE';
-
-    let gapToLeader = '';
-    let gapToPrevious = '';
-
-    if (isCarDnf) {
-      gapToLeader = 'DNF';
-      gapToPrevious = 'DNF';
-    } else if (idx === 0) {
-      gapToLeader = '—';
-      gapToPrevious = '—';
-    } else {
-      gapToLeader = raceLeader ? formatGap(car, raceLeader) : '+0.00s';
-      const prevCar = allRacingCars[idx - 1];
-      gapToPrevious = prevCar ? formatGap(car, prevCar) : '+0.00s';
-    }
-
-    return {
-      rank: idx + 1,
-      driverName: car.driverName,
-      carColor: car.color,
-      lapsCompleted: car.raceLapsCompleted,
-      gap: gapToLeader,
-      gapToLeader,
-      gapToPrevious,
-      pitStops: car.pitStopsCount,
-      trackLimitExits: car.trackLimitExits,
-      isPitting: car.isPitting,
-      isAlive: car.isAlive,
-      bestLap: car.bestLapTime,
-      lastLap: car.lastLapTime,
-      totalTime: Math.round(car.totalRaceTime * 10) / 10,
-      isPlayer: car.isManual
-    };
-  });
-}
-
 function createSnapshot(): SimSnapshot {
   const isHeadless = currentProfileConfig.headless;
   const leader = population.currentLeader;
@@ -655,14 +441,6 @@ function createSnapshot(): SimSnapshot {
     if (c.fitness > maxFitness) maxFitness = c.fitness;
   }
 
-  // Calculate or return frozen standings if race finished
-  const raceStandings: RaceStanding[] = (raceState === 'FINISHED' && frozenRaceStandings)
-    ? frozenRaceStandings
-    : calculateRaceStandings();
-  if (raceState === 'FINISHED' && !frozenRaceStandings) {
-    frozenRaceStandings = raceStandings;
-  }
-
   return {
     driverPressure: population.driverPressure,
     cars: serializedCars,
@@ -680,23 +458,17 @@ function createSnapshot(): SimSnapshot {
     speedMultiplier,
     simTime,
     timingGates: track.timingGates.map(g => ({ ...g })),
-    sessionBestSectors: [...sessionBestSectors],
-    raceState,
-    raceTotalLaps,
-    raceCurrentLap,
-    raceStartLights,
-    raceWinner,
-    raceStandings,
+    sessionBestSectors: [...session.sessionBestSectors],
+    raceState: session.state,
+    raceTotalLaps: session.totalLaps,
+    raceCurrentLap: session.currentLap,
+    raceStartLights: session.startLights,
+    raceWinner: session.winner,
+    raceStandings: session.standings(),
     weather: { ...weather.state },
     weatherScenario: weather.scenario,
-    qualifying: qualifying ? {
-      session: qualifying.session,
-      phase: qualifying.phase,
-      timeLeft: Math.round(qualifying.timeLeft * 10) / 10,
-      eliminatedAfter: qualifying.projectedEliminations(),
-      standings: qualifying.standings(),
-    } : null,
-    hasQualifyingGrid: qualifyingGrid !== null,
+    qualifying: session.qualifyingSnapshot(),
+    hasQualifyingGrid: session.qualifyingGrid !== null,
     computeProfile: currentProfile,
     isHeadless: currentProfileConfig.headless,
     topology: currentTopology,
@@ -704,131 +476,10 @@ function createSnapshot(): SimSnapshot {
   };
 }
 
-function sessionCars(): Car[] {
-  return [...population.cars, ...(playerCar && isPlayerDriving ? [playerCar] : [])];
-}
-
-/** The car the player drives: their own car, or a team car they took over. */
-function isPlayerCar(car: Car): boolean {
-  return car === playerCar || (!!manualCarColor && car.color === manualCarColor);
-}
-
-/** Fits the session's starting tyres: the player's choice, or a slick by grid slot adjusted to the weather. */
-function fitStartingTyres(car: Car, gridIndex: number, dryChoice: TyreCompound = startingDryCompound(gridIndex)): void {
-  if (isPlayerCar(car)) {
-    car.tyreCompound = playerCompound;
-    car.nextCompound = playerCompound;
-  } else {
-    car.tyreCompound = weatherCompound(weather.state.wetness, dryChoice);
-    car.nextCompound = null;
-  }
-}
-
-/** Race and qualifying use each driver's protected best network, not the one still learning. */
-function equipBestBrains(): void {
-  for (let i = 0; i < population.cars.length; i++) {
-    const car = population.cars[i];
-    const record = population.teamRecords[i];
-    if (record && record.bestBrain && !car.isManual) {
-      car.brain = record.bestBrain.clone();
-      car.safeBrainBackup = record.bestBrain.clone();
-      car.safeBrainPressure = record.bestLapPressure ?? 0;
-    }
-  }
-}
-
-/** Puts a car in the garage: off the track, invisible, ignored by traffic. */
-function parkCar(car: Car): void {
-  car.isAlive = false;
-  car.wreckRemoved = true;
-  car.isFinishedRace = true;
-  car.isPitting = false;
-  car.wantsToPit = false;
-  car.vel.set(0, 0);
-  car.speed = 0;
-  car.speedKmh = 0;
-}
-
-function releaseQualifier(car: Car, slotIndex: number): void {
-  const slot = track.getGridSlot(slotIndex);
-  car.isRaceMode = true;
-  car.reset(slot.pos, slot.heading, true, (slot.checkpointIdx + 1) % track.checkpoints.length);
-  car.updateDimensionsForTrackWidth(track.width);
-  car.fuelKg = QUALI_FUEL_KG;
-  car.ersEnergy = Car.ERS_CAPACITY;
-  fitStartingTyres(car, slotIndex, 'soft');
-  // A qualifying stop brings another set of the same tyres.
-  if (!isPlayerCar(car)) car.nextCompound = car.tyreCompound;
-  car.isAlive = true;
-  car.pitStopsCount = 0;
-  car.trackLimitExits = 0;
-  car.raceLapsCompleted = 0;
-  car.totalRaceTime = 0;
-  qualiLapStartExits.set(car, 0);
-}
-
-/** Every session starts with the field in the garage; cars leave one by one, current leaders first. */
-function startQualifyingSession(): void {
-  if (!qualifying) return;
-  const field = new Set(qualifying.participants());
-  const cars = sessionCars();
-  qualiRelease.clear();
-  cars.forEach(parkCar);
-  qualifying.standings()
-    .filter(s => field.has(s.color))
-    .forEach((s, k) => {
-      const car = cars.find(c => c.color === s.color);
-      if (car) qualiRelease.set(car, { delay: k * QUALI_RELEASE_INTERVAL, slot: k });
-    });
-}
-
-/** Advances the qualifying clock. Returns true when cars are on track and physics should run. */
-function stepQualifying(dt: number): boolean {
-  if (!qualifying) return false;
-  if (qualifying.step(dt)) startQualifyingSession();
-  if (qualifying.isFinished) {
-    qualifyingGrid = qualifying.grid();
-    sessionCars().forEach(parkCar);
-    qualiRelease.clear();
-    raceState = 'QUALI_FINISHED';
-    return false;
-  }
-  if (qualifying.phase === 'break') {
-    sessionCars().forEach(car => { if (!car.wreckRemoved) parkCar(car); });
-    return false;
-  }
-  for (const [car, release] of qualiRelease) {
-    release.delay -= dt;
-    if (release.delay > 0) continue;
-    qualiRelease.delete(car);
-    if (qualifying.isRunning(car.color)) releaseQualifier(car, release.slot);
-  }
-  // A stop for a fresh set of tyres must not fill the tank for a race stint.
-  for (const car of sessionCars()) if (car.isPitting) car.fuelKg = Math.min(car.fuelKg, QUALI_FUEL_KG);
-  return true;
-}
-
-/** Times a completed lap; a lap after the chequered flag sends the car back to the garage. */
-function onQualifyingLap(car: Car, event: { lapTime: number }): void {
-  if (raceState !== 'QUALIFYING' || !qualifying) return;
-  const valid = car.trackLimitExits === (qualiLapStartExits.get(car) ?? 0);
-  qualiLapStartExits.set(car, car.trackLimitExits);
-  car.fuelKg = Math.max(car.fuelKg, QUALI_FUEL_KG);
-  if (qualifying.lapCompleted(car.color, event.lapTime, valid)) parkCar(car);
-}
-
-/** A crashed or stuck car keeps its time and takes no further part in the session. */
-function retireStoppedQualifiers(): void {
-  if (!qualifying) return;
-  for (const car of sessionCars()) {
-    if (!car.isAlive && !car.wreckRemoved && !qualiRelease.has(car) && qualifying.isRunning(car.color)) qualifying.retire(car.color);
-  }
-}
-
 /** A new field on the current track with every user setting (rays, topology, pressure, mutation, fuel) and the session hooks. */
 function createPopulation(): Population {
   const next = Population.create(track, { rayCount, topology: currentTopology, driverPressure, mutationRate, startingFuelKg });
-  next.onLapCompleted = onQualifyingLap;
+  next.onLapCompleted = (car, event) => session.onLapCompleted(car, event);
   return next;
 }
 
@@ -840,7 +491,7 @@ function runSimulationSteps(): void {
   const now = performance.now();
   const elapsed = Math.max(0, Math.min(0.25, (now - lastPhysicsTick) / 1000));
   lastPhysicsTick = now;
-  if (isPaused || raceState === 'FINISHED' || raceState === 'QUALI_FINISHED') { physicsAccumulator = 0; return; }
+  if (isPaused || session.state === 'FINISHED' || session.state === 'QUALI_FINISHED') { physicsAccumulator = 0; return; }
 
   let steps = speedMultiplier === 'max' ? currentProfileConfig.maxSubStepsBudget : 0;
 
@@ -864,42 +515,9 @@ function runSimulationSteps(): void {
     simTime += fixedDt;
     weather.step(fixedDt);
     population.setConditions(weather.conditions);
-    if (raceState === 'QUALIFYING' && !stepQualifying(fixedDt)) {
-      if (raceState !== 'QUALIFYING') break;
-      continue;
-    }
-    if (raceState === 'GRID_START') {
-      raceStartTimer += fixedDt;
-      if (raceStartTimer < 0.8) {
-        raceStartLights = 0;
-      } else if (raceStartTimer < 1.6) {
-        raceStartLights = 1;
-      } else if (raceStartTimer < 2.4) {
-        raceStartLights = 2;
-      } else if (raceStartTimer < 3.2) {
-        raceStartLights = 3;
-      } else if (raceStartTimer < 4.0) {
-        raceStartLights = 4;
-      } else if (raceStartTimer < 5.2) {
-        raceStartLights = 5;
-      } else {
-        raceStartLights = -1; // LIGHTS OUT!
-        raceState = 'RACING';
-      }
-
-      // Freeze all cars on grid
-      for (const car of population.cars) {
-        car.vel.set(0, 0);
-        car.speed = 0;
-        car.speedKmh = 0;
-      }
-      if (playerCar) {
-        playerCar.vel.set(0, 0);
-        playerCar.speed = 0;
-        playerCar.speedKmh = 0;
-      }
-      continue;
-    }
+    const phase = session.beforeStep(fixedDt);
+    if (phase === 'halt') break;
+    if (phase === 'skip') continue;
 
     if (isPlayerDriving && manualCarColor) {
       const manualCar = population.cars.find(c => c.color === manualCarColor);
@@ -916,7 +534,7 @@ function runSimulationSteps(): void {
     if (playerCar && isPlayerDriving) {
       if (!playerCar.isAlive) {
         playerCar.coastWreck(fixedDt, track);
-        if (raceState === 'IDLE') {
+        if (session.state === 'IDLE') {
           playerCar.respawnTimer -= fixedDt;
           if (playerCar.respawnTimer <= 0) {
             playerCar.reset(track.startPosition, track.startAngle, true);
@@ -929,45 +547,11 @@ function runSimulationSteps(): void {
         if (trafficMotion) resolveTraffic(traffic, trafficMotion, playerCar);
         if (lapEvent) {
           population.recordLap({...lapEvent, compromised: lapEvent.compromised || playerCar.lapCompromised}, playerCar, true, track);
-          onQualifyingLap(playerCar, lapEvent);
+          session.onLapCompleted(playerCar, lapEvent);
         }
       }
     }
-    for (const car of sessionCars()) recordSector(car);
-    if (raceState === 'QUALIFYING') retireStoppedQualifiers();
-
-    if (raceState === 'RACING') {
-      let maxLaps = 0;
-      let aliveCount = 0;
-      for (const c of population.cars) {
-        if (c.isAlive) aliveCount++;
-        if (c.raceLapsCompleted > maxLaps) maxLaps = c.raceLapsCompleted;
-      }
-      if (playerCar && isPlayerDriving) {
-        if (playerCar.isAlive) aliveCount++;
-        if (playerCar.raceLapsCompleted > maxLaps) {
-          maxLaps = playerCar.raceLapsCompleted;
-        }
-      }
-      raceCurrentLap = Math.min(raceTotalLaps, maxLaps + 1);
-
-      if (!raceWinner) {
-        const winner = population.cars.find(c => c.raceLapsCompleted >= raceTotalLaps)
-          || ((playerCar && isPlayerDriving && playerCar.raceLapsCompleted >= raceTotalLaps) ? playerCar : null);
-        if (winner) {
-          winner.isFinishedRace = true;
-          raceWinner = winner.driverName;
-          raceState = 'FINISHED';
-          frozenRaceStandings = calculateRaceStandings();
-          break;
-        } else if (aliveCount === 0) {
-          raceWinner = 'BRAK (WSZYSCY ROZBICI - DNF)';
-          raceState = 'FINISHED';
-          frozenRaceStandings = calculateRaceStandings();
-          break;
-        }
-      }
-    }
+    if (session.afterStep()) break;
   }
 }
 
@@ -1059,7 +643,7 @@ self.onmessage = (e: MessageEvent) => {
         const newPoints = Spline.generateClosedTrack(source, nextWidth, 18, !!data.keepOrder);
         const nextTrack = new Track(newPoints, nextWidth);
         trackWidth = nextWidth; track = nextTrack;
-        resetSessionBestSectors();
+        session.resetSectors();
         population.resetAll(track);
         if (playerCar) {
           playerCar.reset(track.startPosition, track.startAngle, true);
@@ -1079,7 +663,7 @@ self.onmessage = (e: MessageEvent) => {
         track = Presets.createGrandPrixTrack(dims.effectiveTrackWidth);
       }
       population = createPopulation();
-      resetSessionBestSectors();
+      session.resetSectors();
       if (playerCar) {
         playerCar.reset(track.startPosition, track.startAngle, true);
         playerCar.updateDimensionsForTrackWidth(trackWidth);
@@ -1097,7 +681,7 @@ self.onmessage = (e: MessageEvent) => {
         const nextTrack = new Track(splinePoints, nextWidth);
         trackWidth = nextWidth; track = nextTrack;
         population = createPopulation();
-        resetSessionBestSectors();
+        session.resetSectors();
         if (playerCar) {
           playerCar.reset(track.startPosition, track.startAngle, true);
           playerCar.updateDimensionsForTrackWidth(trackWidth);
@@ -1121,9 +705,9 @@ self.onmessage = (e: MessageEvent) => {
     case 'SET_TYRES': {
       // The player's compound; changing it mid-race takes effect at the next stop.
       if (isCompound(data.compound)) {
-        playerCompound = data.compound;
-        for (const car of sessionCars()) if (isPlayerCar(car)) car.nextCompound = playerCompound;
-        if (playerCar) playerCar.nextCompound = playerCompound;
+        session.playerCompound = data.compound;
+        for (const car of session.cars()) if (session.isPlayerCar(car)) car.nextCompound = data.compound;
+        if (playerCar) playerCar.nextCompound = data.compound;
       }
       break;
     }
@@ -1191,56 +775,13 @@ self.onmessage = (e: MessageEvent) => {
     }
 
     case 'START_RACE': {
-      raceTotalLaps = Math.max(10, Math.min(200, data.totalLaps || 50));
-      raceWinner = null;
-      frozenRaceStandings = null;
-      resetSessionBestSectors();
       isPaused = false;
-      population.isRaceMode = true;
-      weather.reset(weather.scenario, typeof data.weatherSeed === 'number' ? data.weatherSeed : weatherSeed());
-      population.setConditions(weather.conditions);
-      // CRITICAL: Preserve learned neural network! Equip the best brain learned during training!
-      equipBestBrains();
-
-      if (data.withQualifying) {
-        raceState = 'QUALIFYING';
-        qualifyingGrid = null;
-        // Session lengths are fixed by the rules; tests may shorten them.
-        const sessionSeconds = Array.isArray(data.qualifyingSessionSeconds) && data.qualifyingSessionSeconds.length === 3
-          && data.qualifyingSessionSeconds.every((t: unknown) => typeof t === 'number' && t > 0)
-          ? data.qualifyingSessionSeconds as number[] : undefined;
-        qualifying = new Qualifying(sessionCars().map(c => ({ color: c.color, driverName: c.driverName })), { sessionSeconds });
-        startQualifyingSession();
-        break;
-      }
-
-      raceState = 'GRID_START';
-      raceCurrentLap = 1;
-      raceStartLights = 0;
-      raceStartTimer = 0;
-      // Starting order: the qualifying result when the race follows qualifying, otherwise the entry list.
-      const entrants = sessionCars();
-      const grid = data.useQualifyingGrid ? qualifyingGrid : null;
-      const order = grid
-        ? [...grid.map(color => entrants.find(c => c.color === color)).filter((c): c is Car => !!c),
-           ...entrants.filter(c => !grid.includes(c.color))]
-        : entrants;
-      qualifying = null;
-      qualiRelease.clear();
-      order.forEach((car, i) => {
-        car.isRaceMode = true;
-        const slot = track.getGridSlot(i);
-        car.reset(slot.pos, slot.heading, true, (slot.checkpointIdx + 1) % track.checkpoints.length);
-        car.updateDimensionsForTrackWidth(track.width);
-        fitStartingTyres(car, i);
-        car.fuelKg = 50.0;
-        car.pitStopsCount = 0;
-        car.trackLimitExits = 0;
-        car.raceLapsCompleted = 0;
-        car.totalRaceTime = 0;
-        car.isAlive = true;
-        car.isPitting = false;
-        car.wantsToPit = false;
+      session.start({
+        totalLaps: data.totalLaps,
+        withQualifying: !!data.withQualifying,
+        useQualifyingGrid: !!data.useQualifyingGrid,
+        qualifyingSessionSeconds: data.qualifyingSessionSeconds,
+        weatherSeed: typeof data.weatherSeed === 'number' ? data.weatherSeed : weatherSeed(),
       });
       break;
     }
@@ -1248,13 +789,7 @@ self.onmessage = (e: MessageEvent) => {
     case 'CLEAR_LEARNING': {
       // Clean slate: a population exactly as at start-up (seed networks only, no records,
       // lines, pace or generations). Track and user settings are kept; any session ends.
-      raceState = 'IDLE';
-      qualifying = null;
-      qualifyingGrid = null;
-      qualiRelease.clear();
-      raceWinner = null;
-      frozenRaceStandings = null;
-      resetSessionBestSectors();
+      session.clear();
       islandsAdopted = 0;
       population = createPopulation();
       if (playerCar) {
@@ -1273,46 +808,7 @@ self.onmessage = (e: MessageEvent) => {
     }
 
     case 'STOP_RACE': {
-      raceState = 'IDLE';
-      resetSessionBestSectors();
-      qualifying = null;
-      qualifyingGrid = null;
-      qualiRelease.clear();
-      raceWinner = null;
-      frozenRaceStandings = null;
-      population.isRaceMode = false;
-      for (let i = 0; i < population.cars.length; i++) {
-        const car = population.cars[i];
-        const record = population.teamRecords[i];
-        car.isRaceMode = false;
-        // CRITICAL: Preserve learned neural network! Restore the bestBrain without destroying it!
-        if (record && record.bestBrain && !car.isManual) {
-          car.brain = record.bestBrain.clone();
-          car.safeBrainBackup = record.bestBrain.clone();
-          car.safeBrainPressure = record.bestLapPressure ?? 0;
-        }
-        const slot = track.getGridSlot(i);
-        const nextCpIdx = (slot.checkpointIdx + 1) % track.checkpoints.length;
-        car.reset(slot.pos, slot.heading, true, nextCpIdx);
-        car.updateDimensionsForTrackWidth(track.width);
-        car.fuelKg = population.startingFuelKg;
-        car.isAlive = true;
-        car.pitStopsCount = 0;
-        car.trackLimitExits = 0;
-        car.raceLapsCompleted = 0;
-        car.totalRaceTime = 0;
-        car.isPitting = false;
-        car.wantsToPit = false;
-      }
-      if (playerCar) {
-        playerCar.isRaceMode = false;
-        const slot = track.getGridSlot(population.cars.length);
-        const nextCpIdx = (slot.checkpointIdx + 1) % track.checkpoints.length;
-        playerCar.reset(slot.pos, slot.heading, true, nextCpIdx);
-        playerCar.updateDimensionsForTrackWidth(track.width);
-        playerCar.fuelKg = population.startingFuelKg;
-        playerCar.isAlive = true;
-      }
+      session.stop();
       break;
     }
 
@@ -1371,7 +867,7 @@ self.onmessage = (e: MessageEvent) => {
     }
 
     case 'RESET_BEST_TIMES': {
-      resetSessionBestSectors();
+      session.resetSectors();
       population.resetBestTimes();
       if (playerCar) {
         playerCar.bestLapTime = null;
