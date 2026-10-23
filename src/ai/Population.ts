@@ -38,6 +38,15 @@ export interface TeamRecord {
   currentMutationRate: number;
 }
 
+/** Training settings a new field starts with (the user's sliders, carried over to every new field). */
+export interface PopulationSettings {
+  rayCount?: number;
+  topology?: TopologySpecifier;
+  driverPressure?: number;
+  mutationRate?: number;
+  startingFuelKg?: number;
+}
+
 export interface LapLeaderboardEntry {
   id: number;
   rank: number;
@@ -152,11 +161,23 @@ export class Population {
   ];
   public static readonly MAX_CARS = Population.F1_TEAMS.length;
 
-  constructor(size: number = Population.MAX_CARS, track: Track, rayCount: number = 25, topology: TopologySpecifier = 'Standard') {
+  /** `settings` apply before the cars are built: the field starts with them, never with the defaults. */
+  constructor(size: number = Population.MAX_CARS, track: Track, rayCount: number = 25, topology: TopologySpecifier = 'Standard', settings: PopulationSettings = {}) {
     this.populationSize = Math.min(Population.MAX_CARS, Math.max(1, size));
-    this.rayCount = rayCount;
-    this.topology = topology;
+    this.rayCount = settings.rayCount ?? rayCount;
+    this.topology = settings.topology ?? topology;
+    if (typeof settings.mutationRate === 'number' && Number.isFinite(settings.mutationRate)) this.mutationRate = settings.mutationRate;
+    if (typeof settings.startingFuelKg === 'number' && Number.isFinite(settings.startingFuelKg)) this.startingFuelKg = settings.startingFuelKg;
+    this.driverPressure = normalizePressure(settings.driverPressure ?? 0);
     this.initPopulation(track);
+  }
+
+  /**
+   * A full field with the session's settings, so a new track, a clean slate or an island
+   * never falls back to the defaults (mutation rate, fuel, driver pressure).
+   */
+  static create(track: Track, settings: PopulationSettings = {}): Population {
+    return new Population(Population.MAX_CARS, track, settings.rayCount, settings.topology, settings);
   }
 
   public resetGenerationCounters(track?: Track): void {

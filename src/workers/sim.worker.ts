@@ -289,9 +289,7 @@ const qualiLapStartExits = new Map<Car, number>();
 
 let dims = Car.getDimensionsForTrackWidth(trackWidth);
 let track = Presets.createGrandPrixTrack(dims.effectiveTrackWidth);
-let population = new Population(Population.MAX_CARS, track, rayCount, currentTopology);
-attachPopulationHooks();
-population.setDriverPressure(driverPressure, true);
+let population = createPopulation();
 let playerCar: Car | null = null;
 let playerControl: CarControl = { steer: 0, throttle: 0, brake: 0 };
 let activeSelectedColor: string | null = null;
@@ -817,8 +815,11 @@ function retireStoppedQualifiers(): void {
   }
 }
 
-function attachPopulationHooks(): void {
-  population.onLapCompleted = onQualifyingLap;
+/** A new field on the current track with every user setting (rays, topology, pressure, mutation, fuel) and the session hooks. */
+function createPopulation(): Population {
+  const next = Population.create(track, { rayCount, topology: currentTopology, driverPressure, mutationRate, startingFuelKg });
+  next.onLapCompleted = onQualifyingLap;
+  return next;
 }
 
 // Simulation step execution: elapsed-time accumulator keeps 1x tied to real time.
@@ -1065,9 +1066,7 @@ self.onmessage = (e: MessageEvent) => {
       } else {
         track = Presets.createGrandPrixTrack(dims.effectiveTrackWidth);
       }
-      population = new Population(Population.MAX_CARS, track, rayCount, currentTopology);
-      attachPopulationHooks();
-      population.setDriverPressure(driverPressure, true);
+      population = createPopulation();
       if (playerCar) {
         playerCar.reset(track.startPosition, track.startAngle, true);
         playerCar.updateDimensionsForTrackWidth(trackWidth);
@@ -1084,9 +1083,7 @@ self.onmessage = (e: MessageEvent) => {
         if (splinePoints.length < 8) throw new Error('Tor jest zbyt krótki.');
         const nextTrack = new Track(splinePoints, nextWidth);
         trackWidth = nextWidth; track = nextTrack;
-        population = new Population(Population.MAX_CARS, track, rayCount, currentTopology);
-        attachPopulationHooks();
-        population.setDriverPressure(driverPressure, true);
+        population = createPopulation();
         if (playerCar) {
           playerCar.reset(track.startPosition, track.startAngle, true);
           playerCar.updateDimensionsForTrackWidth(trackWidth);
@@ -1244,11 +1241,7 @@ self.onmessage = (e: MessageEvent) => {
       frozenRaceStandings = null;
       sessionBestSplits = [null, null, null, null];
       islandsAdopted = 0;
-      population = new Population(Population.MAX_CARS, track, rayCount, currentTopology);
-      attachPopulationHooks();
-      population.setDriverPressure(driverPressure, true);
-      population.mutationRate = mutationRate;
-      population.startingFuelKg = startingFuelKg;
+      population = createPopulation();
       if (playerCar) {
         playerCar.isRaceMode = false;
         playerCar.reset(track.startPosition, track.startAngle, true);

@@ -71,10 +71,8 @@ self.onmessage = (e: MessageEvent) => {
     case 'SETUP': {
       const setup = data as IslandSetup;
       track = deserializeTrack(setup.track);
-      population = new Population(Population.MAX_CARS, track, setup.rayCount, setup.topology);
-      population.setDriverPressure(normalizePressure(setup.driverPressure), true);
-      population.mutationRate = setup.mutationRate;
-      population.startingFuelKg = setup.startingFuelKg;
+      population = Population.create(track, { rayCount: setup.rayCount, topology: setup.topology,
+        driverPressure: setup.driverPressure, mutationRate: setup.mutationRate, startingFuelKg: setup.startingFuelKg });
       Car.STRESS_LAP_SHARE = clampStressShare(setup.stressLapShare);
       weather.reset(isWeatherScenario(setup.weatherScenario) ? setup.weatherScenario : 'sunny', setup.weatherSeed);
       population.setConditions(weather.conditions);

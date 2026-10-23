@@ -26,6 +26,14 @@ try {
     assert.equal(copy.castRay(pos, angle, 240).dist, track.castRay(pos, angle, 240).dist);
   }
 
+  // 1b. A new field (new track, clean slate, island) starts with the session's settings, not the defaults.
+  const configured = Population.create(copy, { rayCount: 25, topology: 'Standard', driverPressure: 5, mutationRate: 0.17, startingFuelKg: 64 });
+  assert.equal(configured.cars.length, Population.MAX_CARS);
+  assert.equal(configured.mutationRate, 0.17, 'mutation rate carried over to the new field');
+  assert.equal(configured.startingFuelKg, 64);
+  assert.ok(configured.cars.every(car => car.fuelKg === 64 && car.driverPressure === 5), 'cars start with the configured fuel and pressure');
+  assert.ok(configured.teamRecords.every(record => record.currentMutationRate === 0.17));
+
   // 2. Migration takes only strictly faster clean laps with matching pressure and inputs.
   const main = new Population(Population.MAX_CARS, track);
   const island = new Population(Population.MAX_CARS, copy);
