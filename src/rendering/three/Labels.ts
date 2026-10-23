@@ -15,7 +15,7 @@ function labelText(view: CarView): { text: string; kind: string } {
   const match = car.driverName.match(/^([^\s]+)\s+([^\s(]+)/);
   const short = match ? match[2] : car.driverName.split(' ')[0];
   if (!car.isAlive) return { text: '💥 DNF', kind: 'dnf' };
-  if (car.isPitting) return { text: `⛽ ${short}: PIT STOP (${car.pitTimer.toFixed(1)}s)`, kind: 'pitting' };
+  if (car.isPitting) return { text: `🔧 ${short}: PIT STOP (${car.pitTimer.toFixed(1)}s)`, kind: 'pitting' };
   if (car.yellowFlag) return { text: `⚑ ŻÓŁTA: ${short} ${speed} km/h`, kind: 'yellow' };
   if (car.isOutOfFuel) return { text: `⚠️ ${short}: LIMP MODE (NO FUEL)`, kind: 'pit' };
   if (car.wantsToPit) return { text: `🔧 ${short}: BOX THIS LAP`, kind: 'pit' };
@@ -78,7 +78,7 @@ export class Labels {
     const lift = ppm ? Math.max(24, 0.9 * ppm + 16) : 30;
     for (const view of views) {
       const car = view.car;
-      if (car.wreckRemoved || (!showSpeed && car.isAlive)) continue;
+      if (car.wreckRemoved || car.isPitting || (!showSpeed && car.isAlive)) continue;
       if (!rig.worldToScreen(car.pos.x, car.pos.y, 1.2, this.p)) continue;
       const { text, kind } = labelText(view);
       const strong = view.isLeader || view.isPlayer || view.isSelected || car.isPitting;

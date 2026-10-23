@@ -512,6 +512,8 @@ class App {
 
     const btnRefuel = document.getElementById('btn-refuel')!;
     btnRefuel.addEventListener('click', () => {
+      // Training only: nobody refuels in qualifying or a race.
+      if (this.sync.session.raceState !== 'IDLE') return;
       for (const car of this.population.cars) {
         car.fuelKg = this.population.startingFuelKg;
         car.isOutOfFuel = false;
@@ -1365,7 +1367,9 @@ class App {
       this.population = new Population(Population.MAX_CARS, this.track, this.population.rayCount, this.population.topology);
       this.population.setDriverPressure(this.driverPressure, true);
       this.selectedCar = null;
-      this.bridge.setCustomTrack(parsedPoints.map(p => ({ x: p.x, y: p.y })), this.trackWidth, !!direction);
+      const pitLaneLoss = typeof data.pitLaneLoss === 'number' && data.pitLaneLoss > 0 ? data.pitLaneLoss : undefined;
+      this.track.pitLaneLoss = pitLaneLoss ?? null;
+      this.bridge.setCustomTrack(parsedPoints.map(p => ({ x: p.x, y: p.y })), this.trackWidth, !!direction, pitLaneLoss);
 
       if (this.playerCar) {
         this.playerCar.reset(this.track.startPosition, this.track.startAngle, true);

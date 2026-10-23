@@ -121,7 +121,7 @@ export class Effects {
       t = { lx, ly, rx, ry, skidding: false, impact: car.barrierImpactSpeed, smoke: 0, dust: 0, sparks: 0, spray: 0 };
       this.trails.set(car, t);
     }
-    const alive = car.isAlive && !car.wreckRemoved;
+    const alive = car.isAlive && !car.wreckRemoved && !car.isPitting;
     const speed = car.speedKmh / 3.6, vx = c * speed, vy = s * speed;
     const skidding = alive && car.isSkidding;
 

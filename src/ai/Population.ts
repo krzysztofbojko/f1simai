@@ -105,6 +105,8 @@ export class Population {
   public mutationRate: number = 0.02;
   public mutationStrength: number = 0.05;
   public startingFuelKg: number = 105.0;
+  /** Fuel the field burns per lap on this track (running mean of completed laps, kg); null before the first. */
+  public fuelPerLap: number | null = null;
   public rayCount: number = 25;
   public topology: TopologySpecifier = 'Standard';
 
@@ -300,6 +302,10 @@ export class Population {
 
   recordLap(lapEvent: LapFinishEvent, car: Car, isPlayer: boolean = false, track?: Track): void {
     if (car.pressureLearningBlocked) lapEvent = {...lapEvent, compromised: true};
+    const fuelUsed = lapEvent.fuelUsed;
+    if (typeof fuelUsed === 'number' && fuelUsed > 0 && Number.isFinite(fuelUsed)) {
+      this.fuelPerLap = this.fuelPerLap === null ? fuelUsed : this.fuelPerLap + (fuelUsed - this.fuelPerLap) * 0.05;
+    }
     const lapPressure = lapEvent.pressure ?? car.driverPressure;
     if (!this.isRaceMode && !isPlayer) {
       car.lineSearchByPressure.get(lapPressure)?.finish(lapEvent.lapTime, !lapEvent.compromised);
@@ -503,7 +509,7 @@ export class Population {
         // Point 1: pass leader speeds for telemetry coaching, or use human player WASD input (learning enabled only in simulation step)
         let control = car.isManual ? car.manualControl : car.getAIControl(track, this.leaderCheckpointSpeeds, !this.isRaceMode);
         control = avoidTraffic(car, traffic, control, track);
-        const lapEvent = car.updatePhysics(control, dt, track);
+        const lapEvent = car.updatePhysics(control, dt, track, traffic);
 
         if (lapEvent) {
           laps.push({car, event: lapEvent});
@@ -893,6 +899,7 @@ export class Population {
   }
 
   resetAll(track: Track): void {
+    this.fuelPerLap = null;
     const baseBrain = NeuralNetwork.createTrainedDriverNetwork(this.rayCount, this.topology, track);
     for (let i = 0; i < this.cars.length; i++) {
       const slot = track.getGridSlot(i);

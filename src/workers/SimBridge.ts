@@ -208,8 +208,9 @@ export class SimBridge {
   }
 
   /** `keepOrder`: the points' order is the driving direction (imported real circuits). */
-  public setCustomTrack(points: { x: number; y: number }[], trackWidth?: number, keepOrder = false): void {
-    this.worker?.postMessage({ type: 'SET_CUSTOM_TRACK', points, trackWidth, keepOrder });
+  /** `pitLaneLoss`: seconds a pass through this circuit's pit lane costs (omitted: the default). */
+  public setCustomTrack(points: { x: number; y: number }[], trackWidth?: number, keepOrder = false, pitLaneLoss?: number): void {
+    this.worker?.postMessage({ type: 'SET_CUSTOM_TRACK', points, trackWidth, keepOrder, pitLaneLoss });
   }
 
   public setDriverPressure(value: number): void {

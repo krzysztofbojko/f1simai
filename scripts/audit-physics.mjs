@@ -79,8 +79,9 @@ try {
     empty.updatePhysics({ ...idle, throttle: 1 }, 1 / 60, track);
   }
   results.emptyTank = { speedKmh: empty.speedKmh, fuelKg: empty.fuelKg, alive: empty.isAlive };
-  const pit = car(); pit.fuelKg = 10; pit.isPitting = true; pit.pitTimer = Math.max(3.2, (Car.MAX_FUEL_CAPACITY - pit.fuelKg) / 28);
-  for (let i = 0; i < 215; i++) pit.updatePhysics(idle, 1 / 60, track);
+  // A stop: the pit-lane loss and the tyre change, no fuel (there is no refuelling).
+  const pit = car(); pit.fuelKg = 10; pit.isPitting = true; pit.pitTimer = 22.5;
+  for (let i = 0; i < 1380 && pit.isPitting; i++) pit.updatePhysics(idle, 1 / 60, track);
   results.pit = { fuelKg: pit.fuelKg, lapTime: pit.lapTime, totalRaceTime: pit.totalRaceTime, pitting: pit.isPitting };
   results.scale14 = Car.getDimensionsForTrackWidth(14);
   results.aero400 = { downforceN: 0.5 * stopped.airDensity * stopped.downforceCoeff * (400 / 3.6) ** 2 };
@@ -117,7 +118,7 @@ try {
     assert.ok(results['turn0.1'].yawRate > 0 && results['turn0.1'].yawRate < kinematicYaw * 0.5);
     assert.ok(Math.abs(results['release0.1'].yawRate) > 0 && Math.abs(results['release0.1'].yawRate) < kinematicYaw);
     close(results.emptyTank.speedKmh, 0); close(results.emptyTank.fuelKg, 0);
-    close(results.pit.fuelKg, Car.MAX_FUEL_CAPACITY);
+    close(results.pit.fuelKg, 10);
     close(results.pit.lapTime, results.pit.totalRaceTime); assert.equal(results.pit.pitting, false);
     assert.equal(results.scale14.effectiveTrackWidth, 14);
     assert.ok(results.trainingGP.globalBestLap > 0, 'AI must complete GP laps after physics changes');

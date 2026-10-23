@@ -60,6 +60,8 @@ export interface LapFinishEvent {
   maxSpeed: number;
   avgSpeed: number;
   fuelRemaining: number;
+  /** Fuel burnt over the lap, kg. */
+  fuelUsed?: number;
 }
 
 /** LiDAR rays + 5 driving inputs + 8 vehicle-state inputs (tyre temps, wear, ERS, gear, rpm, ride height F/R). */
@@ -195,9 +197,18 @@ export class Car {
   // Simulation mass and fuel parameters
   public static readonly BASE_DRY_MASS: number = 798; // kg
   public static readonly MAX_FUEL_CAPACITY: number = 110; // kg (simulation tank capacity)
+  /**
+   * Fuel flow at full power, kg/s: the 100 kg/h limit of the rules. The flow follows the power the
+   * engine makes (throttle and the rpm power curve); a 300 km race needs about 100 kg.
+   */
+  public static readonly FUEL_FLOW_MAX = 100 / 3600;
+  /** Fuel flow at idle and on the overrun, kg/s. */
+  public static readonly FUEL_FLOW_IDLE = 0.0006;
   public fuelKg: number = 105.0; // kg (realistic race fuel load)
   public fuelBurnRatePerSec: number = 0; // kg/s
   public totalFuelConsumed: number = 0; // kg
+  /** Fuel in the tank when the current lap started (fuel used per lap, for race fuel planning). */
+  public lapStartFuel: number = 105.0;
 
   // Physical specifications (F1 Dimensions & Weights)
   public length: number = 5.5; // Physical and rendered length (m)
@@ -755,6 +766,10 @@ export class Car {
   public isPitting: boolean = false;
   public pitTimer: number = 0;
   public pitStopsCount: number = 0;
+  /** Race distance in laps while racing (the pit strategy plans with it); 0 outside a race. */
+  public raceDistanceLaps = 0;
+  /** Compounds fitted during this race (start set and every stop), for the dry-race tyre rule. */
+  public usedCompounds = new Set<TyreCompound>();
   public totalRaceTime: number = 0;
   public raceLapsCompleted: number = 0;
   /** Number of times all four wheels were outside the asphalt (track-limit exits). */
@@ -911,7 +926,10 @@ export class Car {
       this.tyreWearFront = this.tyreWearRear = 0;
       this.tyreCompound = weatherCompound(Car.config.weather.wetness, 'medium');
       this.nextCompound = null;
+      this.raceDistanceLaps = 0;
+      this.usedCompounds = new Set([this.tyreCompound]);
     }
+    this.lapStartFuel = this.fuelKg;
     this.lapWetMin = this.lapWetMax = Car.config.weather.wetness;
     this.ersHarvestedLap = 0;
     this.gear = 1; this.engineRpm = Car.IDLE_RPM; this.shiftCutTimer = 0; this.shiftCooldown = 0;
@@ -1142,7 +1160,8 @@ export class Car {
    * Hybrid vehicle dynamics step with SI forces, bounded tire friction,
    * signed telemetry and a finite kinematic steering response.
    */
-  updatePhysics(control: CarControl, dt: number, track: Track): LapFinishEvent | null {
+  /** `traffic`: the cars on the track, for the pit exit (none given: the exit is always clear). */
+  updatePhysics(control: CarControl, dt: number, track: Track, traffic: readonly Car[] = []): LapFinishEvent | null {
     this.lastStepDt = dt;
     this.sectorEvent = null;
     if (!this.isAlive) {
@@ -1195,7 +1214,7 @@ export class Car {
     }
 
     if (this.isPitting) {
-      servicePitStop(this, dt);
+      servicePitStop(this, dt, track, traffic);
       return null;
     }
 
@@ -1222,9 +1241,7 @@ export class Car {
       actualThrottle = 0;
       this.fuelBurnRatePerSec = 0;
     } else {
-      const baseBurn = 0.004;
-      const loadBurn = 0.062 * actualThrottle * (0.30 + 0.70 * (this.speed / 95));
-      this.fuelBurnRatePerSec = baseBurn + loadBurn;
+      this.fuelBurnRatePerSec = Car.FUEL_FLOW_IDLE + Car.FUEL_FLOW_MAX * actualThrottle * Car.icePowerFraction(this.engineRpm);
       const fuelConsumed = Math.min(this.fuelKg, this.fuelBurnRatePerSec * dt);
       this.fuelKg = Math.max(0, this.fuelKg - fuelConsumed);
       this.totalFuelConsumed += fuelConsumed;

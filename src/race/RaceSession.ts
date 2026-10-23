@@ -66,7 +66,10 @@ export type StepPhase = 'run' | 'skip' | 'halt';
  * each physics step and serializes what it reports.
  */
 export class RaceSession {
-  /** Qualifying fuel, topped up on every lap: runs between short refuelling visits are not modelled. */
+  /**
+   * Qualifying fuel, topped up on every lap: the garage visits between runs, where real cars take
+   * fuel, are not modelled. Pit stops never refuel.
+   */
   static readonly QUALI_FUEL_KG = 20;
   /** Seconds between cars leaving the garage. */
   static readonly QUALI_RELEASE_INTERVAL = 1.5;
@@ -75,6 +78,14 @@ export class RaceSession {
    * this many of the winner's last lap: a car stopped on the circuit is classified where it stands.
    */
   static readonly CHEQUERED_TIMEOUT_LAPS = 1.5;
+  /**
+   * Race fuel: the laps times the fuel the field burns per lap, plus this share and the reserve.
+   * There is no refuelling: a distance the tank cannot cover is shortened to the laps it can.
+   */
+  static readonly FUEL_MARGIN = 0.04;
+  static readonly FUEL_RESERVE_KG = 1.5;
+  /** Fuel per metre of lap before the field has completed a lap on the track (kg/m). */
+  static readonly FUEL_PER_METRE = 0.00035;
 
   state: RaceState = 'IDLE';
   totalLaps = 50;
@@ -82,6 +93,10 @@ export class RaceSession {
   /** 0: off, 1..5: red lights, -1: lights out. */
   startLights = 0;
   winner: string | null = null;
+  /** Fuel every car starts the race with, kg. */
+  raceFuelKg = 0;
+  /** Laps asked for; `totalLaps` is shorter when the tank cannot cover them. */
+  requestedLaps = 50;
   /**
    * The winner has taken the chequered flag: from then on every car finishes at its next crossing
    * of the line, lapped cars a lap or more down.
@@ -148,7 +163,8 @@ export class RaceSession {
   /** Qualifying (when asked for) or the race from the grid; the weather starts again from its forecast. */
   start(options: RaceStartOptions): void {
     const { population, track, weather } = this.ctx;
-    this.totalLaps = Math.max(10, Math.min(200, options.totalLaps || 50));
+    this.requestedLaps = Math.max(10, Math.min(200, options.totalLaps || 50));
+    this.planRaceFuel();
     this.resetRaceFinish();
     this.resetSectors();
     population.isRaceMode = true;
@@ -187,7 +203,9 @@ export class RaceSession {
       car.reset(slot.pos, slot.heading, true, (slot.checkpointIdx + 1) % track.checkpoints.length);
       car.updateDimensionsForTrackWidth(track.width);
       this.fitStartingTyres(car, i);
-      car.fuelKg = 50.0;
+      car.fuelKg = this.raceFuelKg;
+      car.lapStartFuel = car.fuelKg;
+      car.raceDistanceLaps = this.totalLaps;
       car.pitStopsCount = 0;
       car.trackLimitExits = 0;
       car.raceLapsCompleted = 0;
@@ -328,6 +346,7 @@ export class RaceSession {
     const valid = car.trackLimitExits === (this.qualiLapStartExits.get(car) ?? 0);
     this.qualiLapStartExits.set(car, car.trackLimitExits);
     car.fuelKg = Math.max(car.fuelKg, RaceSession.QUALI_FUEL_KG);
+    car.lapStartFuel = car.fuelKg;
     if (this.qualifying.lapCompleted(car.color, event.lapTime, valid)) this.parkCar(car);
   }
 
@@ -362,6 +381,19 @@ export class RaceSession {
     } : null;
   }
 
+  /** Fuel per lap as the field burns it on this track (kg). */
+  fuelPerLap(): number {
+    return this.ctx.population.fuelPerLap ?? this.ctx.track.totalLength * RaceSession.FUEL_PER_METRE;
+  }
+
+  /** Race fuel for the laps asked for; the distance is cut to what a full tank covers. */
+  private planRaceFuel(): void {
+    const perLap = this.fuelPerLap() * (1 + RaceSession.FUEL_MARGIN);
+    const reachable = Math.floor((Car.MAX_FUEL_CAPACITY - RaceSession.FUEL_RESERVE_KG) / perLap);
+    this.totalLaps = Math.max(1, Math.min(this.requestedLaps, reachable));
+    this.raceFuelKg = Math.min(Car.MAX_FUEL_CAPACITY, this.totalLaps * perLap + RaceSession.FUEL_RESERVE_KG);
+  }
+
   /** Fits the session's starting tyres: the player's choice, or a slick by grid slot adjusted to the weather. */
   private fitStartingTyres(car: Car, gridIndex: number, dryChoice: TyreCompound = startingDryCompound(gridIndex)): void {
     if (this.isPlayerCar(car)) {
@@ -371,6 +403,7 @@ export class RaceSession {
       car.tyreCompound = weatherCompound(this.ctx.weather.state.wetness, dryChoice);
       car.nextCompound = null;
     }
+    car.usedCompounds = new Set([car.tyreCompound]);
   }
 
   private equipBestBrains(): void {
@@ -455,8 +488,6 @@ export class RaceSession {
       this.qualiRelease.delete(car);
       if (qualifying.isRunning(car.color)) this.releaseQualifier(car, release.slot);
     }
-    // A stop for a fresh set of tyres must not fill the tank for a race stint.
-    for (const car of this.cars()) if (car.isPitting) car.fuelKg = Math.min(car.fuelKg, RaceSession.QUALI_FUEL_KG);
     return true;
   }
 

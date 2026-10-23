@@ -132,7 +132,7 @@ export class SceneRenderer {
   pickCar(sx: number, sy: number, cars: Car[], radius = 24): Car | null {
     let best: Car | null = null, bestDist = radius;
     for (const car of cars) {
-      if (!car.isAlive || !this.cameras.worldToScreen(car.pos.x, car.pos.y, 0.4, this.screen)) continue;
+      if (!car.isAlive || car.isPitting || !this.cameras.worldToScreen(car.pos.x, car.pos.y, 0.4, this.screen)) continue;
       const d = Math.hypot(this.screen.x - sx, this.screen.y - sy);
       if (d < bestDist) { bestDist = d; best = car; }
     }

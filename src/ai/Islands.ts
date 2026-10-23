@@ -13,6 +13,7 @@ function isConditions(value: unknown): value is TrackConditions {
 /** Track geometry as plain data; `deserializeTrack` rebuilds the identical track in another worker. */
 export interface SerializedTrack {
   width: number;
+  pitLaneLoss?: number | null;
   points: { center: [number, number]; left: [number, number]; right: [number, number]; tangent: [number, number]; normal: [number, number]; curvature: number }[];
 }
 
@@ -20,6 +21,7 @@ export function serializeTrack(track: Track): SerializedTrack {
   const xy = (v: Vector2): [number, number] => [v.x, v.y];
   return {
     width: track.width,
+    pitLaneLoss: track.pitLaneLoss,
     points: track.points.map(p => ({ center: xy(p.center), left: xy(p.left), right: xy(p.right), tangent: xy(p.tangent), normal: xy(p.normal), curvature: p.curvature })),
   };
 }
@@ -27,7 +29,9 @@ export function serializeTrack(track: Track): SerializedTrack {
 export function deserializeTrack(data: SerializedTrack): Track {
   const v = ([x, y]: [number, number]) => new Vector2(x, y);
   const points: TrackPoint[] = data.points.map(p => ({ center: v(p.center), left: v(p.left), right: v(p.right), tangent: v(p.tangent), normal: v(p.normal), curvature: p.curvature }));
-  return new Track(points, data.width);
+  const track = new Track(points, data.width);
+  track.pitLaneLoss = data.pitLaneLoss ?? null;
+  return track;
 }
 
 /** One driver's learned state, in the `F1_ALL_MODELS` file format. */

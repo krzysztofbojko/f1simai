@@ -63,6 +63,8 @@ export class Track {
   public timingGates: TimingGate[] = [];
   public width: number;
   public totalLength: number = 0;
+  /** Seconds a pass through the pit lane costs on this circuit; null: the default (PitStrategy.PIT_LANE_LOSS). */
+  public pitLaneLoss: number | null = null;
 
   // High-performance spatial grid for O(1) raycasting and collision checks
   private spatialCellSize: number = 80;

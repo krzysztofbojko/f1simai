@@ -29,7 +29,13 @@ Poprawka treningu z 05.10.2026: po ukończeniu pierwszego okrążenia rekordowa 
 
 AI śledzi krótką trajektorię wzdłuż osi toru zamiast celować o całe checkpointy naprzód przez wąskie zakręty. Sterowanie wykonuje sieć neuronowa (szczegóły w sekcji „Sieć neuronowa jako kierowca”). Progi sensorów zależą od szerokości drogi. Wolne miejsce przed autem (`minCenterClearance`) to odległość z trzech środkowych promieni podzielona przez szerokość toru, w skali `Car.CLEARANCE_REF_WIDTH = 76`. Progi `CLEAR_FULL` 0,22 (pełny gaz), `CLEAR_LIFT` 0,12 (poniżej: hamowanie awaryjne i strażnik) i `CLEAR_CAP` 0,2 odpowiadają ok. 0,69 / 0,38 / 0,63 szerokości toru. Szerszy tor widzi bandę w zakręcie dalej, dlatego progi nie są stałymi w metrach. Plan hamowania jest konserwatywną heurystyką, nie dokładnym solverem maksymalnego tempa.
 
-Tankowanie ma przepływ 28 kg/s, cel 110 kg i czas co najmniej 3,2 s. Końcowy krok nalicza tylko pozostały czas tankowania. Postój wlicza się do czasu okrążenia i wyścigu. Początek postoju następuje przy zaliczeniu mety po zgłoszeniu zjazdu; brak fizycznego przejazdu aleją serwisową pozostaje uproszczeniem gry.
+Zużycie paliwa wynika z mocy silnika: `FUEL_FLOW_MAX · gaz · f(obroty)` plus 0,0006 kg/s na biegu jałowym, gdzie `FUEL_FLOW_MAX` = 100 kg/h (limit przepływu z regulaminu), a `f` to krzywa mocy ICE. Daje to ok. 0,32–0,33 kg/km (GP: ok. 0,94 kg/okr., Spielberg ok. 1,37 kg/okr.), czyli ok. 100 kg na 300 km wyścigu.
+
+Postoje (`src/physics/PitStrategy.ts`) działają tak samo w treningu, kwalifikacjach i wyścigu. Nikt nie tankuje. Zgłoszony postój zaczyna się przy przecięciu linii mety. Auto zjeżdża w aleję: znika z toru, nie bierze udziału w ruchu i nie widzą go czujniki. Traci czas przejazdu aleją (`PIT_LANE_LOSS` = 20 s, tor może ustawić własne `pitLaneLoss`) oraz 2,5 s wymiany opon. Dostaje nowy komplet opon i naprawiony nos. Wraca na tor przy linii, wzdłuż toru, z prędkością limitu alei (80 km/h), ale dopiero gdy w promieniu 12 m nie ma auta i żadne nie nadjeżdża z tyłu szybciej niż w 1,5 s. Postój wlicza się do czasu okrążenia i wyścigu. Okrążenie wyjazdowe nie jest okrążeniem wzorcowym (nie ustala rekordu ani nie ocenia modelu).
+
+Strategia AI: zjazd przy zużyciu opon > 70% (nie na ostatnich dwóch okrążeniach wyścigu), zjazd w dowolnym momencie, gdy opony nie pasują do warunków, a w wyścigu na suchym obowiązek użycia dwóch mieszanek slick. Jeśli auto do połowy dystansu nie zmieniło mieszanki, zjeżdża wtedy. Zasada nie obowiązuje, jeśli użyto opon przejściowych lub deszczowych. Gracz decyduje o postojach sam (klawisz P).
+
+Paliwo na wyścig: liczba okrążeń × zużycie na okrążenie stawki na tym torze (średnia z ukończonych okrążeń treningu, a bez nich 0,35 kg/km) + 4% + 1,5 kg rezerwy. Jeśli bak (110 kg) nie wystarcza na zadany dystans, wyścig jest skracany do liczby okrążeń, którą da się przejechać, jak limit dystansu w F1. Licznik okrążeń pokazuje rzeczywisty dystans. W treningu auto bez paliwa odpada i wraca z pełnym bakiem przy respawnie. Przycisk „Tankuj” działa tylko w treningu.
 
 ## Pobocza i bandy
 
@@ -55,9 +61,9 @@ Wiatr jest jednorodny na całym torze (bez osłonięć trybunami). Brak pełnej 
 
 `npm run test:runoff` sprawdza generowanie i ograniczanie poboczy, nawierzchnie pod kołami, brak dodawania energii przez opór, lekkie i mocne zderzenia, szybkie przecięcie położenia bandy, powrót AI na asfalt, kolejność checkpointów i ochronę PB. Statystykę zdarzeń porównuje przy 30/60/120 krokach na sekundę; dodatkowo wykonuje trzy testy rzeczywistej jazdy po 600 sekund.
 
-`npm test` uruchamia oba zestawy oraz sprawdza limity sił, hamowanie od spoczynku i w obu kierunkach, telemetrię, jazdę bokiem, brak paliwa, tankowanie i zegary, skalę, obrys oraz ukończenie okrążeń GP przez AI. Test workera z kontrolowanym zegarem sprawdza 1× przy tickerach 16 ms i 20 ms oraz pauzę. Dodatkowo sprawdza checkpointy pól startowych, ukończenie 10-okrążeniowego wyścigu przez AI, zamrożenie czasu po mecie i powrót do treningu. `npm run audit:physics` wypisuje wyniki numeryczne; `npm run build` sprawdza TypeScript i bundlowanie.
+`npm test` uruchamia oba zestawy oraz sprawdza limity sił, hamowanie od spoczynku i w obu kierunkach, telemetrię, jazdę bokiem, brak paliwa, postój bez tankowania i zegary, skalę, obrys oraz ukończenie okrążeń GP przez AI. Test workera z kontrolowanym zegarem sprawdza 1× przy tickerach 16 ms i 20 ms oraz pauzę. Dodatkowo sprawdza checkpointy pól startowych, ukończenie 10-okrążeniowego wyścigu przez AI, zamrożenie czasu po mecie i powrót do treningu. `npm run audit:physics` wypisuje wyniki numeryczne; `npm run build` sprawdza TypeScript i bundlowanie.
 
-`AUDIT_PHYSICS.md` zachowuje dowody stanu sprzed napraw. Poprawiono osiem opisanych tam problemów i akumulator czasu; pełna dynamika yaw, kontakty między bolidami i fizyczna aleja serwisowa pozostają ograniczeniami modelu.
+`AUDIT_PHYSICS.md` zachowuje dowody stanu sprzed napraw. Poprawiono osiem opisanych tam problemów i akumulator czasu; pełna dynamika yaw i kontakty między bolidami pozostają ograniczeniami modelu. Aleja serwisowa nie ma własnej geometrii: auto znika z toru na czas postoju i wraca przy linii mety.
 
 ### Krótkie ataki na rywala
 
@@ -158,7 +164,7 @@ Jednostka napędowa według regulaminu 2026 (bez MGU-H):
 
 - Stan: temperatura i zużycie osi przedniej i tylnej. Bilans: ciepło z mocy poślizgu bocznego (`siła · prędkość · tan α`, ×2), z pełzania wzdłużnego (1,2% `|Fx|·v`), z histerezy (`0,0075·Fz·v`), oś przednia ×1,6; chłodzenie konwekcją `∝ v^0,8` i torem; pojemność 12 kJ/K (stała czasowa ok. 40 s).
 - Mnożnik przyczepności osi: dzwon temperaturowy (optimum 100 °C, zimno do 0,80, przegrzanie do 0,75) razy zużycie (do −25% przy W=1). Wchodzi do limitów osi i do planowanej przyczepności (kierowca zwalnia na zimnych/zużytych oponach).
-- Model opon działa w treningu i w wyścigu (`Car.TYRE_MODEL_IN_TRAINING = true` domyślnie); `false` przywraca „koce” (100 °C, zużycie 0) w treningu. Auto startuje z 85 °C; pit stop daje nowy komplet. Zużycie > 70% wywołuje zjazd do boksu.
+- Model opon działa w treningu i w wyścigu (`Car.TYRE_MODEL_IN_TRAINING = true` domyślnie); `false` przywraca „koce” (100 °C, zużycie 0) w treningu. Auto startuje z 85 °C; pit stop daje nowy komplet. Zużycie > 70% wywołuje zjazd do boksu (patrz „AI, paliwo i postój”).
 - Kalibracja (`npm run diag:nn`; `NOTYRES=1` wyłącza opony): temperatury ok. 80–115 °C, tempo wyścigowe ok. 3–5% wolniejsze od treningowego.
 - Pogoda (`Weather.ts`): powietrze i nawierzchnia z bieżącej pogody zastępują stałe 25 / 38 °C (`TYRE_AMBIENT` / `TYRE_TRACK` to wartości pogody odniesienia). Chłodzenie: `2·(15 + 3,2·v^0,8)·(T − T_pow) + 60·(T − T_toru)`, razy `(1 + 0,9·W)` na mokrym.
 - Niezależność od kroku (`test-suspension`): prosta, stały zakręt oraz cykl hamowanie/przyspieszanie, każdy po 20 s przy 30/60/120 Hz. Różnice temperatury < 1,5 °C, zużycia < 5% (zmierzone: 0,9 °C i 2,3% w zakręcie).

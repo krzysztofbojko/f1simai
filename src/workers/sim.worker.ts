@@ -383,7 +383,7 @@ function runSimulationSteps(): void {
         }
       } else {
         playerCar.updateSensors(track, traffic);
-        const lapEvent = playerCar.updatePhysics(avoidTraffic(playerCar, traffic, playerControl, track), fixedDt, track);
+        const lapEvent = playerCar.updatePhysics(avoidTraffic(playerCar, traffic, playerControl, track), fixedDt, track, traffic);
         if (trafficMotion) resolveTraffic(traffic, trafficMotion, playerCar);
         if (lapEvent) {
           population.recordLap({...lapEvent, compromised: lapEvent.compromised || playerCar.lapCompromised}, playerCar, true, track);
@@ -482,6 +482,7 @@ self.onmessage = (e: MessageEvent) => {
         const source = data.points?.length >= 4 ? data.points.map((p: {x: number; y: number}) => new Vector2(p.x, p.y)) : track.points.map(p => p.center);
         const newPoints = Spline.generateClosedTrack(source, nextWidth, 18, !!data.keepOrder);
         const nextTrack = new Track(newPoints, nextWidth);
+        nextTrack.pitLaneLoss = track.pitLaneLoss;
         trackWidth = nextWidth; track = nextTrack;
         session.resetSectors();
         population.resetAll(track);
@@ -519,6 +520,7 @@ self.onmessage = (e: MessageEvent) => {
         const splinePoints = Spline.generateClosedTrack(parsedPoints, nextWidth, 18, !!data.keepOrder);
         if (splinePoints.length < 8) throw new Error('Tor jest zbyt krótki.');
         const nextTrack = new Track(splinePoints, nextWidth);
+        if (typeof data.pitLaneLoss === 'number' && data.pitLaneLoss > 0) nextTrack.pitLaneLoss = data.pitLaneLoss;
         trackWidth = nextWidth; track = nextTrack;
         population = createPopulation();
         session.resetSectors();
@@ -605,6 +607,8 @@ self.onmessage = (e: MessageEvent) => {
     }
 
     case 'REFUEL': {
+      // A training convenience: nobody refuels during qualifying or a race.
+      if (session.state !== 'IDLE') break;
       for (const car of population.cars) {
         car.fuelKg = Math.min(Car.MAX_FUEL_CAPACITY, startingFuelKg);
       }

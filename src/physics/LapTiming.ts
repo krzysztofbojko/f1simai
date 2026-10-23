@@ -197,8 +197,8 @@ export function checkTrackProgress(car: Car, track: Track): LapFinishEvent | nul
           }
         }
 
-        // Trigger pit stop upon crossing start/finish line if requested
-        if (car.wantsToPit) enterPits(car);
+        // A requested stop is taken here, at the line
+        if (car.wantsToPit && !car.isFinishedRace) enterPits(car, track);
 
         car.pressureLearningBlocked = car.pressureElapsed < 2;
         car.lapCompromised = car.incidentActive || car.recoveryTimer > 0 || car.pressureLearningBlocked;
@@ -210,6 +210,8 @@ export function checkTrackProgress(car: Car, track: Track): LapFinishEvent | nul
         car.lapTime = overshoot;
         car.flyingLap = true;
         car.currentLapSplits = [null, null, null, null];
+        const fuelUsed = car.lapStartFuel - car.fuelKg;
+        car.lapStartFuel = car.fuelKg;
 
         return {
           compromised,
@@ -219,10 +221,12 @@ export function checkTrackProgress(car: Car, track: Track): LapFinishEvent | nul
           maxSpeed: finishedMaxSpeedKmh,
           avgSpeed: avgSpeedKmh,
           fuelRemaining: Math.round(car.fuelKg * 10) / 10,
+          fuelUsed,
         };
       } else {
         // First time crossing the start/finish line from grid slot: start flying lap!
         car.lapTime = overshoot;
+        car.lapStartFuel = car.fuelKg;
         car.flyingLap = true;
         car.lapWetMin = car.lapWetMax = car.wetness;
         car.currentLapSplits = [null, null, null, null];
