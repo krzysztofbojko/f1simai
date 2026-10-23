@@ -5,7 +5,8 @@ import { Track } from './track/Track';
 import { Presets } from './track/Presets';
 import { getRacingLine } from './track/RacingLine';
 import { Population, LapLeaderboardEntry } from './ai/Population';
-import { Car, CarControl, driverInputCount, clampStressShare, DEFAULT_STRESS_LAP_SHARE } from './physics/Car';
+import { Car, CarControl, driverInputCount } from './physics/Car';
+import { clampStressShare, DEFAULT_STRESS_LAP_SHARE } from './physics/SimConfig';
 import { COMPOUND_SPECS, isCompound } from './physics/Tyres';
 import { isWeatherScenario, neutralWeather, type WeatherState } from './physics/Weather';
 import { SceneRenderer } from './rendering/three/SceneRenderer';
@@ -226,7 +227,7 @@ class App {
       this.latestRaceStartLights = snapshot.raceStartLights;
       this.latestRaceWinner = snapshot.raceWinner;
       this.latestRaceStandings = snapshot.raceStandings || [];
-      if (snapshot.weather) { this.latestWeather = snapshot.weather; Car.weather = snapshot.weather; }
+      if (snapshot.weather) this.latestWeather = snapshot.weather;
       this.latestQualifying = snapshot.qualifying ?? null;
 
       if (snapshot.raceState === 'QUALI_FINISHED' && snapshot.qualifying && !this.hasShownQualiModal) {
@@ -859,7 +860,6 @@ class App {
     const stressLabel = document.getElementById('val-stress-laps');
     const applyStress = (percent: number, save: boolean) => {
       const share = clampStressShare(percent / 100);
-      Car.STRESS_LAP_SHARE = share;
       this.bridge.setStressLaps(share);
       if (stressLabel) stressLabel.textContent = `${Math.round(share * 100)}%`;
       if (save) try { localStorage.setItem('f1_stress_laps', String(Math.round(share * 100))); } catch {}

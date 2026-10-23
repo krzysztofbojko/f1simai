@@ -10,18 +10,13 @@ import { DriverMistakes } from '../ai/DriverMistakes';
 import { Track, type SurfaceType } from '../track/Track';
 import { getRacingLine, RacingLine } from '../track/RacingLine';
 import { COMPOUND_SPECS, compoundGrip, weatherCompound, type TyreCompound } from './Tyres';
-import { neutralWeather, type TrackConditions, type WeatherState } from './Weather';
 import { checkTrackProgress } from './LapTiming';
 import { scoreStep } from './Fitness';
 import { pitCompound, servicePitStop } from './PitStrategy';
 import { planDrive } from './DrivePlanner';
 
-export const DEFAULT_STRESS_LAP_SHARE = 0.25;
-/** Stress-lap share from a setting: 0..0.6, anything invalid falls back to the default. */
-export function clampStressShare(value: unknown): number {
-  const v = Number(value);
-  return Number.isFinite(v) ? Math.max(0, Math.min(0.6, v)) : DEFAULT_STRESS_LAP_SHARE;
-}
+import { createSimConfig, type SimConfig } from './SimConfig';
+export { DEFAULT_STRESS_LAP_SHARE, clampStressShare } from './SimConfig';
 import { NeuralNetwork } from '../ai/NeuralNetwork';
 
 export interface CarControl {
@@ -506,13 +501,6 @@ export class Car {
   // Tyre thermal / wear model, per axle. Active in training and race; set TYRE_MODEL_IN_TRAINING = false for tyre blankets (optimal, no wear).
   public static TYRE_MODEL_IN_TRAINING = true;
   /**
-   * Share of training laps driven as stress laps (domain randomisation): wider grip and
-   * power spread the planner does not know about, plus noisy, mis-calibrated LiDAR for the
-   * network. The guardian's corrections on these laps teach robustness; the laps never set
-   * a record or evaluate a model, so luckier conditions cannot win selection.
-   */
-  public static STRESS_LAP_SHARE = DEFAULT_STRESS_LAP_SHARE;
-  /**
    * Correlation time (s) of each of the two filter stages that shape the stress-lap LiDAR error.
    * A misjudged distance drifts instead of flickering every physics step: white per-step noise
    * made the steering chatter at the step rate and its effect depended on the step rate.
@@ -535,13 +523,8 @@ export class Car {
   public tyreCompound: TyreCompound = 'medium';
   /** Compound fitted at every pit stop (player choice, or the same set in qualifying); null lets the strategy pick. */
   public nextCompound: TyreCompound | null = null;
-  /**
-   * Weather every car drives in (see `Weather.ts`): air and track temperature, water on the
-   * track, the wind. Set by the session each step; the neutral default is the reference weather.
-   */
-  public static weather: WeatherState = neutralWeather();
-  /** Track-condition class of the session; training laps outside its wetness band do not evaluate a brain. */
-  public static conditions: TrackConditions = 'dry';
+  /** Weather, track conditions and stress-lap share of this simulation (see `SimConfig.ts`). */
+  public static readonly config: SimConfig = createSimConfig();
   /** Wetness range seen during the current lap (LapTiming). */
   public lapWetMin = 0;
   public lapWetMax = 0;
@@ -563,7 +546,7 @@ export class Car {
   public lapPowerFactor: number = 1.0;
   public lapGripFactor: number = 1.0;
   public lapDragFactor: number = 1.0;
-  /** This lap is a stress lap (see `STRESS_LAP_SHARE`). */
+  /** This lap is a stress lap (see `SimConfig.stressLapShare`). */
   public stressLap = false;
   /** The brain is a stagnation-breaking mutation of the record brain, on trial until its next clean lap. */
   public explorationTrial = false;
@@ -820,7 +803,7 @@ export class Car {
     this.lapPowerFactor = 1.0 + (random() * 0.04 - 0.02);
     this.lapGripFactor = 1.0 + (random() * 0.05 - 0.025);
     this.lapDragFactor = 1.0 + (random() * 0.03 - 0.015);
-    this.stressLap = Car.STRESS_LAP_SHARE > 0 && !this.isRaceMode && !this.isManual && random() < Car.STRESS_LAP_SHARE;
+    this.stressLap = Car.config.stressLapShare > 0 && !this.isRaceMode && !this.isManual && random() < Car.config.stressLapShare;
     if (this.stressLap) {
       this.lapPowerFactor = 1.0 + (random() * 0.08 - 0.04);
       this.lapGripFactor = 1.0 + (random() * 0.11 - 0.08); // -8% .. +3%
@@ -926,10 +909,10 @@ export class Car {
       this.ersEnergy = Car.ERS_CAPACITY * 0.85;
       this.tyreTempFront = this.tyreTempRear = 85;
       this.tyreWearFront = this.tyreWearRear = 0;
-      this.tyreCompound = weatherCompound(Car.weather.wetness, 'medium');
+      this.tyreCompound = weatherCompound(Car.config.weather.wetness, 'medium');
       this.nextCompound = null;
     }
-    this.lapWetMin = this.lapWetMax = Car.weather.wetness;
+    this.lapWetMin = this.lapWetMax = Car.config.weather.wetness;
     this.ersHarvestedLap = 0;
     this.gear = 1; this.engineRpm = Car.IDLE_RPM; this.shiftCutTimer = 0; this.shiftCooldown = 0;
     this.fullyOffTrack = false;
@@ -1025,7 +1008,7 @@ export class Car {
   get tyresActive(): boolean { return this.isRaceMode || Car.TYRE_MODEL_IN_TRAINING; }
 
   /** Track wetness this car drives on. */
-  get wetness(): number { return Car.weather.wetness; }
+  get wetness(): number { return Car.config.weather.wetness; }
 
   /** Grip the planner can expect from the current tyres (1 on blankets). */
   get tyreGripFront(): number { return this.tyresActive ? Car.tyreGrip(this.tyreTempFront, this.tyreWearFront, this.tyreCompound, this.wetness) : 1; }
@@ -1038,9 +1021,9 @@ export class Car {
    * Water cools the tyre (spray, cooler surface) and lubricates it, so it wears less.
    */
   private stepTyre(temp: number, wear: number, slipPower: number, load: number, speed: number, dt: number): [number, number] {
-    const wet = this.wetness, air = Car.weather.airTemp;
+    const wet = this.wetness, air = Car.config.weather.airTemp;
     const heat = (slipPower + 0.0075 * load * speed) * Car.TYRE_HEAT_SCALE;
-    const cooling = (2 * (15 + 3.2 * Math.pow(Math.max(0, speed), 0.8)) * (temp - air) + 60 * (temp - Car.weather.trackTemp)) * (1 + 0.9 * wet);
+    const cooling = (2 * (15 + 3.2 * Math.pow(Math.max(0, speed), 0.8)) * (temp - air) + 60 * (temp - Car.config.weather.trackTemp)) * (1 + 0.9 * wet);
     const next = Math.max(air - 8 * wet, Math.min(180, temp + (heat - cooling) / Car.TYRE_HEAT_CAPACITY * dt));
     const wearRate = Car.TYRE_WEAR_RATE * COMPOUND_SPECS[this.tyreCompound].wear * (1 - 0.6 * wet);
     const nextWear = Math.min(1, wear + wearRate * Math.pow(temp / 100, 2) * slipPower * dt);
@@ -1260,7 +1243,7 @@ export class Car {
     const speedMag = this.vel.mag();
     // Airflow the car meets: its own motion against the wind. Downforce and drag grow with the
     // airspeed; downforce fades as the wind turns the flow off the car's axis. Still air: airSpeed = speedMag.
-    const weather = Car.weather;
+    const weather = Car.config.weather;
     const windy = weather.windX !== 0 || weather.windY !== 0;
     const windLat = windy ? weather.windX * rightDir.x + weather.windY * rightDir.y : 0;
     const airFwd = windy ? forwardSpeed - (weather.windX * forwardDir.x + weather.windY * forwardDir.y) : forwardSpeed;

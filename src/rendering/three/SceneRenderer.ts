@@ -175,7 +175,7 @@ export class SceneRenderer {
     this.fleet.group.visible = !f.drawMode;
     this.fleet.update(this.views, f.frozen ? 0 : dt, rig.pixelsPerMetre);
     this.effects.group.visible = !f.drawMode;
-    if (!f.drawMode) this.effects.update(this.effectCars, dt, !f.frozen);
+    if (!f.drawMode) this.effects.update(this.effectCars, f.weather, dt, !f.frozen);
     this.effects.setProjection(rig.spriteScale(this.renderer.getPixelRatio()), rig.isPerspective);
 
     this.overlays.setRacingLine(this.showRacingLine && !f.drawMode ? f.racingLine : null);

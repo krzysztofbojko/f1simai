@@ -3,7 +3,8 @@ import { captureMotion, resolveTraffic, avoidTraffic } from '../physics/Traffic'
 import { Track, TimingGate } from '../track/Track';
 import { Presets } from '../track/Presets';
 import { Population, LapLeaderboardEntry } from '../ai/Population';
-import { Car, CarControl, TrajectoryPoint, driverInputCount, clampStressShare } from '../physics/Car';
+import { Car, CarControl, TrajectoryPoint, driverInputCount } from '../physics/Car';
+import { clampStressShare } from '../physics/SimConfig';
 import { Spline } from '../math/Spline';
 import { Vector2 } from '../math/Vector2';
 import { TopologySpecifier } from '../ai/NeuralNetwork';
@@ -158,7 +159,7 @@ let isPlayerDriving = false;
 
 /** Weather of training and every session; a race or qualifying starts again from the forecast. */
 const weather = new Weather();
-Car.weather = weather.state;
+Car.config.weather = weather.state;
 const weatherSeed = () => (Math.random() * 0x7fffffff) | 0;
 
 let dims = Car.getDimensionsForTrackWidth(trackWidth);
@@ -193,7 +194,7 @@ function exportAllDrivers(): any[] {
 
 function islandSetupMessage(): object {
   return { type: 'SETUP', version: islandVersion, track: serializeTrack(track), rayCount, topology: currentTopology,
-    driverPressure, mutationRate, startingFuelKg, stressLapShare: Car.STRESS_LAP_SHARE, drivers: exportAllDrivers(),
+    driverPressure, mutationRate, startingFuelKg, stressLapShare: Car.config.stressLapShare, drivers: exportAllDrivers(),
     weatherScenario: weather.scenario, weatherSeed: weatherSeed() };
 }
 
@@ -232,7 +233,7 @@ function resetIslands(): void {
 }
 
 function configureIslands(): void {
-  for (const worker of islands) worker.postMessage({ type: 'CONFIG', driverPressure, mutationRate, startingFuelKg, stressLapShare: Car.STRESS_LAP_SHARE, weatherScenario: weather.scenario });
+  for (const worker of islands) worker.postMessage({ type: 'CONFIG', driverPressure, mutationRate, startingFuelKg, stressLapShare: Car.config.stressLapShare, weatherScenario: weather.scenario });
 }
 
 /** Islands train only while the main field trains: not when paused, in qualifying or in a race. */
@@ -562,7 +563,7 @@ self.onmessage = (e: MessageEvent) => {
     }
 
     case 'SET_STRESS_LAPS': {
-      Car.STRESS_LAP_SHARE = clampStressShare(data.value);
+      Car.config.stressLapShare = clampStressShare(data.value);
       break;
     }
 

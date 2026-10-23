@@ -177,7 +177,7 @@ export function checkTrackProgress(car: Car, track: Track): LapFinishEvent | nul
         car.currentLap++;
         car.raceLapsCompleted++;
         // Training compares laps within one track-condition class: a lap the rain caught is timed, not learnt from.
-        const [bandLow, bandHigh] = CONDITION_BANDS[Car.conditions];
+        const [bandLow, bandHigh] = CONDITION_BANDS[Car.config.conditions];
         const offConditions = !car.isRaceMode && (car.lapWetMin < bandLow || car.lapWetMax > bandHigh);
         car.lapWetMin = car.lapWetMax = car.wetness;
         if (!car.lapCompromised && !offConditions) scoreLap(car, finishedLapTime);

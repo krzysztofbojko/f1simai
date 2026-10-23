@@ -5,7 +5,8 @@ import { TopologySpecifier } from '../ai/NeuralNetwork';
 import { normalizePressure } from '../ai/DriverPressure';
 import { SerializedTrack, deserializeTrack, exportDriver, mergeBetterDrivers } from '../ai/Islands';
 import { Track } from '../track/Track';
-import { Car, clampStressShare } from '../physics/Car';
+import { Car } from '../physics/Car';
+import { clampStressShare } from '../physics/SimConfig';
 import { Weather, isWeatherScenario } from '../physics/Weather';
 
 export interface IslandSetup {
@@ -38,7 +39,7 @@ let steps = 0;
 let busyMs = 0;
 /** The island's own weather: the main field's forecast, its own seed. */
 const weather = new Weather();
-Car.weather = weather.state;
+Car.config.weather = weather.state;
 
 function slice(): void {
   if (!running || !population || !track) return;
@@ -73,7 +74,7 @@ self.onmessage = (e: MessageEvent) => {
       track = deserializeTrack(setup.track);
       population = Population.create(track, { rayCount: setup.rayCount, topology: setup.topology,
         driverPressure: setup.driverPressure, mutationRate: setup.mutationRate, startingFuelKg: setup.startingFuelKg });
-      Car.STRESS_LAP_SHARE = clampStressShare(setup.stressLapShare);
+      Car.config.stressLapShare = clampStressShare(setup.stressLapShare);
       weather.reset(isWeatherScenario(setup.weatherScenario) ? setup.weatherScenario : 'sunny', setup.weatherSeed);
       population.setConditions(weather.conditions);
       // Start from the main field's best models; the island's own seeds diverge from there.
@@ -87,7 +88,7 @@ self.onmessage = (e: MessageEvent) => {
       population.setDriverPressure(normalizePressure(data.driverPressure));
       population.mutationRate = data.mutationRate;
       population.startingFuelKg = data.startingFuelKg;
-      Car.STRESS_LAP_SHARE = clampStressShare(data.stressLapShare);
+      Car.config.stressLapShare = clampStressShare(data.stressLapShare);
       if (isWeatherScenario(data.weatherScenario) && data.weatherScenario !== weather.scenario) {
         weather.reset(data.weatherScenario, (Math.random() * 0x7fffffff) | 0);
         population.setConditions(weather.conditions);

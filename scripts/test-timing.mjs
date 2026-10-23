@@ -38,7 +38,7 @@ try {
     return { pos: Vector2.lerp(from, to, f), dir: to.sub(from).normalize() };
   };
   const DT = 1 / 60, SPEED = 61.3;
-  Car.STRESS_LAP_SHARE = 0; // a stress lap's sectors never count
+  Car.config.stressLapShare = 0; // a stress lap's sectors never count
   function drive(phase) {
     const start = track.getGridSlot(0);
     const car = new Car(start.pos, start.heading);

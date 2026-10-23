@@ -83,7 +83,7 @@ export class Population {
    * so a lap slowed by rain never sends a brain back to the dry-weather one, nor a dry lap the other way.
    */
   setConditions(conditions: TrackConditions): void {
-    Car.conditions = conditions;
+    Car.config.conditions = conditions;
     if (conditions === this.conditions) return;
     this.conditions = conditions;
     if (!this.isRaceMode) this.globalBestLap = null;

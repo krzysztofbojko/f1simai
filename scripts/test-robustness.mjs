@@ -19,7 +19,7 @@ try {
 
   // 1. Stress laps: training only, harder randomised conditions, never a record lap.
   const car = new Population(1, track).cars[0];
-  Car.STRESS_LAP_SHARE = 1;
+  Car.config.stressLapShare = 1;
   for (let i = 0; i < 50; i++) {
     car.lapCompromised = false;
     car.rollLapPerformanceVariation();
@@ -37,7 +37,7 @@ try {
   assert.equal(car.stressLap, false, 'qualifying and races always run in nominal conditions');
   assert.deepEqual(car.planDrive(track).inputs.slice(0, car.rayDistances.length), car.rayDistances);
   car.isRaceMode = false;
-  Car.STRESS_LAP_SHARE = 0;
+  Car.config.stressLapShare = 0;
   car.lapCompromised = false;
   for (let i = 0; i < 50; i++) { car.rollLapPerformanceVariation(); assert.equal(car.stressLap, false); }
   assert.equal(car.lapCompromised, false);

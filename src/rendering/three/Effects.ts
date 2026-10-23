@@ -1,5 +1,6 @@
 import * as THREE from 'three';
-import { Car } from '../../physics/Car';
+import type { Car } from '../../physics/Car';
+import type { WeatherState } from '../../physics/Weather';
 import { ParticleSystem } from './Particles';
 
 /** Rear wheel contact points in the car frame (m): x behind the CoG, ±z to the sides. */
@@ -95,18 +96,21 @@ export class Effects {
     this.sparks.setProjection(scale, perspective);
   }
 
-  /** `emit` is false while the simulation stands still: live particles fade, nothing new appears. */
-  update(cars: Car[], dt: number, emit = true): void {
+  /**
+   * `weather` is the simulation's (from the snapshot): the wind drifts the smoke, water on the track
+   * makes spray. `emit` is false while the simulation stands still: live particles fade, nothing new appears.
+   */
+  update(cars: Car[], weather: WeatherState, dt: number, emit = true): void {
     // Emission is rate-based; a long frame (tab switch) must not dump a burst of particles.
     const step = Math.min(dt, 0.05);
-    this.smoke.windX = Car.weather.windX; this.smoke.windZ = Car.weather.windY;
-    if (emit) for (const car of cars) this.updateCar(car, step);
+    this.smoke.windX = weather.windX; this.smoke.windZ = weather.windY;
+    if (emit) for (const car of cars) this.updateCar(car, weather.wetness, step);
     this.skids.flush();
     this.smoke.update(dt);
     this.sparks.update(dt);
   }
 
-  private updateCar(car: Car, dt: number): void {
+  private updateCar(car: Car, wetness: number, dt: number): void {
     const c = Math.cos(car.heading), s = Math.sin(car.heading);
     // Lateral unit vector (car's right) and the rear contact points.
     const sx = -s, sy = c;
@@ -147,7 +151,6 @@ export class Effects {
     }
 
     // Spray: the tyres throw the water up behind the car, more the wetter and the faster.
-    const wetness = Car.weather.wetness;
     if (alive && wetness > 0.1 && speed > 15 && (car.surfaceFractions?.asphalt ?? 1) > 0.5) {
       t.spray += dt * wetness * Math.min(1, speed / 70) * 110;
       for (; t.spray >= 1; t.spray--) {

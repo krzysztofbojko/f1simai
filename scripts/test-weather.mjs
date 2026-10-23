@@ -60,7 +60,7 @@ try {
   const car = new Car(gp.startPosition, gp.startAngle, new NeuralNetwork([driverInputCount(25), 4, 3]), '#fff', 'wind', 60, 25);
   const setWind = (along, across) => {
     const f = Vector2.fromAngle(gp.startAngle), r = f.normal();
-    Car.weather = { ...neutralWeather(), windSpeed: Math.hypot(along, across), windX: f.x * along + r.x * across, windY: f.y * along + r.y * across };
+    Car.config.weather = { ...neutralWeather(), windSpeed: Math.hypot(along, across), windX: f.x * along + r.x * across, windY: f.y * along + r.y * across };
   };
   const topSpeed = along => {
     setWind(along, 0);
@@ -83,7 +83,7 @@ try {
 
   // 6. A baking track runs the tyres hotter and wears them faster.
   const stint = weather => {
-    Car.weather = weather;
+    Car.config.weather = weather;
     car.isRaceMode = true; car.reset(gp.startPosition, gp.startAngle, true, 1);
     car.vel = Vector2.fromAngle(car.heading).mul(45); car.speed = 45;
     for (let i = 0; i < 60 * 40; i++) { car.updatePhysics({ throttle: 0.4, brake: 0, steer: 0.03 }, 1 / 60, stub); car.framesSinceLastCheckpoint = 0; }
@@ -91,7 +91,7 @@ try {
   };
   const mild = stint(neutralWeather()), baked = stint({ ...neutralWeather(), airTemp: 34, trackTemp: 55 });
   assert.ok(baked.temp > mild.temp + 2 && baked.wear > mild.wear, `hot track: ${mild.temp.toFixed(1)}° -> ${baked.temp.toFixed(1)}°, wear ${mild.wear.toExponential(2)} -> ${baked.wear.toExponential(2)}`);
-  Car.weather = neutralWeather(); car.isRaceMode = false;
+  Car.config.weather = neutralWeather(); car.isRaceMode = false;
 
   // 7. Training records: the first lap in new conditions sets the reference and keeps the proven brain.
   const population = new Population(1, gp);
