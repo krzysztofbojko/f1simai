@@ -1,5 +1,4 @@
 import { loadDriverPressure, normalizePressure } from './ai/DriverPressure';
-import { captureMotion, resolveTraffic, avoidTraffic } from './physics/Traffic';
 import { Vector2 } from './math/Vector2';
 import { Spline } from './math/Spline';
 import { Track } from './track/Track';
@@ -84,8 +83,6 @@ class App {
 
   // Simulation controls
   private isPaused: boolean = true;
-  private speedMultiplier: number = 1;
-  private isHeadlessFast: boolean = false;
 
   // Race Mode State
   private selectedRaceLaps: number = 50;
@@ -174,8 +171,22 @@ class App {
     window.setTimeout(() => { if (!restored) void save(); }, 1500);
   }
 
+  /** Without the simulation worker nothing can run: say so instead of showing a frozen grid. */
+  private showWorkerUnavailable(): void {
+    const banner = document.getElementById('start-banner');
+    if (!banner) return;
+    banner.classList.remove('hidden');
+    const title = banner.querySelector('.start-title');
+    if (title) title.textContent = 'Symulacja niedostępna';
+    const text = banner.querySelector('p');
+    if (text) text.textContent = 'Ta przeglądarka nie uruchomiła Web Workera z symulacją (wymagane moduły ES w workerach). Otwórz stronę w aktualnej wersji Chrome, Firefoksa, Safari lub Edge i odśwież.';
+    banner.querySelector('#btn-start-banner')?.classList.add('hidden');
+  }
+
   private setupBridgeSync(): void {
     this.bridge.onTrackError = message => alert(message);
+    this.bridge.onUnavailable = () => this.showWorkerUnavailable();
+    if (this.bridge.unavailable) this.showWorkerUnavailable();
     const threadBadge = document.getElementById('thread-badge');
     if (threadBadge) {
       threadBadge.textContent = `${this.bridge.cpuCores} rdzeni`;
@@ -731,15 +742,7 @@ class App {
         speedButtons.forEach((b) => b.classList.remove('active'));
         btn.classList.add('active');
         const speed = btn.getAttribute('data-speed');
-        if (speed === 'max') {
-          this.isHeadlessFast = true;
-          this.speedMultiplier = 200;
-          this.bridge.setSpeed('max');
-        } else {
-          this.isHeadlessFast = false;
-          this.speedMultiplier = parseInt(speed || '1', 10);
-          this.bridge.setSpeed(this.speedMultiplier);
-        }
+        this.bridge.setSpeed(speed === 'max' ? 'max' : parseInt(speed || '1', 10));
       });
     });
 
@@ -1830,34 +1833,8 @@ class App {
     const width = rect.width;
     const height = rect.height;
 
-    // Simulation updates
-    if (!this.bridge.isReady) {
-      // Fallback synchronous loop if Web Worker is not available
-      if (!this.isPaused && !this.isDrawMode) {
-        const steps = this.isHeadlessFast ? 200 : this.speedMultiplier;
-        const fixedDt = 1 / 60;
-
-        for (let s = 0; s < steps; s++) {
-          const traffic = [...this.population.cars, ...(this.playerCar ? [this.playerCar] : [])];
-          const trafficMotion = this.playerCar ? captureMotion(traffic) : null;
-          this.population.update(fixedDt, this.track, this.playerCar ? [this.playerCar] : []);
-
-          if (this.playerCar && this.playerCar.isAlive) {
-            this.playerCar.updateSensors(this.track, traffic);
-            const input = this.getPlayerControl();
-            const control = avoidTraffic(this.playerCar, traffic, input, this.track);
-            const lapEvent = this.playerCar.updatePhysics(control, fixedDt, this.track);
-            if (trafficMotion) resolveTraffic(traffic, trafficMotion, this.playerCar);
-            if (lapEvent) {
-              this.population.recordLap({...lapEvent, compromised: lapEvent.compromised || this.playerCar.lapCompromised}, this.playerCar, true, this.track);
-            }
-          }
-        }
-      }
-    } else if (this.isPlayerDriving) {
-      // Web Worker is active: send real-time player input
-      this.bridge.sendPlayerInput(this.getPlayerControl());
-    }
+    // The simulation runs only in the worker; the page sends the player's input to it.
+    if (this.isPlayerDriving && this.bridge.isReady) this.bridge.sendPlayerInput(this.getPlayerControl());
 
     // Render frame
     if (this.bridge.isReady) this.motion.apply();

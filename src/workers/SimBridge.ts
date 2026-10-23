@@ -24,6 +24,9 @@ export class SimBridge {
   private pendingClearLearning: PendingRequest<boolean>[] = [];
   private nextRequestId = 1;
   public onTrackError?: (message: string) => void;
+  /** The worker could not start or has failed: the simulation cannot run in this page. */
+  public unavailable = false;
+  public onUnavailable?: () => void;
   public onSnapshotCallback?: (snapshot: SimSnapshot) => void;
 
   constructor() {
@@ -147,6 +150,7 @@ export class SimBridge {
         this.worker = null;
         this.isReady = false;
         this.rejectPending(err);
+        this.markUnavailable();
       };
 
       this.worker.postMessage({ type: 'INIT', profile: this.currentComputeProfile, topology: this.currentTopology, driverPressure: loadDriverPressure() });
@@ -155,7 +159,13 @@ export class SimBridge {
       this.worker = null;
       this.isReady = false;
       this.rejectPending(err);
+      this.markUnavailable();
     }
+  }
+
+  private markUnavailable(): void {
+    this.unavailable = true;
+    this.onUnavailable?.();
   }
 
   public setComputeProfile(profile: ComputeProfile, options?: ComputeProfileOptions): void {
