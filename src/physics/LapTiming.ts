@@ -13,13 +13,14 @@ import { enterPits } from './PitStrategy';
 
 /**
  * Sector ending at gate `g` (0..3), from the previous split. Leaves the sector in `sectorEvent`
- * and returns its time, or null when the lap was not timed from the line.
+ * and returns its time, or null when the lap was not timed from the line. A stress lap is a valid
+ * time in qualifying and the race; in training it is not a reference for learning.
  */
 export function timeSector(car: Car, g: number, split: number): number | null {
   const start = g === 0 ? 0 : car.currentLapSplits[g - 1];
   if (!car.flyingLap || start === null || start === undefined) return null;
   const sectorTime = split - start;
-  car.sectorEvent = { gateIndex: g, sectorTime, splitTime: split, valid: !car.lapExcursion && !car.stressLap };
+  car.sectorEvent = { gateIndex: g, sectorTime, splitTime: split, valid: !car.lapExcursion && !(car.stressLap && !car.isRaceMode) };
   return sectorTime;
 }
 

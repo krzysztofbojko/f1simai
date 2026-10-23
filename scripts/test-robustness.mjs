@@ -32,10 +32,13 @@ try {
   const noisy = car.planDrive(track).inputs.slice(0, car.rayDistances.length);
   assert.notDeepEqual(noisy, car.rayDistances, 'the network sees noisy LiDAR');
   assert.ok(noisy.every(v => v >= 0 && v <= 1));
+  // Qualifying and the race drive stress laps the same way, but their times count.
   car.isRaceMode = true;
+  car.lapCompromised = false;
   car.rollLapPerformanceVariation();
-  assert.equal(car.stressLap, false, 'qualifying and races always run in nominal conditions');
-  assert.deepEqual(car.planDrive(track).inputs.slice(0, car.rayDistances.length), car.rayDistances);
+  assert.equal(car.stressLap, true, 'stress laps run in every session');
+  assert.equal(car.lapCompromised, false, 'a race stress lap is a valid time');
+  assert.notDeepEqual(car.planDrive(track).inputs.slice(0, car.rayDistances.length), car.rayDistances, 'the race network sees the same noisy LiDAR');
   car.isRaceMode = false;
   Car.config.stressLapShare = 0;
   car.lapCompromised = false;

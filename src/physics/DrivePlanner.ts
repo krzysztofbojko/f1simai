@@ -155,7 +155,7 @@ export function planDrive(car: Car, track: Track, leaderSpeeds?: number[]): Driv
   const overspeedDelta = Math.max(-1.0, Math.min(1.0, maxOverspeed));
 
   const inputs: number[] = [
-    ...(car.stressLap && !car.isRaceMode ? car.noisyRayDistances() : car.rayDistances),
+    ...(car.stressLap ? car.noisyRayDistances() : car.rayDistances),
     normalizedSpeed,
     Math.max(-1.0, Math.min(1.0, car.angularVelocity * 1.5)),
     cpAngleDiff,

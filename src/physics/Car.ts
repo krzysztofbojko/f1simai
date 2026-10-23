@@ -921,14 +921,16 @@ export class Car {
     this.lapPowerFactor = 1.0 + (random() * 0.04 - 0.02);
     this.lapGripFactor = 1.0 + (random() * 0.05 - 0.025);
     this.lapDragFactor = 1.0 + (random() * 0.03 - 0.015);
-    this.stressLap = Car.config.stressLapShare > 0 && !this.isRaceMode && !this.isManual && random() < Car.config.stressLapShare;
+    this.stressLap = Car.config.stressLapShare > 0 && !this.isManual && random() < Car.config.stressLapShare;
     if (this.stressLap) {
       this.lapPowerFactor = 1.0 + (random() * 0.08 - 0.04);
       this.lapGripFactor = 1.0 + (random() * 0.11 - 0.08); // -8% .. +3%
       this.sensorNoise = 0.01 + random() * 0.03;
       this.sensorBias = random() * 0.04 - 0.02;
       this.sensorDrift = []; this.sensorError = [];
-      this.lapCompromised = true;
+      // Learning bookkeeping only: in training a stress lap never sets a record or evaluates a model.
+      // In qualifying and the race it is driven the same way and its time counts.
+      if (!this.isRaceMode) this.lapCompromised = true;
     }
 
     // Style shift: driver's style shifts by a few % (+/- 5%) every few laps
