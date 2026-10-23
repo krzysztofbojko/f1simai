@@ -1,6 +1,6 @@
 # F1 AI Simulator
 
-Przeglądarkowy symulator wyścigów 2D w TypeScript i Vite. Dwadzieścia bolidów (10 zespołów po 2 kierowców) korzysta z hybrydowego sterowania: geometrii toru, sensorów, sieci neuronowych i treningu online. Fizyka działa w Web Workerze, a interfejs renderuje tor i telemetrię przez Canvas 2D.
+Przeglądarkowy symulator wyścigów w TypeScript i Vite. Dwadzieścia bolidów (10 zespołów po 2 kierowców) korzysta z hybrydowego sterowania: geometrii toru, sensorów, sieci neuronowych i treningu online. Fizyka (płaska, w metrach) działa w Web Workerze, a strona rysuje tor, bolidy, pogodę i telemetrię w 3D przez Three.js (WebGL).
 
 ## Funkcje
 
@@ -44,7 +44,11 @@ W wyścigu i kwalifikacjach bolidy jeżdżą na pięciu mieszankach (`src/physic
 
 AI startuje na mieszance zależnej od pola startowego (medium / soft / hard) albo na oponach dobranych do pogody. W boksie zmienia slicki (na hard, z hard na medium), a gdy nawierzchnia zmieni się w trakcie wyścigu (deszcz, przesychanie), zjeżdża po opony właściwe dla warunków. Gracz wybiera swoją mieszankę na start i na każdy pit stop. Mieszankę widać w tabeli wyników i telemetrii, a w 3D jako kolorowy pasek na boku opony.
 
-To model hybrydowy do gry. Nie zawiera pełnej dynamiki yaw, kontaktów między bolidami ani fizycznego przejazdu aleją serwisową. Osiągi nie są kalibrowane względem konkretnego bolidu F1. Szczegóły, stałe i ograniczenia opisuje [PHYSICS.md](PHYSICS.md).
+To model hybrydowy do gry: jednoślad z kątami znoszenia, dynamiczne zawieszenie, opony, hamulce, ERS i aerodynamika ze śladem, kontakty auto–auto z obrotem. Aleja serwisowa nie ma geometrii (auto znika z toru na czas postoju). Osiągi nie są kalibrowane względem konkretnego bolidu F1. Szczegóły, stałe i ograniczenia opisuje [PHYSICS.md](PHYSICS.md).
+
+### Te same zasady w treningu i w wyścigu
+
+Trening, kwalifikacje i wyścig mają tę samą fizykę i te same warunki: pogodę, gęstość powietrza, opony (temperatura, zużycie, mieszanki, aquaplaning), hamulce (temperatura, blokowanie kół), ślad aerodynamiczny, morświnowanie, stratę alei serwisowej i brak tankowania. Fizyka nie ma przełączników wyłączających mechanikę, więc model nauczony w treningu trafia w wyścigu na te same warunki. Różnią się tylko elementy sesji, nie fizyki: w treningu część okrążeń to „trudne okrążenia” (patrz wyżej), sieci się uczą, a rozbite auto wraca na tor; w wyścigu działają żółte flagi z wrakiem na torze, taktyka (atak, jazda w cieniu na prostej, obrona), dobór tempa z najlepszego marginesu i przywracanie sprawdzonej sieci po poślizgu; w kwalifikacjach paliwo jest uzupełniane do 20 kg na linii.
 
 Po zmianie fizyki z 04.10.2026 dawne rekordy i modele AI wymagają ponownego treningu. Zmiany z 23.10.2026 (zużycie paliwa według limitu 100 kg/h, postoje bez tankowania ze stratą alei, ślad aerodynamiczny i morświnowanie także w treningu, gęstość powietrza z temperatury, aquaplaning, temperatura hamulców i blokowanie kół) znów zmieniają czasy okrążeń i przebieg treningu, więc dawne rekordy nie są porównywalne. Układ wejść sieci się nie zmienił, więc zapisane modele się wczytują, ale warto je douczyć. Zmiana ERS na regulamin 2026 (13.10.2026) ponownie zmienia czasy okrążeń, więc dawne rekordy nie są porównywalne. Pliki modeli z 10 kierowcami nadal się wczytują: drugi kierowca zespołu dostaje lekko zmutowaną kopię sieci partnera. Droga hamowania i czasy okrążeń zmieniły się wraz z poprawą limitów tarcia i skali drogi.
 
@@ -61,6 +65,7 @@ Vite wyświetli lokalny adres aplikacji, domyślnie `http://localhost:5173`.
 
 ```bash
 npm test               # regresje fizyki, wyścigu, treningu, poboczy i pomyłek
+npm run test:units     # szybkie testy jednostkowe: przyczepność mieszanek, wybór opon, LiDAR
 npm run test:learning  # ochrona wiedzy AI i zmiany generacji
 npm run test:qualifying # zasady Q1–Q3, siatka startowa
 npm run test:islands   # wyspy treningowe: przenoszenie toru i reguły wymiany modeli
@@ -69,26 +74,30 @@ node scripts/bench-laptime.mjs 1800 145,456,789 # pomiar postępu nauki (ok. 15 
 npm run bench:step     # przepustowość fizyki: µs na krok i skrót stanu (do porównań po optymalizacjach)
 npm run test:runoff    # pobocza, bandy, powrót na asfalt i pomyłki AI
 npm run audit:physics  # wyniki prób numerycznych
+npm run lint           # oxlint (błędy poprawności, nieużywane zmienne)
 npm run build          # TypeScript i produkcyjne dist/
 npm run preview        # podgląd zbudowanej wersji
+npm run test:tracks    # wszystkie tory z tracks/ (ok. 20 min)
 ```
+
+CI (`.github/workflows/ci.yml`) przy każdym pushu i pull requeście uruchamia `tsc --noEmit`, `npm run lint`, `npm test` i `npm run build`; `npm run test:tracks` biegnie co noc.
 
 ## Struktura
 
-- `src/main.ts` — interfejs, obsługa wejścia i pętla renderowania.
-- `src/workers/` — symulacja, protokół komunikacji i akumulator czasu.
-- `src/physics/Car.ts` — dynamika, sterowanie AI, paliwo, obrys i pomiar okrążeń.
-- `src/ai/` — sieci neuronowe i populacja kierowców.
+- `src/main.ts` — strona: panele, przyciski, pętla renderowania; `src/ui/` — synchronizacja ze snapshotami workera (`SnapshotSync`), ekrany wyścigu i kwalifikacji (`RaceUI`), klawiatura (`InputController`).
+- `src/workers/` — `sim.worker.ts` (symulacja i protokół wiadomości), `island.worker.ts` (wyspy treningowe), `CarView.ts` (wspólny schemat stanu auta w snapshocie), `SimBridge.ts`.
+- `src/physics/` — `Car.ts` (dynamika, opony, hamulce, ERS, paliwo, obrys), `DrivePlanner.ts` (planista i strażnik), `LapTiming.ts` (pomiar okrążeń i sektorów), `PitStrategy.ts` (postoje), `Fitness.ts` (nagrody), `Traffic.ts` (kontakty, ślad aero), `Weather.ts`, `Tyres.ts`, `SimConfig.ts` (pogoda i ustawienia symulacji).
+- `src/race/RaceSession.ts` — kwalifikacje, start, wyścig, szachownica i klasyfikacja (czysty moduł, testowany bez workera).
+- `src/ai/` — sieci neuronowe, populacja, linie przejazdu, wyspy, taktyka wyścigowa.
 - `src/track/`, `src/math/` — geometria, presety, spline i wektory.
-- `src/rendering/Renderer.ts` — Canvas, tor, bolidy i telemetria.
-- `scripts/audit-physics.mjs` — odtwarzalne próby i testy regresyjne.
+- `src/rendering/three/` — scena Three.js: `SceneRenderer` (scena, światło, pogoda), `TrackMesh`, `CarFleet`, `Cameras`, `Effects`/`Particles`/`Rain`, `Labels`, `Overlays`, `Hud`; `src/rendering/HudCharts.ts` — wykresy telemetrii, `MotionInterpolator.ts` — płynny ruch między snapshotami.
+- `scripts/` — testy regresyjne (`npm test`), benchmarki i diagnostyka.
 
 ## Dokumentacja
 
 - [Aktualny model fizyki](PHYSICS.md).
-- [Audyt fizyki przed naprawami](AUDIT_PHYSICS.md).
-- [Historyczny audyt aplikacji](AUDIT.md).
-- `opis.md` i `opis.txt` — archiwalne opisy wcześniejszej implementacji.
+- `docs/archive/` — historyczne audyty i analizy ([audyt fizyki przed naprawami](docs/archive/AUDIT_PHYSICS.md), [audyt aplikacji](docs/archive/AUDIT.md), audyty z 19.10.2026, analizy fizyki) oraz archiwalne opisy wcześniejszej implementacji (`opis.md`, `opis.txt`).
+- `propozycje/` — propozycje zmian modelu (część wdrożona, patrz PHYSICS.md).
 
 Projekt pierwotnie rozwijano przy użyciu Gemini Antigravity.
 

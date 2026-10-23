@@ -1,6 +1,6 @@
 # Aktualny model fizyki
 
-Stan po poprawkach z 05.10.2026. Ten dokument zastępuje historyczny opis fizyki w `opis.md` i `opis.txt`.
+Stan po poprawkach z 05.10.2026. Ten dokument zastępuje historyczny opis fizyki w `docs/archive/opis.md` i `docs/archive/opis.txt`.
 
 ## Jednostki i geometria
 
@@ -63,7 +63,7 @@ Wiatr jest jednorodny na całym torze (bez osłonięć trybunami). Brak pełnej 
 
 `npm test` uruchamia oba zestawy oraz sprawdza limity sił, hamowanie od spoczynku i w obu kierunkach, telemetrię, jazdę bokiem, brak paliwa, postój bez tankowania i zegary, skalę, obrys oraz ukończenie okrążeń GP przez AI. Test workera z kontrolowanym zegarem sprawdza 1× przy tickerach 16 ms i 20 ms oraz pauzę. Dodatkowo sprawdza checkpointy pól startowych, ukończenie 10-okrążeniowego wyścigu przez AI, zamrożenie czasu po mecie i powrót do treningu. `npm run audit:physics` wypisuje wyniki numeryczne; `npm run build` sprawdza TypeScript i bundlowanie.
 
-`AUDIT_PHYSICS.md` zachowuje dowody stanu sprzed napraw. Poprawiono osiem opisanych tam problemów i akumulator czasu; pełna dynamika yaw i kontakty między bolidami pozostają ograniczeniami modelu. Aleja serwisowa nie ma własnej geometrii: auto znika z toru na czas postoju i wraca przy linii mety.
+`docs/archive/AUDIT_PHYSICS.md` zachowuje dowody stanu sprzed napraw. Poprawiono osiem opisanych tam problemów i akumulator czasu; dynamika poślizgu (model jednośladu) i kontakty między bolidami doszły później (opisane niżej). Aleja serwisowa nie ma własnej geometrii: auto znika z toru na czas postoju (strata alei plus zmiana opon) i wraca przy linii mety, gdy tor przy wyjeździe jest wolny.
 
 ### Krótkie ataki na rywala
 

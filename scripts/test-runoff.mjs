@@ -76,7 +76,7 @@ try {
   assert.ok(maxJump<14,'runoff width must change smoothly');
   assert.equal(track.sampleSurface(new Vector2(150,0)).surface, 'asphalt');
   // Pick a straight without nearby corners influencing runoff.
-  const p = new Vector2(250,0), r = track.runoff[2];
+  const p = new Vector2(250,0);
   assert.equal(track.sampleSurface(new Vector2(250,7.4)).surface, 'grass');
   assert.equal(track.sampleSurface(new Vector2(250,9.3)).surface, 'gravel');
   const idle = { throttle:0, brake:0, steer:0 };

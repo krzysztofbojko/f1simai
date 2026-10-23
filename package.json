@@ -6,7 +6,9 @@
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
-    "test": "node scripts/audit-physics.mjs --test && node scripts/test-learning.mjs && node scripts/test-runoff.mjs && node scripts/test-traffic.mjs && node scripts/test-suspension.mjs && node scripts/test-lines.mjs && node scripts/test-pressure.mjs --unit && node scripts/test-neural-driving.mjs && node scripts/test-qualifying.mjs && node scripts/test-islands.mjs && node scripts/test-robustness.mjs && node scripts/test-interpolation.mjs && node scripts/test-weather.mjs && node scripts/test-timing.mjs && node scripts/test-race-session.mjs && node scripts/test-race-finish.mjs && node scripts/test-pitstops.mjs",
+    "lint": "oxlint -c .oxlintrc.json --deny-warnings src scripts",
+    "test": "node scripts/test-units.mjs && node scripts/audit-physics.mjs --test && node scripts/test-learning.mjs && node scripts/test-runoff.mjs && node scripts/test-traffic.mjs && node scripts/test-suspension.mjs && node scripts/test-lines.mjs && node scripts/test-pressure.mjs --unit && node scripts/test-neural-driving.mjs && node scripts/test-qualifying.mjs && node scripts/test-islands.mjs && node scripts/test-robustness.mjs && node scripts/test-interpolation.mjs && node scripts/test-weather.mjs && node scripts/test-timing.mjs && node scripts/test-race-session.mjs && node scripts/test-race-finish.mjs && node scripts/test-pitstops.mjs",
+    "test:units": "node scripts/test-units.mjs",
     "test:robustness": "node scripts/test-robustness.mjs",
     "test:interpolation": "node scripts/test-interpolation.mjs",
     "test:weather": "node scripts/test-weather.mjs",
@@ -30,6 +32,7 @@
   },
   "devDependencies": {
     "@types/three": "^0.186.0",
+    "oxlint": "^1.89.0",
     "typescript": "^7.0.2",
     "vite": "^8.3.0"
   },

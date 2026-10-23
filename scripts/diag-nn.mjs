@@ -28,11 +28,11 @@ try {
   const population = new Population(Number(process.env.POP ?? 10), gp, 25);
   console.log('init ms', Date.now() - t0);
   if (process.env.PRESSURE) population.setDriverPressure(Number(process.env.PRESSURE), true);
-  if (expert) for (const c of population.cars) { const orig = c.getAIControl.bind(c); c.getAIControl = (t, l) => { const p = c.planDrive(t, l); c.currentControl = p.expert; return p.expert; }; }
+  if (expert) for (const c of population.cars) { c.getAIControl = (t, l) => { const p = c.planDrive(t, l); c.currentControl = p.expert; return p.expert; }; }
   const flips = {}; const lapStats = { clean: 0, compromised: 0 };
   const prevComp = population.cars.map(c => c.lapCompromised), prevDmg = population.cars.map(() => 0);
   const origRec = population.recordLap.bind(population);
-  population.recordLap = (e, c, ...r) => { (e.compromised ? lapStats.compromised++ : lapStats.clean++); return origRec(e, c, ...r); };
+  population.recordLap = (e, c, ...r) => { if (e.compromised) lapStats.compromised++; else lapStats.clean++; return origRec(e, c, ...r); };
   const sites = {};
   for (const c of population.cars) { let v = c.lapCompromised; Object.defineProperty(c, 'lapCompromised', { get: () => v, set: (nv) => { if (nv && !v) { const l = new Error().stack.split('\n')[2].trim(); sites[l] = (sites[l] ?? 0) + 1; } v = nv; } }); }
   const offStats = {}; const latUse = []; const tyreT = [], tyreF = [], tyreR = []; const both = { n: 0 };

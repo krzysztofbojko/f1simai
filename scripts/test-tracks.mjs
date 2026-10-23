@@ -25,7 +25,7 @@ if (isMainThread) {
     console.log(`${queue.length} torów, ${threads} wątków, ${perTrack.toFixed(0)} s na tor (łącznie ~${minutes} min)`);
     const results = [];
     let next = 0;
-    const run = () => new Promise((done, fail) => {
+    const run = () => new Promise(done => {
       const take = () => {
         if (next >= queue.length) return done();
         const t = queue[next++];

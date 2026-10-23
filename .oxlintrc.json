@@ -1,0 +1,11 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "categories": { "correctness": "error" },
+  "env": { "browser": true, "node": true, "worker": true, "es2024": true },
+  "ignorePatterns": ["dist/**", "node_modules/**", ".claude/**", "public/**", "tracks/**"],
+  "rules": {
+    "no-unused-vars": ["warn", { "caughtErrors": "none", "argsIgnorePattern": "^_", "varsIgnorePattern": "^_" }],
+    "unicorn/no-new-array": "off",
+    "typescript/no-this-alias": "off"
+  }
+}

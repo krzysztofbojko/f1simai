@@ -180,7 +180,10 @@ export class CameraRig {
     this.zoom = THREE.MathUtils.clamp(this.zoom * factor, MIN_ZOOM, MAX_ZOOM);
     this.updateTop();
     const after = this.screenToWorld(sx, sy);
-    if (before && after) this.target.x += before.x - after.x, this.target.y += before.y - after.y;
+    if (before && after) {
+      this.target.x += before.x - after.x;
+      this.target.y += before.y - after.y;
+    }
     this.updateTop();
   }
 

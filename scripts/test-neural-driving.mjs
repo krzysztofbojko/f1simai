@@ -139,7 +139,7 @@ try {
   let a = body(0, 20), b = body(20, 12), m = captureMotion([a, b]); a.pos.x = 15; b.pos.x = 20.5;
   resolveTraffic([a, b], m);
   assert.ok(a.isAlive && b.isAlive && a.damage > 0 && a.damage < 1, 'an 8 m/s contact damages but does not wreck');
-  const downforceBefore = 0; // damage reduces downforce => lower cornering limit
+  // Damage reduces downforce => lower cornering limit.
   const hurt = new Car(new Vector2(0, 0), 0); hurt.damage = 0.8;
   const fresh = new Car(new Vector2(0, 0), 0);
   for (const c of [hurt, fresh]) { c.vel = new Vector2(70, 0); c.speed = 70; c.lapPowerFactor = c.lapGripFactor = c.lapDragFactor = 1; c.updatePhysics({ throttle: 0, brake: 1, steer: 0 }, 1 / 60, stub); }
@@ -348,7 +348,7 @@ try {
   assert.equal(tyreCar.tyreCompound, 'wet', 'a training car on a soaked track gets full wets'); Car.config.weather.wetness = 0;
   // Gearbox: 8 ratios, limiter-bound top speed, shift-cut and real gear/rpm bookkeeping.
   const gearCar = new Car(gp.startPosition, gp.startAngle, new NeuralNetwork([driverInputCount(25), 4, 3]), '#fff', 'gears', 60, 25);
-  const gearsSeen = new Set(); let maxRpm = 0, cutSteps = 0, prevGear = 1, prevForce = 0;
+  const gearsSeen = new Set(); let maxRpm = 0, cutSteps = 0, prevGear = 1;
   for (let i = 0; i < 60 * 45; i++) {
     gearCar.framesSinceLastCheckpoint = 0; // no checkpoints on the stub track
     gearCar.ersEnergy = Car.ERS_CAPACITY; // charged battery: top speed set by drag, MGU-K taper and gearing
@@ -357,7 +357,7 @@ try {
     if (gearCar.gear > prevGear) cutSteps++; prevGear = gearCar.gear;
   }
   assert.equal(gearCar.gear, 8, 'reaches top gear');
-  assert.ok([...gearsSeen].length === 8, 'uses all eight gears: ' + [...gearsSeen]);
+  assert.ok(gearsSeen.size === 8, 'uses all eight gears: ' + [...gearsSeen]);
   assert.ok(maxRpm <= Car.REV_LIMIT + 1, 'never beyond the limiter: ' + maxRpm);
   assert.ok(cutSteps >= 7, 'upshifts happened');
   assert.ok(gearCar.speed > 90 && gearCar.speed < 108, 'top speed set by drag, MGU-K taper and the rev limit: ' + gearCar.speed);
