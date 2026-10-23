@@ -15,6 +15,7 @@ import type { CameraMode } from './rendering/three/Cameras';
 import { HudCharts } from './rendering/HudCharts';
 import { hydrateIcons, setControlContent } from './ui/icons';
 import { SimBridge, type ComputeProfile, type TopologySpecifier } from './workers/SimBridge';
+import { applyCarView } from './workers/CarView';
 import type { SimSnapshot, RaceState, QualifyingSnapshot } from './workers/sim.worker';
 import realTrackIndex from '../tracks/index.json';
 
@@ -184,90 +185,8 @@ class App {
     this.bridge.onSnapshotCallback = (snapshot: SimSnapshot) => {
       for (let i = 0; i < this.population.cars.length; i++) {
         const car = this.population.cars[i];
-        const sc = snapshot.cars[i];
-        if (!car || !sc) continue;
-
-        car.pos.x = sc.x;
-        car.pos.y = sc.y;
-        car.heading = sc.angle;
-        car.speedKmh = sc.speedKmh;
-        car.isAlive = sc.isAlive;
-        car.surface = sc.surface;
-        car.surfaceFractions = { ...sc.surfaceFractions };
-        car.eliminationReason = sc.eliminationReason;
-        car.barrierImpactSpeed = sc.barrierImpactSpeed;
-        car.damage = sc.damage ?? 0;
-        car.ersEnergy = (sc.ersSoc ?? 0.85) * Car.ERS_CAPACITY;
-        car.gear = sc.gear ?? 1; car.engineRpm = sc.engineRpm ?? Car.IDLE_RPM;
-        car.rideHeightFront = (sc.rideHeightFront ?? 30) / 1000; car.rideHeightRear = (sc.rideHeightRear ?? 55) / 1000; car.aeroStall = !!sc.aeroStall;
-        car.heave = sc.heave ?? 0; car.pitch = sc.pitch ?? 0; car.roll = sc.roll ?? 0; car.wheelAngle = sc.wheelAngle ?? 0;
-        car.wakeDrag = sc.wakeDrag ?? 1; car.wakeDownforce = sc.wakeDownforce ?? 1; car.plankForce = sc.plankForce ?? 0; car.porpoisingHz = sc.porpoisingHz ?? 0;
-        car.tyreTempFront = sc.tyreTempFront ?? 100; car.tyreTempRear = sc.tyreTempRear ?? 100;
-        car.tyreWearFront = sc.tyreWearFront ?? 0; car.tyreWearRear = sc.tyreWearRear ?? 0;
-        car.tyreCompound = sc.tyreCompound ?? 'medium';
-        car.incidentActive = sc.incidentActive;
-        car.battleOpponent = sc.battleOpponent;
-        car.overtakingTargetName = sc.overtakingTargetName;
-        car.racingLineLabel = sc.racingLineLabel;
-        car.driverPressure = sc.driverPressure;
-        car.effectiveDriverPressure = sc.effectiveDriverPressure;
-        car.bestLapPressure = sc.bestLapPressure;
-        car.yellowFlag = sc.yellowFlag;
-        car.wreckRemoved = sc.wreckRemoved;
-        car.recoveryTimer = sc.recoveryTimer;
-        car.isManual = sc.isManual;
-
-        const rawCtrl = sc.ctrl;
-        const validCtrl: CarControl = {
-          steer: typeof rawCtrl?.steer === 'number' && Number.isFinite(rawCtrl.steer)
-            ? Math.max(-1, Math.min(1, rawCtrl.steer))
-            : 0,
-          throttle: typeof rawCtrl?.throttle === 'number' && Number.isFinite(rawCtrl.throttle)
-            ? Math.max(0, Math.min(1, rawCtrl.throttle))
-            : 0,
-          brake: typeof rawCtrl?.brake === 'number' && Number.isFinite(rawCtrl.brake)
-            ? Math.max(0, Math.min(1, rawCtrl.brake))
-            : 0,
-        };
-        car.currentControl = validCtrl;
-        car.effectiveThrottle = typeof sc.effectiveThrottle === 'number' && Number.isFinite(sc.effectiveThrottle)
-          ? Math.max(0, Math.min(1, sc.effectiveThrottle))
-          : 0;
-        if (car.isManual) {
-          car.manualControl = { ...validCtrl };
-        }
-        car.fitness = sc.fitness;
-        car.currentLap = sc.currentLap;
-        car.lapTime = sc.lapTime;
-        car.lastLapTime = sc.lastLapTime;
-        if (typeof sc.bestLapTime === 'number' && sc.bestLapTime > 0) {
-          if (!car.bestLapTime || sc.bestLapTime < car.bestLapTime) {
-            car.bestLapTime = sc.bestLapTime;
-          }
-        }
-        car.fuelKg = sc.fuelKg;
-        car.lateralG = sc.lateralG;
-        car.longitudinalG = sc.longitudinalG;
-        car.weightFrontRatio = sc.weightFrontRatio;
-        car.brakingAggression = sc.brakingAggression;
-        car.understeerSlip = sc.understeerSlip;
-        car.oversteerSlip = sc.oversteerSlip;
-        car.isSkidding = sc.isSkidding;
-        car.skidMarks = sc.skidMarks.map(m => new Vector2(m.x, m.y));
-        car.rayHits = sc.sensorRays.map(r => ({ point: new Vector2(r.x, r.y), dist: r.dist }));
-        if (sc.currentSplits) car.currentLapSplits = [...sc.currentSplits];
-        if (sc.bestSplits) car.bestLapSplits = [...sc.bestSplits];
-        if (sc.lastCheckpointDelta) {
-          car.lastCheckpointDelta = { ...sc.lastCheckpointDelta };
-        } else {
-          car.lastCheckpointDelta = null;
-        }
-        car.wantsToPit = sc.wantsToPit;
-        car.isPitting = sc.isPitting;
-        car.pitTimer = sc.pitTimer;
-        car.pitStopsCount = sc.pitStopsCount;
-        car.trackLimitExits = sc.trackLimitExits ?? 0;
-        car.raceLapsCompleted = sc.raceLapsCompleted;
+        const view = snapshot.cars[i];
+        if (car && view) applyCarView(car, view);
       }
 
       if (snapshot.timingGates && snapshot.timingGates.length > 0) {
@@ -357,71 +276,7 @@ class App {
         this.population.currentLeader = leaderCar;
       }
 
-      if (this.playerCar && snapshot.playerCar) {
-        const sp = snapshot.playerCar;
-        this.playerCar.pos.x = sp.x;
-        this.playerCar.pos.y = sp.y;
-        this.playerCar.heading = sp.angle;
-        this.playerCar.speedKmh = sp.speedKmh;
-        this.playerCar.isAlive = sp.isAlive;
-        this.playerCar.surface = sp.surface;
-        this.playerCar.surfaceFractions = { ...sp.surfaceFractions };
-        this.playerCar.eliminationReason = sp.eliminationReason;
-        this.playerCar.barrierImpactSpeed = sp.barrierImpactSpeed;
-        this.playerCar.damage = sp.damage ?? 0;
-        this.playerCar.ersEnergy = (sp.ersSoc ?? 0.85) * Car.ERS_CAPACITY;
-        this.playerCar.gear = sp.gear ?? 1; this.playerCar.engineRpm = sp.engineRpm ?? Car.IDLE_RPM;
-        this.playerCar.rideHeightFront = (sp.rideHeightFront ?? 30) / 1000; this.playerCar.rideHeightRear = (sp.rideHeightRear ?? 55) / 1000; this.playerCar.aeroStall = !!sp.aeroStall;
-        this.playerCar.heave = sp.heave ?? 0; this.playerCar.pitch = sp.pitch ?? 0; this.playerCar.roll = sp.roll ?? 0; this.playerCar.wheelAngle = sp.wheelAngle ?? 0;
-        this.playerCar.wakeDrag = sp.wakeDrag ?? 1; this.playerCar.wakeDownforce = sp.wakeDownforce ?? 1; this.playerCar.plankForce = sp.plankForce ?? 0; this.playerCar.porpoisingHz = sp.porpoisingHz ?? 0;
-        this.playerCar.tyreTempFront = sp.tyreTempFront ?? 100; this.playerCar.tyreTempRear = sp.tyreTempRear ?? 100;
-        this.playerCar.tyreWearFront = sp.tyreWearFront ?? 0; this.playerCar.tyreWearRear = sp.tyreWearRear ?? 0;
-        this.playerCar.tyreCompound = sp.tyreCompound ?? 'medium';
-        this.playerCar.incidentActive = sp.incidentActive;
-        this.playerCar.battleOpponent = sp.battleOpponent;
-        this.playerCar.overtakingTargetName = sp.overtakingTargetName;
-        this.playerCar.yellowFlag = sp.yellowFlag;
-        this.playerCar.wreckRemoved = sp.wreckRemoved;
-        this.playerCar.recoveryTimer = sp.recoveryTimer;
-        const rawPlayerCtrl = sp.ctrl;
-        const validPlayerCtrl: CarControl = {
-          steer: typeof rawPlayerCtrl?.steer === 'number' && Number.isFinite(rawPlayerCtrl.steer)
-            ? Math.max(-1, Math.min(1, rawPlayerCtrl.steer))
-            : 0,
-          throttle: typeof rawPlayerCtrl?.throttle === 'number' && Number.isFinite(rawPlayerCtrl.throttle)
-            ? Math.max(0, Math.min(1, rawPlayerCtrl.throttle))
-            : 0,
-          brake: typeof rawPlayerCtrl?.brake === 'number' && Number.isFinite(rawPlayerCtrl.brake)
-            ? Math.max(0, Math.min(1, rawPlayerCtrl.brake))
-            : 0,
-        };
-        this.playerCar.currentControl = validPlayerCtrl;
-        this.playerCar.effectiveThrottle = typeof sp.effectiveThrottle === 'number' && Number.isFinite(sp.effectiveThrottle)
-          ? Math.max(0, Math.min(1, sp.effectiveThrottle))
-          : 0;
-        this.playerCar.manualControl = { ...validPlayerCtrl };
-        this.playerCar.fuelKg = sp.fuelKg;
-        this.playerCar.currentLap = sp.currentLap;
-        this.playerCar.lapTime = sp.lapTime;
-        this.playerCar.bestLapTime = sp.bestLapTime;
-        this.playerCar.lastLapTime = sp.lastLapTime;
-        this.playerCar.lateralG = sp.lateralG;
-        this.playerCar.longitudinalG = sp.longitudinalG;
-        this.playerCar.weightFrontRatio = sp.weightFrontRatio;
-        if (sp.currentSplits) this.playerCar.currentLapSplits = [...sp.currentSplits];
-        if (sp.bestSplits) this.playerCar.bestLapSplits = [...sp.bestSplits];
-        if (sp.lastCheckpointDelta) {
-          this.playerCar.lastCheckpointDelta = { ...sp.lastCheckpointDelta };
-        } else {
-          this.playerCar.lastCheckpointDelta = null;
-        }
-        this.playerCar.wantsToPit = sp.wantsToPit;
-        this.playerCar.isPitting = sp.isPitting;
-        this.playerCar.pitTimer = sp.pitTimer;
-        this.playerCar.pitStopsCount = sp.pitStopsCount;
-        this.playerCar.trackLimitExits = sp.trackLimitExits ?? 0;
-        this.playerCar.raceLapsCompleted = sp.raceLapsCompleted;
-      }
+      if (this.playerCar && snapshot.playerCar) applyCarView(this.playerCar, snapshot.playerCar);
 
       const synced = this.population.cars.filter((_, i) => snapshot.cars[i]);
       if (this.playerCar && snapshot.playerCar) synced.push(this.playerCar);

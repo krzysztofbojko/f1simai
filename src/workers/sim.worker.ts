@@ -3,16 +3,18 @@ import { captureMotion, resolveTraffic, avoidTraffic } from '../physics/Traffic'
 import { Track, TimingGate } from '../track/Track';
 import { Presets } from '../track/Presets';
 import { Population, LapLeaderboardEntry } from '../ai/Population';
-import { Car, CarControl, TrajectoryPoint, CheckpointDelta, driverInputCount, clampStressShare } from '../physics/Car';
+import { Car, CarControl, TrajectoryPoint, driverInputCount, clampStressShare } from '../physics/Car';
 import { Spline } from '../math/Spline';
 import { Vector2 } from '../math/Vector2';
 import { TopologySpecifier } from '../ai/NeuralNetwork';
 import { RaceSession, type RaceState, type RaceStanding, type QualifyingSnapshot } from '../race/RaceSession';
-import { isCompound, type TyreCompound } from '../physics/Tyres';
+import { isCompound } from '../physics/Tyres';
+import { toCarView, type CarView } from './CarView';
 import { Weather, isWeatherScenario, type WeatherScenario, type WeatherState } from '../physics/Weather';
 import { applyDriverModel, exportDriver, mergeBetterDrivers, serializeTrack } from '../ai/Islands';
 
 export type { TopologySpecifier, RaceState, RaceStanding, QualifyingSnapshot };
+export type { CarView as SerializedCar, SerializedRay } from './CarView';
 
 export type ComputeProfile = 'eco' | 'balanced' | 'performance' | 'turbo';
 
@@ -61,93 +63,12 @@ export const COMPUTE_PROFILE_PRESETS: Record<ComputeProfile, ComputeProfileConfi
   }
 };
 
-export interface SerializedRay {
-  x: number;
-  y: number;
-  dist: number;
-}
-
-export interface SerializedCar {
-  id: number;
-  color: string;
-  driverName: string;
-  x: number;
-  y: number;
-  angle: number;
-  speedKmh: number;
-  isAlive: boolean;
-  surface: Car['surface'];
-  surfaceFractions: Car['surfaceFractions'];
-  eliminationReason: Car['eliminationReason'];
-  barrierImpactSpeed: number;
-  damage: number;
-  ersSoc: number;
-  gear: number;
-  rideHeightFront: number;
-  rideHeightRear: number;
-  /** Sprung-mass heave (m), pitch and roll (rad), for the 3D body motion. */
-  heave: number;
-  pitch: number;
-  roll: number;
-  /** Road-wheel steering angle (rad, + = right) as the actuator delivers it, for the 3D front wheels. */
-  wheelAngle: number;
-  aeroStall: boolean;
-  wakeDrag: number;
-  plankForce: number;
-  porpoisingHz: number;
-  wakeDownforce: number;
-  engineRpm: number;
-  tyreTempFront: number;
-  tyreTempRear: number;
-  tyreWearFront: number;
-  tyreWearRear: number;
-  tyreCompound: TyreCompound;
-  incidentActive: boolean;
-  battleOpponent: string;
-  overtakingTargetName: string;
-  racingLineLabel: string;
-  driverPressure: number;
-  effectiveDriverPressure: number;
-  bestLapPressure: number;
-  yellowFlag: boolean;
-  wreckRemoved: boolean;
-  recoveryTimer: number;
-  isManual: boolean;
-  fitness: number;
-  currentLap: number;
-  lapTime: number;
-  bestLapTime: number | null;
-  lastLapTime: number | null;
-  fuelKg: number;
-  totalMass: number;
-  lateralG: number;
-  longitudinalG: number;
-  weightFrontRatio: number;
-  brakingAggression: number;
-  understeerSlip: number;
-  oversteerSlip: number;
-  isSkidding: boolean;
-  skidMarks: { x: number; y: number }[];
-  sensorRays: SerializedRay[];
-  ctrl: CarControl;
-  effectiveThrottle: number;
-  currentSplits: (number | null)[];
-  bestSplits: (number | null)[];
-  lastCheckpointDelta: CheckpointDelta | null;
-  wantsToPit: boolean;
-  isPitting: boolean;
-  pitTimer: number;
-  pitStopsCount: number;
-  trackLimitExits: number;
-  raceLapsCompleted: number;
-}
-
 export interface SimSnapshot {
   /** Simulated seconds since the worker started; the display interpolates car motion on it. */
   simTime: number;
   driverPressure: number;
-  cars: SerializedCar[];
-  playerCar: SerializedCar | null;
+  cars: CarView[];
+  playerCar: CarView | null;
   bestRacingLine: TrajectoryPoint[];
   leaderCheckpointSpeeds: number[];
   teamStandings: LapLeaderboardEntry[];
@@ -328,91 +249,6 @@ function islandStatus(): IslandStatus {
   return { count: islands.length, max: maxIslands, running: islandsRunning, stepsPerSecond: Math.round(stepsPerSecond), adopted: islandsAdopted };
 }
 
-/** Snapshot of one car; reads the car only. */
-function serializeCar(car: Car, ctrl?: CarControl, isHeadless: boolean = false): SerializedCar {
-  const delta: CheckpointDelta | null = car.lastCheckpointDelta ? { ...car.lastCheckpointDelta } : null;
-  return {
-    id: car.id,
-    color: car.color,
-    driverName: car.driverName,
-    x: car.pos.x,
-    y: car.pos.y,
-    angle: car.heading,
-    speedKmh: car.speedKmh,
-    isAlive: car.isAlive,
-    surface: car.surface,
-    surfaceFractions: { ...car.surfaceFractions },
-    eliminationReason: car.eliminationReason,
-    barrierImpactSpeed: car.barrierImpactSpeed,
-    damage: car.damage,
-    ersSoc: Math.round(car.ersEnergy / Car.ERS_CAPACITY * 100) / 100,
-    gear: car.gear,
-    rideHeightFront: Math.round(car.rideHeightFront * 10000) / 10,
-    rideHeightRear: Math.round(car.rideHeightRear * 10000) / 10,
-    heave: car.heave,
-    pitch: car.pitch,
-    roll: car.roll,
-    wheelAngle: car.wheelAngle,
-    aeroStall: car.aeroStall,
-    wakeDrag: Math.round(car.wakeDrag * 100) / 100,
-    plankForce: Math.round(car.plankForce),
-    porpoisingHz: Math.round(car.porpoisingHz * 10) / 10,
-    wakeDownforce: Math.round(car.wakeDownforce * 100) / 100,
-    engineRpm: Math.round(car.engineRpm),
-    tyreTempFront: Math.round(car.tyreTempFront),
-    tyreTempRear: Math.round(car.tyreTempRear),
-    tyreWearFront: Math.round(car.tyreWearFront * 1000) / 1000,
-    tyreWearRear: Math.round(car.tyreWearRear * 1000) / 1000,
-    tyreCompound: car.tyreCompound,
-    incidentActive: car.incidentActive,
-    battleOpponent: car.battleOpponent,
-    overtakingTargetName: car.overtakingTargetName,
-    racingLineLabel: car.racingLineLabel,
-    driverPressure: car.driverPressure,
-    effectiveDriverPressure: car.effectiveDriverPressure,
-    bestLapPressure: car.bestLapPressure,
-    yellowFlag: car.yellowFlag,
-    wreckRemoved: car.wreckRemoved,
-    recoveryTimer: car.recoveryTimer,
-    isManual: car.isManual,
-    fitness: car.fitness,
-    currentLap: car.currentLap,
-    lapTime: car.lapTime,
-    bestLapTime: car.bestLapTime,
-    lastLapTime: car.lastLapTime,
-    fuelKg: car.fuelKg,
-    totalMass: car.totalMass,
-    lateralG: car.lateralG,
-    longitudinalG: car.longitudinalG,
-    weightFrontRatio: car.weightFrontRatio,
-    brakingAggression: car.brakingAggression,
-    understeerSlip: car.understeerSlip,
-    oversteerSlip: car.oversteerSlip,
-    isSkidding: car.isSkidding,
-    skidMarks: isHeadless ? [] : car.skidMarks.map(m => ({ x: m.x, y: m.y })),
-    sensorRays: isHeadless ? [] : car.rayHits.map(h => ({
-      x: h.point.x,
-      y: h.point.y,
-      dist: h.dist
-    })),
-    ctrl: ctrl || car.currentControl || { steer: 0, throttle: 0, brake: 0 },
-    effectiveThrottle: (!car.isAlive || car.isPitting) ? 0 : (
-      typeof car.effectiveThrottle === 'number' && Number.isFinite(car.effectiveThrottle)
-        ? Math.max(0, Math.min(1, car.effectiveThrottle))
-        : 0
-    ),
-    currentSplits: [...car.currentLapSplits],
-    bestSplits: [...car.bestLapSplits],
-    lastCheckpointDelta: delta,
-    wantsToPit: car.wantsToPit,
-    isPitting: car.isPitting,
-    pitTimer: Math.max(0, Math.round(car.pitTimer * 10) / 10),
-    pitStopsCount: car.pitStopsCount,
-    trackLimitExits: car.trackLimitExits,
-    raceLapsCompleted: car.raceLapsCompleted
-  };
-}
-
 function createSnapshot(): SimSnapshot {
   const isHeadless = currentProfileConfig.headless;
   const leader = population.currentLeader;
@@ -426,14 +262,14 @@ function createSnapshot(): SimSnapshot {
   }
 
   // Pure snapshot serialization: read recorded controls without executing AI inference or mutating replayBuffer
-  const serializedCars: SerializedCar[] = population.cars.map(c => {
+  const serializedCars: CarView[] = population.cars.map(c => {
     const ctrl: CarControl = c.isManual ? (c.manualControl || playerControl) : c.currentControl;
-    return serializeCar(c, ctrl, isHeadless);
+    return toCarView(c, ctrl, isHeadless);
   });
 
-  let serializedPlayer: SerializedCar | null = null;
+  let serializedPlayer: CarView | null = null;
   if (playerCar && isPlayerDriving) {
-    serializedPlayer = serializeCar(playerCar, playerControl, isHeadless);
+    serializedPlayer = toCarView(playerCar, playerControl, isHeadless);
   }
 
   let maxFitness = 0;
