@@ -125,6 +125,7 @@ try {
     car.vel = gate.tangent.mul(25);
     car.speed = 25;
     car.mistakesEnabled = false;
+    car.isRaceMode = true;
     car.battlePush = new BattlePush(() => 0);
   }
   rival.pos = attacker.pos.add(gate.tangent.mul(10)).add(gate.tangent.normal().mul(3));

@@ -1,4 +1,4 @@
-// Session parity: training drives under the race's rules. A crash leaves a wreck under yellow for
+// Session parity: training drives under the race's rules (only learning bookkeeping differs). A crash leaves a wreck under yellow for
 // 15 s before the respawn, cars tow, defend and attack, stress laps run in every session (timed in
 // the race), and training respawns carry race fuel loads.
 import { build } from 'vite';
@@ -17,7 +17,7 @@ try {
   const load = name => import(pathToFileURL(join(dir, name + '.mjs')));
   const { Car } = await load('car');
   const { Vector2 } = await load('vector');
-  const { planRaceLine, WRECK_CLEAR_SECONDS } = await load('race');
+  const { planRaceLine, updateRaceSafety, WRECK_CLEAR_SECONDS } = await load('race');
   const { Track } = await load('track');
   const { Population } = await load('population');
   const { BattlePush } = await load('battle');
@@ -54,6 +54,15 @@ try {
     assert.equal(crashed.isAlive, true, 'the car respawns once the wreck is cleared');
     assert.equal(approach.yellowFlag, false);
     assert.equal(training.allDeadMaxTime > WRECK_CLEAR_SECONDS, true, 'an all-dead cycle must not start before the wrecks clear');
+    // The yellow is driven the same everywhere; only a race lap is spoilt by it (learning bookkeeping).
+    const trainee = car(150, 0, 30), racer = car(150, 3, 30), wreck = car(300, 0);
+    racer.isRaceMode = true;
+    wreck.isAlive = false;
+    trainee.lapCompromised = racer.lapCompromised = false;
+    updateRaceSafety([trainee, racer, wreck], circuit, dt);
+    assert.ok(trainee.yellowFlag && racer.yellowFlag);
+    assert.equal(trainee.lapCompromised, false, 'a training lap under yellow still evaluates the model');
+    assert.equal(racer.lapCompromised, true, 'a race lap under yellow is not a reference lap');
   }
 
   // 2. Wheel-to-wheel in training (isRaceMode false everywhere below).
@@ -68,7 +77,12 @@ try {
     close.lapCompromised = false;
     planRaceLine(close, [close, leader], circuit, dt);
     assert.equal(close.overtakingTargetName, leader.driverName);
-    assert.equal(close.lapCompromised, true, 'a training lap with a pass must not be a reference lap');
+    assert.equal(close.lapCompromised, false, 'a training lap with a pass still evaluates the model');
+    const racePass = car(160, 2, 40);
+    racePass.isRaceMode = true; racePass.lapCompromised = false;
+    planRaceLine(racePass, [racePass, leader], circuit, dt);
+    assert.equal(racePass.overtakingTargetName, leader.driverName);
+    assert.equal(racePass.lapCompromised, true, 'a race lap with a pass is not a reference lap');
     // Defence: before a braking zone with an attacker close behind, one move to the inside (on the GP circuit).
     const gp = Presets.createGrandPrixTrack(14), gpLine = car(0, 0).racingLine(gp);
     const k = gpLine.cornerDistance.findIndex((d, i) => d > 100 && d < 180 && gpLine.cornerSign[i] !== 0);
@@ -88,10 +102,13 @@ try {
     chaser.reset(new Vector2(150, 0), 0, true, 2); rival.reset(new Vector2(170, 0), 0, true, 2);
     for (const c of pack.cars) { c.vel = new Vector2(40, 0); c.speed = 40; c.mistakesEnabled = false; }
     chaser.battlePush = new BattlePush(() => 0);
+    // A random stress lap (or a pressure change) would spoil the lap on its own.
+    chaser.stressLap = false; chaser.pressureLearningBlocked = false; chaser.lapCompromised = false;
     pack.update(dt, circuit);
     assert.ok(chaser.battlePush.remaining > 0, 'no battle push in training');
     assert.equal(chaser.battleOpponent, rival.driverName);
-    assert.equal(chaser.lapCompromised, true);
+    assert.equal(chaser.lapCompromised, false, 'a training attack does not spoil the lap for learning');
+    assert.equal(chaser.replayBuffer.length, 0, 'the pushed expert is no sample to imitate');
   }
 
   // 3. Stress laps run in every session; in the race their time and sectors count, in training they are not learnt from.

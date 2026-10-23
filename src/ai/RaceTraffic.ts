@@ -39,7 +39,9 @@ export function updateRaceSafety(cars: Car[], track: Track, dt = 0): void {
     if (car.yellowFlag) {
       car.battlePush.remaining = 0;
       car.battleOpponent = '';
-      car.lapCompromised = true;
+      // Learning bookkeeping: a yellow spoils a race lap, but a training lap still evaluates the model
+      // (the driving under yellow is the same in every session).
+      if (car.isRaceMode) car.lapCompromised = true;
       car.replayBuffer = [];
     }
   }
@@ -198,7 +200,8 @@ export function planRaceLine(car: Car, cars: Car[], track: Track, dt: number): v
   car.overtakingTargetName = plan?.target.isAlive && !car.yellowFlag ? plan.target.driverName : '';
   if (plan) {
     plans.set(car,plan);
-    // A lap with a pass (or a wreck bypass) is not a reference lap, in training as in the race.
-    car.lapCompromised = true;
+    // The pass is driven the same in every session. Learning bookkeeping only: a race lap with a pass
+    // is not a reference lap, while training (where the pack always fights) still learns from it.
+    if (car.isRaceMode) car.lapCompromised = true;
   } else plans.delete(car);
 }

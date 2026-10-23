@@ -52,7 +52,7 @@ Trening, kwalifikacje i wyścig mają tę samą fizykę i te same warunki: pogod
 
 Celowo różnią się tylko mechanizmy uczenia i zasady sesji, nie warunki jazdy:
 - uczenie tylko w treningu: DAgger i bufor próbek, mutacje przy respawnie i sam respawn po usunięciu wraku, ewolucja generacji, poszukiwanie linii i tempa (`LineSearch`, `LineNet`, `PaceSearch`), próby wyjścia ze stagnacji, wyspy treningowe;
-- księgowanie rekordów: w treningu trudne okrążenie i okrążenie poza klasą warunków nie oceniają modelu, a zmiana warunków resetuje rekord odniesienia; w kwalifikacjach i wyścigu takie okrążenia mają ważny czas i sektory;
+- księgowanie rekordów: w treningu trudne okrążenie i okrążenie poza klasą warunków nie oceniają modelu, a zmiana warunków resetuje rekord odniesienia; w kwalifikacjach i wyścigu takie okrążenia mają ważny czas i sektory. Odwrotnie z walką i żółtą flagą: w wyścigu okrążenie z atakiem, wyprzedzaniem lub pod żółtą flagą nie jest wzorcowe, a w treningu (gdzie stawka walczy prawie stale) nadal ocenia model; w każdej sesji unieważnia je kontakt, uszkodzenie i wyjazd poza tor;
 - wybór sprawdzonego zamiast próbnego marginesu tempa i linii w kwalifikacjach i wyścigu (w treningu jedzie się próbę, którą ocenia okrążenie);
 - paliwo: wyścig startuje z paliwem na dystans, kwalifikacje dolewają do 20 kg na linii, a trening przy respawnie losuje paliwo z zakresu wyścigowego (5 kg – paliwo na 50 okrążeń).
 

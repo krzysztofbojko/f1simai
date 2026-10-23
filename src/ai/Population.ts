@@ -503,8 +503,9 @@ export class Population {
         car.battlePush.step(dt, rival?.driverName ?? null, eligible, pressureProfile(car.effectiveDriverPressure).attacks);
         car.battleOpponent = car.battlePush.opponent;
         if (car.battlePush.remaining > 0) {
-          // Race timing counts; tactical assistance is not a baseline model result.
-          car.lapCompromised = true;
+          // Race timing counts; tactical assistance is not a baseline model result in the race. Training
+          // still evaluates the lap (learning bookkeeping), but the expert's push is no sample to imitate.
+          if (car.isRaceMode) car.lapCompromised = true;
           car.replayBuffer = [];
         }
         car.updateSensors(track, traffic);
