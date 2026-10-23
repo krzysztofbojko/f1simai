@@ -9,6 +9,7 @@ import { Car, LapFinishEvent, TrajectoryPoint, driverInputCount } from '../physi
 import { NeuralNetwork, TopologySpecifier } from './NeuralNetwork';
 import { Track } from '../track/Track';
 import type { TrackConditions } from '../physics/Weather';
+import { FUEL_PER_METRE, trainingFuelKg } from '../race/RaceFuel';
 
 export interface F1TeamDef {
   teamName: string;
@@ -647,6 +648,9 @@ export class Population {
           const nextCpIdx = (slot.checkpointIdx + 1) % track.checkpoints.length;
           const mistakeCooldown = car.mistakes.cooldown;
           car.reset(slot.pos, slot.heading, true, nextCpIdx);
+          // Any race load, from the start of a race to its last laps: the network meets every car mass.
+          if (!car.isManual) car.fuelKg = trainingFuelKg(this.fuelPerLap ?? track.totalLength * FUEL_PER_METRE, random);
+          car.lapStartFuel = car.fuelKg;
           car.mistakes.cooldown = mistakeCooldown;
           car.updateDimensionsForTrackWidth(track.width);
           car.isAlive = true;

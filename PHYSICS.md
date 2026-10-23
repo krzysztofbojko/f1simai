@@ -35,7 +35,7 @@ Postoje (`src/physics/PitStrategy.ts`) działają tak samo w treningu, kwalifika
 
 Strategia AI: zjazd przy zużyciu opon > 70% (nie na ostatnich dwóch okrążeniach wyścigu), zjazd w dowolnym momencie, gdy opony nie pasują do warunków, a w wyścigu na suchym obowiązek użycia dwóch mieszanek slick. Jeśli auto do połowy dystansu nie zmieniło mieszanki, zjeżdża wtedy. Zasada nie obowiązuje, jeśli użyto opon przejściowych lub deszczowych. Gracz decyduje o postojach sam (klawisz P).
 
-Paliwo na wyścig: liczba okrążeń × zużycie na okrążenie stawki na tym torze (średnia z ukończonych okrążeń treningu, a bez nich 0,35 kg/km) + 4% + 1,5 kg rezerwy. Jeśli bak (110 kg) nie wystarcza na zadany dystans, wyścig jest skracany do liczby okrążeń, którą da się przejechać, jak limit dystansu w F1. Licznik okrążeń pokazuje rzeczywisty dystans. W treningu auto bez paliwa odpada i wraca z pełnym bakiem przy respawnie. Przycisk „Tankuj” działa tylko w treningu.
+Paliwo na wyścig: liczba okrążeń × zużycie na okrążenie stawki na tym torze (średnia z ukończonych okrążeń treningu, a bez nich 0,35 kg/km) + 4% + 1,5 kg rezerwy. Jeśli bak (110 kg) nie wystarcza na zadany dystans, wyścig jest skracany do liczby okrążeń, którą da się przejechać, jak limit dystansu w F1. Licznik okrążeń pokazuje rzeczywisty dystans. Stałe i plan paliwa są w `src/race/RaceFuel.ts`, wspólne dla wyścigu i treningu. W treningu auto startuje sesję z ustawionym paliwem startowym, a przy każdym respawnie dostaje losowe paliwo z zakresu wyścigowego: od 5 kg (końcówka wyścigu) do paliwa na 50 okrążeń, więc sieć poznaje każdą masę auta, jaką spotka w wyścigu. Auto bez paliwa odpada (wrak jak po wypadku) i wraca z nowym losowym paliwem. Przycisk „Tankuj” działa tylko w treningu.
 
 ## Pobocza i bandy
 

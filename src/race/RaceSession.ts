@@ -4,6 +4,7 @@ import type { Track } from '../track/Track';
 import type { Weather } from '../physics/Weather';
 import { startingDryCompound, weatherCompound, type TyreCompound } from '../physics/Tyres';
 import { Qualifying, type QualifyingPhase, type QualifyingStanding } from './Qualifying';
+import { FUEL_MARGIN, FUEL_PER_METRE, FUEL_RESERVE_KG, planRaceFuel } from './RaceFuel';
 
 export type RaceState = 'IDLE' | 'QUALIFYING' | 'QUALI_FINISHED' | 'GRID_START' | 'RACING' | 'FINISHED';
 
@@ -78,14 +79,10 @@ export class RaceSession {
    * this many of the winner's last lap: a car stopped on the circuit is classified where it stands.
    */
   static readonly CHEQUERED_TIMEOUT_LAPS = 1.5;
-  /**
-   * Race fuel: the laps times the fuel the field burns per lap, plus this share and the reserve.
-   * There is no refuelling: a distance the tank cannot cover is shortened to the laps it can.
-   */
-  static readonly FUEL_MARGIN = 0.04;
-  static readonly FUEL_RESERVE_KG = 1.5;
-  /** Fuel per metre of lap before the field has completed a lap on the track (kg/m). */
-  static readonly FUEL_PER_METRE = 0.00035;
+  /** Race fuel constants (see `RaceFuel.ts`, shared with training). */
+  static readonly FUEL_MARGIN = FUEL_MARGIN;
+  static readonly FUEL_RESERVE_KG = FUEL_RESERVE_KG;
+  static readonly FUEL_PER_METRE = FUEL_PER_METRE;
 
   state: RaceState = 'IDLE';
   totalLaps = 50;
@@ -388,10 +385,9 @@ export class RaceSession {
 
   /** Race fuel for the laps asked for; the distance is cut to what a full tank covers. */
   private planRaceFuel(): void {
-    const perLap = this.fuelPerLap() * (1 + RaceSession.FUEL_MARGIN);
-    const reachable = Math.floor((Car.MAX_FUEL_CAPACITY - RaceSession.FUEL_RESERVE_KG) / perLap);
-    this.totalLaps = Math.max(1, Math.min(this.requestedLaps, reachable));
-    this.raceFuelKg = Math.min(Car.MAX_FUEL_CAPACITY, this.totalLaps * perLap + RaceSession.FUEL_RESERVE_KG);
+    const plan = planRaceFuel(this.fuelPerLap(), this.requestedLaps);
+    this.totalLaps = plan.totalLaps;
+    this.raceFuelKg = plan.fuelKg;
   }
 
   /** Fits the session's starting tyres: the player's choice, or a slick by grid slot adjusted to the weather. */
