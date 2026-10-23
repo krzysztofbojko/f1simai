@@ -93,7 +93,95 @@ try {
   assert.ok(baked.temp > mild.temp + 2 && baked.wear > mild.wear, `hot track: ${mild.temp.toFixed(1)}° -> ${baked.temp.toFixed(1)}°, wear ${mild.wear.toExponential(2)} -> ${baked.wear.toExponential(2)}`);
   Car.config.weather = neutralWeather(); car.isRaceMode = false;
 
-  // 7. Training records: the first lap in new conditions sets the reference and keeps the proven brain.
+  // 7. Air density follows the air temperature (the calibration holds at 25 °C): cold air drags more.
+  Car.config.weather = neutralWeather();
+  assert.ok(Math.abs(car.airDensity - 1.225) < 1e-12, 'reference density at 25 °C');
+  Car.config.weather = { ...neutralWeather(), airTemp: 5 }; const coldAir = car.airDensity;
+  Car.config.weather = { ...neutralWeather(), airTemp: 35 }; const hotAir = car.airDensity;
+  assert.ok(coldAir > 1.3 && hotAir < 1.19, `density ${coldAir.toFixed(3)} at 5 °C, ${hotAir.toFixed(3)} at 35 °C`);
+  const vmax = airTemp => {
+    Car.config.weather = { ...neutralWeather(), airTemp };
+    car.reset(gp.startPosition, gp.startAngle, true, 1);
+    car.lapPowerFactor = car.lapGripFactor = car.lapDragFactor = 1;
+    for (let i = 0; i < 60 * 40; i++) { car.updatePhysics({ throttle: 1, brake: 0, steer: 0 }, 1 / 60, stub); car.framesSinceLastCheckpoint = 0; }
+    return car.vel.mag();
+  };
+  const vCold = vmax(5), vHot = vmax(35);
+  assert.ok(vCold < vHot - 1, `top speed ${(vCold * 3.6).toFixed(0)} km/h in cold air, ${(vHot * 3.6).toFixed(0)} km/h in hot air`);
+
+  // 8. Wind dries a wet track faster.
+  const drying = wind => {
+    const w = new Weather('sunny', 4);
+    w.state.wetness = 0.5; w.state.windSpeed = wind;
+    run(w, 600);
+    return w.state.wetness;
+  };
+  const stillDry = drying(0), windDry = drying(10);
+  assert.ok(windDry < stillDry * 0.8, `after 10 min: wetness ${stillDry.toFixed(3)} in still air, ${windDry.toFixed(3)} in a 10 m/s wind`);
+
+  // 9. Aquaplaning: slicks on standing water lose grip above 200 km/h; treaded tyres and a damp track do not.
+  assert.equal(Car.aquaplaneLoss('soft', 0.9, 180 / 3.6), 0, 'below 200 km/h');
+  assert.equal(Car.aquaplaneLoss('soft', 0.5, 280 / 3.6), 0, 'a damp track has no standing water');
+  assert.equal(Car.aquaplaneLoss('wet', 1, 280 / 3.6), 0, 'full wets clear the water');
+  assert.equal(Car.aquaplaneLoss('intermediate', 1, 280 / 3.6), 0, 'intermediates clear the water');
+  assert.ok(Car.aquaplaneLoss('medium', 1, 280 / 3.6) > Car.aquaplaneLoss('medium', 1, 230 / 3.6) && Car.aquaplaneLoss('medium', 1, 230 / 3.6) > Car.aquaplaneLoss('medium', 0.8, 230 / 3.6), 'the loss grows with speed and water');
+  assert.ok(Math.abs(Car.aquaplaneLoss('soft', 1, 400 / 3.6) - Car.AQUAPLANE_MAX_LOSS) < 1e-12, 'bounded');
+  const aquaplane = compound => {
+    Car.config.weather = { ...neutralWeather(), wetness: 0.95, rain: 0.8 };
+    car.reset(gp.startPosition, gp.startAngle, true, 1); car.tyreCompound = compound;
+    car.vel = Vector2.fromAngle(car.heading).mul(75); car.speed = 75;
+    car.updatePhysics({ throttle: 1, brake: 0, steer: 0 }, 1 / 60, stub);
+    return car.aquaplaning;
+  };
+  assert.ok(aquaplane('soft') > 0.1 && aquaplane('wet') === 0, 'a slick at 270 km/h on a soaked track aquaplanes, a full wet does not');
+
+  // 10. Brakes: the work of a stop heats the discs, the airflow cools them, the window sets the
+  //     torque, and torque beyond the tyre locks the wheels. The same in training and the race.
+  Car.config.weather = neutralWeather();
+  assert.equal(Car.brakeEfficiency(600), 1);
+  assert.ok(Math.abs(Car.brakeEfficiency(25) - Car.BRAKE_COLD_EFFICIENCY) < 1e-12 && Car.brakeEfficiency(200) < 1 && Car.brakeEfficiency(200) > Car.brakeEfficiency(100), 'cold discs bite less, warming up');
+  assert.ok(Car.brakeEfficiency(1100) < 1 && Car.brakeEfficiency(1400) === Car.BRAKE_FADE_EFFICIENCY, 'overheated discs fade');
+  const plane = { checkpoints: [], timingGates: [], width: 76, isOutOfBounds: () => false };
+  const brakeCar = (speed, discs, dt = 1 / 60, race = false) => {
+    const c = new Car(new Vector2(0, 0), 0); c.isRaceMode = race;
+    c.pos = new Vector2(0, 0); c.prevPos = new Vector2(0, 0); c.vel = new Vector2(speed, 0); c.speed = speed;
+    c.lapPowerFactor = c.lapGripFactor = c.lapDragFactor = 1;
+    if (discs !== undefined) c.brakeTempFront = c.brakeTempRear = discs;
+    return c;
+  };
+  const stop = (discs, race = false) => {
+    const c = brakeCar(83, discs, 1 / 60, race);
+    let peak = 0, locked = false;
+    while (c.speed > 20) { c.updatePhysics({ throttle: 0, brake: 1, steer: 0 }, 1 / 60, plane); c.framesSinceLastCheckpoint = 0; peak = Math.max(peak, c.brakeTempFront); locked ||= c.wheelLockFront || c.wheelLockRear; }
+    return { distance: c.pos.x, peak, locked, rear: c.brakeTempRear };
+  };
+  const warm = stop(Car.BRAKE_TEMP_START), cold = stop(25), raceStop = stop(Car.BRAKE_TEMP_START, true);
+  assert.ok(warm.peak > Car.BRAKE_TEMP_START + 250 && warm.peak < Car.BRAKE_WINDOW_HIGH, `a stop from 300 km/h heats the front discs to ${warm.peak.toFixed(0)} °C`);
+  assert.ok(!warm.locked, 'full pedal in a straight line on a dry track does not lock the wheels');
+  assert.ok(cold.distance > warm.distance + 5, `cold discs stop later: ${cold.distance.toFixed(1)} m vs ${warm.distance.toFixed(1)} m`);
+  assert.deepEqual(raceStop, warm, 'the same stop in training and in a race');
+  // Cooling at speed, independent of the step.
+  const cool = dt => { const c = brakeCar(70, 900); for (let t = 0; t < 10 - 1e-9; t += dt) { c.vel = new Vector2(70, 0); c.speed = 70; c.updatePhysics({ throttle: 0.5, brake: 0, steer: 0 }, dt, plane); c.framesSinceLastCheckpoint = 0; } return c.brakeTempFront; };
+  const cooled = [1 / 30, 1 / 60, 1 / 120].map(cool);
+  assert.ok(cooled[1] < 400 && Math.max(...cooled) - Math.min(...cooled) < 2, `10 s at 250 km/h cools 900 °C discs to ${cooled.map(t => t.toFixed(1)).join(' / ')} °C at 30/60/120 Hz`);
+  // Full pedal in a corner asks the fronts for more than their friction circle leaves: they lock,
+  // lose most of their cornering force and take a flat spot; a light pedal on a straight frees them.
+  const corner = pedal => {
+    const c = brakeCar(60, 600);
+    for (let i = 0; i < 60; i++) { c.updatePhysics({ throttle: 0.3, brake: 0, steer: 0.05 }, 1 / 60, plane); c.framesSinceLastCheckpoint = 0; }
+    const wear = c.tyreWearFront;
+    let locked = 0, lateral = 0;
+    for (let i = 0; i < 30; i++) { c.updatePhysics({ throttle: 0, brake: pedal, steer: 0.05 }, 1 / 60, plane); c.framesSinceLastCheckpoint = 0; if (c.wheelLockFront) { locked++; lateral += c.frontLateralInUse / c.totalMass / Car.GRAVITY; } }
+    const flatSpot = c.tyreWearFront - wear;
+    for (let i = 0; i < 3; i++) { c.updatePhysics({ throttle: 0, brake: 0.1, steer: 0 }, 1 / 60, plane); c.framesSinceLastCheckpoint = 0; }
+    return { locked, lateral: locked ? lateral / locked : 0, flatSpot, freed: !c.wheelLockFront };
+  };
+  const stab = corner(1), trail = corner(0.3);
+  assert.ok(stab.locked > 10 && trail.locked === 0, `fronts locked ${stab.locked} steps at full pedal, ${trail.locked} at 30%`);
+  assert.ok(stab.lateral < 0.5 && stab.flatSpot > 2 * trail.flatSpot && stab.freed, `locked fronts carry ${stab.lateral.toFixed(2)} g sideways, flat spot ${(stab.flatSpot * 100).toFixed(2)}% wear; freed on a light pedal`);
+  Car.config.weather = neutralWeather();
+
+  // 11. Training records: the first lap in new conditions sets the reference and keeps the proven brain.
   const population = new Population(1, gp);
   population.autoEvolutionEnabled = false;
   const driver = population.cars[0], record = population.teamRecords[0];
@@ -109,7 +197,7 @@ try {
   population.setConditions('dry');
   population.recordLap(lap(61), driver, false, gp);
   assert.equal(record.bestLapTime, 61, 'back in the dry a new reference is set again');
-  console.log(`weather tests passed (top speed ${(head * 3.6).toFixed(0)} / ${(still * 3.6).toFixed(0)} / ${(tail * 3.6).toFixed(0)} km/h head/still/tail 8 m/s; 15 m/s crosswind: ${gusty.lateral.toFixed(2)} m, ${(gusty.heading * 180 / Math.PI).toFixed(2)}° in 2 s; tyres ${mild.temp.toFixed(0)}° -> ${baked.temp.toFixed(0)}° on a 55° track)`);
+  console.log(`weather tests passed (top speed ${(head * 3.6).toFixed(0)} / ${(still * 3.6).toFixed(0)} / ${(tail * 3.6).toFixed(0)} km/h head/still/tail 8 m/s; 15 m/s crosswind: ${gusty.lateral.toFixed(2)} m, ${(gusty.heading * 180 / Math.PI).toFixed(2)}° in 2 s; tyres ${mild.temp.toFixed(0)}° -> ${baked.temp.toFixed(0)}° on a 55° track; air ${coldAir.toFixed(3)} / ${hotAir.toFixed(3)} kg/m³ at 5 / 35 °C; brakes ${warm.peak.toFixed(0)} °C after a stop from 300 km/h, cold discs +${(cold.distance - warm.distance).toFixed(1)} m)`);
 } finally {
   await rm(dir, { recursive: true, force: true });
 }

@@ -30,10 +30,13 @@ Pogodę wybiera się w panelu wyścigu jako prognozę (`src/physics/Weather.ts`)
 - **Temperatura toru i powietrza** wchodzą do bilansu cieplnego opon: na gorącym torze opony wychodzą z okna pracy i szybciej się zużywają, na zimnym wolniej się rozgrzewają.
 - **Woda** obniża przyczepność slicków (patrz niżej). AI zjeżdża po intery lub deszczówki, gdy zacznie padać, i wraca na slicki, gdy tor przeschnie.
 - **Wiatr** zmienia prędkość względem powietrza: wiatr czołowy 8 m/s obniża prędkość maksymalną z ok. 310 do 290 km/h, w plecy podnosi ją do ok. 327 km/h. Wiatr boczny zabiera docisk (najbardziej przedniemu skrzydłu), pcha bolid w bok i skręca go, a porywy zmieniają te siły w czasie.
+- **Gęstość powietrza** zależy od jego temperatury: zimne powietrze daje więcej docisku i oporu, gorące mniej (25 °C to punkt kalibracji). Wiatr przyspiesza wysychanie toru.
+- **Aquaplaning**: slicki na stojącej wodzie powyżej 200 km/h tracą przyczepność.
+- **Hamulce** mają temperaturę tarcz (zimne i przegrzane hamują słabiej) i mogą zablokować koła, bo bolid nie ma ABS: pełny pedał w zakręcie blokuje przód, auto jedzie prosto i dostaje płaskie miejsce na oponie.
 
 W treningu okrążenia porównuje się w obrębie jednej klasy warunków (sucho / wilgotno / mokro). Okrążenie, na którym warunki wyszły poza klasę sesji, liczy się do czasu, ale nie ocenia sieci. Pierwsze czyste okrążenie w nowych warunkach ustala nowy rekord odniesienia, a sprawdzony mózg zostaje. Wyspy treningowe mają własną pogodę z tej samej prognozy i wymieniają tylko modele z tych samych warunków. Sieć nie dostała nowych wejść, więc zapisane modele nadal się wczytują.
 
-W 3D chmury przełączają niebo na pochmurne i przygaszają słońce, deszcz pada wokół kamery i jest znoszony przez wiatr, mokry asfalt ciemnieje i błyszczy, a bolidy ciągną za sobą pióropusz wody. Dym i spray znosi wiatr. Telemetria pokazuje pogodę, temperatury, wiatr ze strzałką kierunku i stan nawierzchni.
+W 3D chmury przełączają niebo na pochmurne (powyżej 65% zachmurzenia, z powrotem poniżej 55%, żeby niebo nie migotało) i przygaszają słońce, deszcz pada wokół kamery i jest znoszony przez wiatr, mokry asfalt ciemnieje i błyszczy, a bolidy ciągną za sobą pióropusz wody. Dym i spray znosi wiatr. Telemetria pokazuje pogodę, temperatury, wiatr ze strzałką kierunku i stan nawierzchni.
 
 ### Opony i nawierzchnia
 
@@ -43,7 +46,7 @@ AI startuje na mieszance zależnej od pola startowego (medium / soft / hard) alb
 
 To model hybrydowy do gry. Nie zawiera pełnej dynamiki yaw, kontaktów między bolidami ani fizycznego przejazdu aleją serwisową. Osiągi nie są kalibrowane względem konkretnego bolidu F1. Szczegóły, stałe i ograniczenia opisuje [PHYSICS.md](PHYSICS.md).
 
-Po zmianie fizyki z 04.10.2026 dawne rekordy i modele AI wymagają ponownego treningu. Zmiany z 23.10.2026 (zużycie paliwa według limitu 100 kg/h, postoje bez tankowania ze stratą alei) znów zmieniają czasy okrążeń i przebieg treningu, więc dawne rekordy nie są porównywalne. Zmiana ERS na regulamin 2026 (13.10.2026) ponownie zmienia czasy okrążeń, więc dawne rekordy nie są porównywalne. Pliki modeli z 10 kierowcami nadal się wczytują: drugi kierowca zespołu dostaje lekko zmutowaną kopię sieci partnera. Droga hamowania i czasy okrążeń zmieniły się wraz z poprawą limitów tarcia i skali drogi.
+Po zmianie fizyki z 04.10.2026 dawne rekordy i modele AI wymagają ponownego treningu. Zmiany z 23.10.2026 (zużycie paliwa według limitu 100 kg/h, postoje bez tankowania ze stratą alei, ślad aerodynamiczny i morświnowanie także w treningu, gęstość powietrza z temperatury, aquaplaning, temperatura hamulców i blokowanie kół) znów zmieniają czasy okrążeń i przebieg treningu, więc dawne rekordy nie są porównywalne. Układ wejść sieci się nie zmienił, więc zapisane modele się wczytują, ale warto je douczyć. Zmiana ERS na regulamin 2026 (13.10.2026) ponownie zmienia czasy okrążeń, więc dawne rekordy nie są porównywalne. Pliki modeli z 10 kierowcami nadal się wczytują: drugi kierowca zespołu dostaje lekko zmutowaną kopię sieci partnera. Droga hamowania i czasy okrążeń zmieniły się wraz z poprawą limitów tarcia i skali drogi.
 
 ## Uruchomienie
 

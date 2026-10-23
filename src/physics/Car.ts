@@ -9,7 +9,7 @@ import { BattlePush } from '../ai/BattlePush';
 import { DriverMistakes } from '../ai/DriverMistakes';
 import { Track, type SurfaceType } from '../track/Track';
 import { getRacingLine, RacingLine } from '../track/RacingLine';
-import { COMPOUND_SPECS, compoundGrip, weatherCompound, type TyreCompound } from './Tyres';
+import { COMPOUND_SPECS, compoundGrip, isSlick, weatherCompound, type TyreCompound } from './Tyres';
 import { checkTrackProgress } from './LapTiming';
 import { scoreStep } from './Fitness';
 import { pitCompound, servicePitStop } from './PitStrategy';
@@ -531,6 +531,98 @@ export class Car {
   public tyreTempRear = 85;
   public tyreWearFront = 0;
   public tyreWearRear = 0;
+
+  /**
+   * Carbon brakes, per axle, always modelled: braking work heats the discs, airflow cools them.
+   * Cold front discs (below BRAKE_WINDOW_LOW) and overheated ones (above BRAKE_WINDOW_HIGH) turn
+   * less of the pedal into torque; the rear is brake-by-wire, whose controller meets its torque
+   * target with the MGU-K first and the disc for the rest, whatever the disc's temperature. There is no ABS: brake torque beyond what the tyre can transmit on its
+   * friction circle (by more than LOCK_MARGIN, for longer than the wheel takes to stop turning,
+   * LOCK_DELAY) locks the axle. A locked axle slides at LOCKED_GRIP of its grip, keeps only
+   * LOCKED_LATERAL of its cornering force and flat-spots the tyres, until the driver eases the
+   * pedal below what the tyre can take.
+   */
+  public static readonly BRAKE_BIAS = 0.6;               // front share of the brake torque (the axle loads under braking)
+  public static readonly BRAKE_TEMP_START = 300;          // deg C after the out-lap / formation lap
+  public static readonly BRAKE_HEAT_CAPACITY_FRONT = 3200; // J/K: discs, pads and bells of the axle
+  public static readonly BRAKE_HEAT_CAPACITY_REAR = 2400;
+  public static readonly BRAKE_COOLING_STILL = 30;        // W/K standing
+  public static readonly BRAKE_COOLING_PER_MS = 5;        // W/K per m/s of airflow through the ducts
+  public static readonly BRAKE_WINDOW_LOW = 350;          // deg C: full friction from here...
+  public static readonly BRAKE_WINDOW_HIGH = 950;         // ...to here, then fade
+  public static readonly BRAKE_COLD_EFFICIENCY = 0.7;     // at air temperature
+  public static readonly BRAKE_FADE_EFFICIENCY = 0.65;    // at BRAKE_WINDOW_HIGH + 350 deg C and above
+  public static readonly LOCK_MARGIN = 0.15;
+  public static readonly LOCK_DELAY = 0.1;                // s of excess torque before the wheel stops
+  public static readonly LOCK_MIN_SPEED = 3;              // m/s
+  public static readonly LOCKED_GRIP = 0.85;
+  public static readonly LOCKED_LATERAL = 0.3;
+  public static readonly LOCK_WEAR_RATE = 0.01;           // tyre wear per second locked (flat spot)
+  public brakeTempFront = Car.BRAKE_TEMP_START;
+  public brakeTempRear = Car.BRAKE_TEMP_START;
+  public wheelLockFront = false;
+  public wheelLockRear = false;
+  private lockTimerFront = 0;
+  private lockTimerRear = 0;
+
+  /** Share of the pedal's torque a disc at `temp` delivers (1 inside the window). */
+  static brakeEfficiency(temp: number, airTemp = Car.TYRE_AMBIENT): number {
+    if (temp < Car.BRAKE_WINDOW_LOW) {
+      const warm = Math.max(0, Math.min(1, (temp - airTemp) / Math.max(1, Car.BRAKE_WINDOW_LOW - airTemp)));
+      return Car.BRAKE_COLD_EFFICIENCY + (1 - Car.BRAKE_COLD_EFFICIENCY) * warm;
+    }
+    if (temp <= Car.BRAKE_WINDOW_HIGH) return 1;
+    return 1 - (1 - Car.BRAKE_FADE_EFFICIENCY) * Math.min(1, (temp - Car.BRAKE_WINDOW_HIGH) / 350);
+  }
+
+  /**
+   * Lock state of an axle after a step: torque above the tyre's capacity by LOCK_MARGIN for
+   * LOCK_DELAY locks it; a locked axle frees once the torque is back within the capacity.
+   */
+  static stepLock(locked: boolean, timer: number, rolling: boolean, torque: number, capacity: number, dt: number): [boolean, number] {
+    if (!rolling || torque <= 0) return [false, 0];
+    if (locked) return torque > capacity ? [true, timer] : [false, 0];
+    const next = torque > capacity * (1 + Car.LOCK_MARGIN) ? timer + dt : 0;
+    return [next >= Car.LOCK_DELAY - 1e-9, next];
+  }
+
+  /** Efficiency of the front (hydraulic) brakes: what the driver feels at the pedal. */
+  get brakeEfficiency(): number {
+    return Car.brakeEfficiency(this.brakeTempFront, Car.config.weather.airTemp);
+  }
+
+  /**
+   * Aquaplaning: on standing water (wetness above AQUAPLANE_WETNESS) a slick rides up on a film
+   * of water above AQUAPLANE_SPEED and loses up to AQUAPLANE_MAX_LOSS of its grip, the loss
+   * growing with the water and the speed. Treaded tyres clear the water.
+   */
+  public static readonly AQUAPLANE_WETNESS = 0.6;
+  public static readonly AQUAPLANE_SPEED = 200 / 3.6;
+  public static readonly AQUAPLANE_RANGE = 100 / 3.6;
+  public static readonly AQUAPLANE_MAX_LOSS = 0.5;
+  /** Grip lost to aquaplaning in the last step, 0..AQUAPLANE_MAX_LOSS. */
+  public aquaplaning = 0;
+
+  static aquaplaneLoss(compound: TyreCompound, wetness: number, speed: number): number {
+    if (!isSlick(compound) || wetness <= Car.AQUAPLANE_WETNESS || speed <= Car.AQUAPLANE_SPEED) return 0;
+    const water = (wetness - Car.AQUAPLANE_WETNESS) / (1 - Car.AQUAPLANE_WETNESS);
+    return Car.AQUAPLANE_MAX_LOSS * Math.min(1, water) * Math.min(1, (speed - Car.AQUAPLANE_SPEED) / Car.AQUAPLANE_RANGE);
+  }
+
+  /**
+   * Disc temperatures over `dt`: exact relaxation towards air + heat / cooling, so the result does
+   * not depend on the step. `heatFront` / `heatRear` are the braking powers the discs take, W.
+   */
+  private stepBrakes(heatFront: number, heatRear: number, speed: number, dt: number): void {
+    const air = Car.config.weather.airTemp;
+    const cooling = Car.BRAKE_COOLING_STILL + Car.BRAKE_COOLING_PER_MS * Math.max(0, speed);
+    const relax = (temp: number, heat: number, capacity: number) => {
+      const settled = air + heat / cooling;
+      return settled + (temp - settled) * Math.exp(-cooling * dt / capacity);
+    };
+    this.brakeTempFront = relax(this.brakeTempFront, heatFront, Car.BRAKE_HEAT_CAPACITY_FRONT);
+    this.brakeTempRear = relax(this.brakeTempRear, heatRear, Car.BRAKE_HEAT_CAPACITY_REAR);
+  }
   /** Compound fitted (see `Tyres.ts`); medium is the calibrated reference. */
   public tyreCompound: TyreCompound = 'medium';
   /** Compound fitted at every pit stop (player choice, or the same set in qualifying); null lets the strategy pick. */
@@ -550,7 +642,13 @@ export class Car {
   public ersDeploying = false;
   public readonly maxSteerAngle: number = 0.40; // ~23 degrees
   public readonly dragCoeff: number = 1.00; // Cd * A [m^2]
-  public readonly airDensity: number = 1.225; // kg/m^3
+  /** Air density at the calibrated reference weather (25 deg C, sea level), kg/m^3. */
+  public static readonly AIR_DENSITY_REF = 1.225;
+  /**
+   * Air density from the weather's air temperature at constant pressure (ideal gas), equal to
+   * AIR_DENSITY_REF at 25 deg C: cold air gives more downforce and drag, hot air less.
+   */
+  get airDensity(): number { return Car.AIR_DENSITY_REF * (273.15 + Car.TYRE_AMBIENT) / (273.15 + Car.config.weather.airTemp); }
   public readonly downforceCoeff: number = 3.10; // Cl * A [m^2]
   public readonly baseTireGrip: number = 1.85; // Peak friction coefficient mu
 
@@ -929,6 +1027,9 @@ export class Car {
       this.ersEnergy = Car.ERS_CAPACITY * 0.85;
       this.tyreTempFront = this.tyreTempRear = 85;
       this.tyreWearFront = this.tyreWearRear = 0;
+      this.brakeTempFront = this.brakeTempRear = Car.BRAKE_TEMP_START;
+      this.wheelLockFront = this.wheelLockRear = false;
+      this.lockTimerFront = this.lockTimerRear = 0;
       this.tyreCompound = weatherCompound(Car.config.weather.wetness, 'medium');
       this.nextCompound = null;
       this.raceDistanceLaps = 0;
@@ -1322,7 +1423,8 @@ export class Car {
     this.weightFrontRatio = frontLoad / (frontLoad + rearLoad);
     const fractions = this.surfaceFractions;
     const surfaceMu = fractions.asphalt * this.baseTireGrip + fractions.grass * 0.45 + fractions.gravel * 0.60;
-    const mu = surfaceMu * this.lapGripFactor;
+    this.aquaplaning = Car.aquaplaneLoss(this.tyreCompound, this.wetness, speedMag);
+    const mu = surfaceMu * this.lapGripFactor * (1 - this.aquaplaning);
     // Roll moves load to the outer wheels; with load sensitivity that costs the axle grip.
     const frontGripLoad = Car.axleGripLoad(frontLoad, this.rollTransferFront);
     const rearGripLoad = Car.axleGripLoad(rearLoad, this.rollTransferRear);
@@ -1377,26 +1479,47 @@ export class Car {
     const rearLongLimit = longitudinalBudget(rearLimit, this.rearLateralInUse);
     const driveForce = Math.min(Math.max(0, rearLongLimit - rollingRear), engineForce);
     const brakeDemand = control.brake * (frontLimit + rearLimit);
-    const brakeFront = Math.min(Math.max(0, frontLongLimit - rollingFront), brakeDemand * 0.56);
-    const brakeRear = Math.min(Math.max(0, rearLongLimit - rollingRear), brakeDemand * 0.44);
+    // The discs turn the pedal into torque by their temperature; torque beyond what the tyre can
+    // transmit (by more than LOCK_MARGIN) locks the axle, which then slides at LOCKED_GRIP.
+    const airTemp = Car.config.weather.airTemp;
+    const torqueFront = brakeDemand * Car.BRAKE_BIAS * Car.brakeEfficiency(this.brakeTempFront, airTemp);
+    const torqueRear = brakeDemand * (1 - Car.BRAKE_BIAS); // brake-by-wire meets the rear target
+    const roomFront = Math.max(0, frontLongLimit - rollingFront), roomRear = Math.max(0, rearLongLimit - rollingRear);
+    // What each tyre can transmit along the road on its friction circle, with the lateral force it carries.
+    const gripAlong = (limit: number, lateral: number, rollingForce: number) => Math.max(0, Math.sqrt(Math.max(0, limit * limit - lateral * lateral)) - rollingForce);
+    const rolling = forwardSpeed > Car.LOCK_MIN_SPEED;
+    [this.wheelLockFront, this.lockTimerFront] = Car.stepLock(this.wheelLockFront, this.lockTimerFront, rolling, torqueFront, gripAlong(frontLimit, this.frontLateralInUse, rollingFront), dt);
+    [this.wheelLockRear, this.lockTimerRear] = Car.stepLock(this.wheelLockRear, this.lockTimerRear, rolling, torqueRear, gripAlong(rearLimit, this.rearLateralInUse, rollingRear), dt);
+    const brakeFront = this.wheelLockFront ? roomFront * Car.LOCKED_GRIP : Math.min(roomFront, torqueFront);
+    const brakeRear = this.wheelLockRear ? roomRear * Car.LOCKED_GRIP : Math.min(roomRear, torqueRear);
     const vStar = forwardSpeed + (driveForce + dragForward) / currentMass * dt;
     const resistance = brakeFront + brakeRear + rollingFront + rollingRear;
     const resistanceScale = resistance > 0 ? Math.min(1, currentMass * Math.abs(vStar) / (dt * resistance)) : 0;
     const resistanceSign = Math.sign(vStar);
+    let regenBraking = 0;
     if (harvesting) {
       // Brake-by-wire blends regen first: the MGU-K recovers up to ERS_HARVEST_POWER, never more than the brakes dissipate.
       const harvestPower = control.brake > 0.05
         ? Math.min(Car.ERS_HARVEST_POWER, (brakeFront + brakeRear) * resistanceScale * forwardSpeed)
         : Car.ERS_POWER * 0.3;
+      if (control.brake > 0.05) regenBraking = harvestPower;
       storeEnergy(harvestPower * Car.ERS_REGEN_EFFICIENCY * dt);
     }
+    // The discs take the braking work of a turning wheel (the rear minus what the MGU-K recovers);
+    // a locked wheel's work goes into the tyre instead.
+    const brakeSpeed = Math.abs(forwardSpeed) * resistanceScale;
+    this.stepBrakes(this.wheelLockFront ? 0 : brakeFront * brakeSpeed,
+      this.wheelLockRear ? 0 : Math.max(0, brakeRear * brakeSpeed - regenBraking), speedMag, dt);
+    if (this.wheelLockFront) this.tyreWearFront = Math.min(1, this.tyreWearFront + Car.LOCK_WEAR_RATE * dt);
+    if (this.wheelLockRear) this.tyreWearRear = Math.min(1, this.tyreWearRear + Car.LOCK_WEAR_RATE * dt);
     const frontFx = -resistanceSign * (brakeFront + rollingFront) * resistanceScale;
     const rearFx = Math.max(-rearLimit, Math.min(rearLimit, driveForce - resistanceSign * (brakeRear + rollingRear) * resistanceScale));
     const longitudinalForce = frontFx + rearFx + dragForward;
 
     // Remaining lateral force is computed from the same friction circle on each axle.
-    const frontLateral = Math.sqrt(Math.max(0, frontLimit * frontLimit - frontFx * frontFx));
-    const rearLateral = Math.sqrt(Math.max(0, rearLimit * rearLimit - rearFx * rearFx));
+    // A locked axle slides along its velocity and keeps little cornering force.
+    const frontLateral = Math.sqrt(Math.max(0, frontLimit * frontLimit - frontFx * frontFx)) * (this.wheelLockFront ? Car.LOCKED_LATERAL : 1);
+    const rearLateral = Math.sqrt(Math.max(0, rearLimit * rearLimit - rearFx * rearFx)) * (this.wheelLockRear ? Car.LOCKED_LATERAL : 1);
     const lateralLimit = frontLateral + rearLateral;
     const nextForwardSpeed = forwardSpeed + longitudinalForce / currentMass * dt;
     // Steering actuator: the road wheels follow the command with a short lag.
@@ -1620,7 +1743,7 @@ export class Car {
   private dynamicStateFinite(): boolean {
     return Number.isFinite(this.vel.x + this.vel.y + this.pos.x + this.pos.y + this.heading + this.angularVelocity
       + this.heave + this.heaveRate + this.pitch + this.pitchRate + this.roll + this.rollRate
-      + this.tyreTempFront + this.tyreTempRear + this.ersEnergy + this.fuelKg);
+      + this.tyreTempFront + this.tyreTempRear + this.brakeTempFront + this.brakeTempRear + this.ersEnergy + this.fuelKg);
   }
 
   private static invalidStateWarned = false;
@@ -1638,6 +1761,8 @@ export class Car {
     this.pitchAngle = this.rollAngle = 0;
     if (!Number.isFinite(this.tyreTempFront)) this.tyreTempFront = 85;
     if (!Number.isFinite(this.tyreTempRear)) this.tyreTempRear = 85;
+    if (!Number.isFinite(this.brakeTempFront)) this.brakeTempFront = Car.BRAKE_TEMP_START;
+    if (!Number.isFinite(this.brakeTempRear)) this.brakeTempRear = Car.BRAKE_TEMP_START;
     if (!Number.isFinite(this.ersEnergy)) this.ersEnergy = 0;
     if (!Number.isFinite(this.fuelKg)) this.fuelKg = 0;
     this.eliminate('barrier', 0.45);

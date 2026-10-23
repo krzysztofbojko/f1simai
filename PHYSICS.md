@@ -154,7 +154,9 @@ Jednostka napędowa według regulaminu 2026 (bez MGU-H):
 - Stan: zachmurzenie, deszcz, temperatura powietrza i toru, wilgotność toru W, wiatr (średnia, kierunek, mnożnik porywu). Ewoluuje z krokiem symulacji, z własnym generatorem (mulberry32) z ziarnem, niezależnym od `random()` symulacji.
 - Zachmurzenie: proces Ornsteina-Uhlenbecka wokół średniej prognozy; „przelotny deszcz” ma jedno okno opadu (start po 3–8 min, 4–8 min). Deszcz = `skala·(chmury − próg)/(1 − próg)`.
 - Tor: relaksacja (τ = 240 s) do `T_pow + 13·słońce·(1 − chmury)·(1 − 0,8·W) − 2·deszcz`. Powietrze: baza − 4 °C·deszcz (τ = 300 s).
-- Woda: deszcz moczy tor do poziomu `0,35 + 0,75·deszcz` (pełna ulewa w ok. 2 min), parowanie `W/520 s · (0,3 + słońce·(1 − chmury))·(T_toru − 5)/30`.
+- Woda: deszcz moczy tor do poziomu `0,35 + 0,75·deszcz` (pełna ulewa w ok. 2 min), parowanie `W/520 s · (0,3 + słońce·(1 − chmury))·(T_toru − 5)/30 · (1 + 0,04·wiatr)`: każdy m/s średniego wiatru suszy o 4% szybciej (od 23.10.2026).
+- Gęstość powietrza (od 23.10.2026): `ρ = 1,225·(273,15 + 25)/(273,15 + T_pow)` (gaz doskonały przy stałym ciśnieniu). Przy 25 °C wynosi dokładnie 1,225 kg/m³, więc kalibracja słonecznej pogody się nie zmienia; przy 5 °C ok. 1,31 (więcej docisku i oporu, prędkość maksymalna ok. 6 km/h niższa), przy 35 °C ok. 1,185. Planista zakrętów i hamowania używa tej samej gęstości.
+- Aquaplaning (od 23.10.2026): slick na stojącej wodzie (W > 0,6) powyżej 200 km/h traci przyczepność: `0,5 · (W − 0,6)/0,4 · min(1, (v − 200 km/h)/100 km/h)`. Intery i deszczówki odprowadzają wodę. HUD: „⚠ AQUAPLANING”. Planista tego nie przewiduje; AI na mokrym torze i tak zjeżdża po opony z bieżnikiem.
 - Wiatr: porywy OU (τ = 3 s, σ wg prognozy), kierunek dryfuje o ok. ±15° (τ = 60 s).
 - Aero: prędkość względem powietrza `v_pow = v − wiatr`. Opór `½ρ·CdA·|v_pow|²` przeciw `v_pow`, docisk `½ρ·ClA·|v_pow|²·(1 − 0,6·sin²β)`, gdzie β to kąt napływu; 60% straty z wiatru bocznego pochodzi z przedniej osi. Siła boczna `½ρ·1,5 m²·|v_pow|·v_wiatru,bok` działa 0,3 m za środkiem masy i daje moment odchylający w modelu dynamicznym. W bezwietrznej pogodzie wzory redukują się do poprzednich.
 - Trening: klasa warunków sesji (sucho < 0,15 ≤ wilgotno < 0,6 ≤ mokro, z histerezą) i pasma okrążenia (0–0,2 / 0,1–0,65 / 0,55–1). Okrążenie poza pasmem jest „skompromitowane” dla uczenia. `Population.setConditions` przy zmianie klasy ustala nowy rekord odniesienia przy pierwszym czystym okrążeniu, a mózg mistrza zostaje.
@@ -168,6 +170,18 @@ Jednostka napędowa według regulaminu 2026 (bez MGU-H):
 - Kalibracja (`npm run diag:nn`): temperatury ok. 80–115 °C, tempo wyścigowe ok. 3–5% wolniejsze od treningowego.
 - Pogoda (`Weather.ts`): powietrze i nawierzchnia z bieżącej pogody zastępują stałe 25 / 38 °C (`TYRE_AMBIENT` / `TYRE_TRACK` to wartości pogody odniesienia). Chłodzenie: `2·(15 + 3,2·v^0,8)·(T − T_pow) + 60·(T − T_toru)`, razy `(1 + 0,9·W)` na mokrym.
 - Niezależność od kroku (`test-suspension`): prosta, stały zakręt oraz cykl hamowanie/przyspieszanie, każdy po 20 s przy 30/60/120 Hz. Różnice temperatury < 1,5 °C, zużycia < 5% (zmierzone: 0,9 °C i 2,3% w zakręcie).
+
+## Hamulce: temperatura i blokowanie kół (23.10.2026)
+
+Model działa zawsze, w treningu i w wyścigu, bez przełącznika.
+
+- Tarcze na oś: praca hamowania (siła · prędkość) grzeje tarcze, przepływ chłodzi je `30 + 5·v` W/K; pojemność 3,2 kJ/K przód i 2,4 kJ/K tył. Całkowanie dokładne (relaksacja wykładnicza), więc wynik nie zależy od kroku (test: 30/60/120 Hz < 2 °C). MGU-K przejmuje część pracy tylnej osi, więc tył grzeje się mniej. Start 300 °C.
+- Okno pracy 350–950 °C: poniżej skuteczność rośnie liniowo od 0,7 przy temperaturze powietrza, powyżej spada do 0,65 przy 1300 °C. Skuteczność mnoży moment przednich (hydraulicznych) hamulców z pedału (pedał nadal oznacza ułamek przyczepności auta). Tył to brake-by-wire: sterownik realizuje zadany moment najpierw MGU-K, resztę tarczą, niezależnie od jej temperatury. Ponieważ MGU-K przejmuje większość pracy tylnej osi przy typowym hamowaniu AI, tylne tarcze w treningu pozostają chłodne. Hamowanie z 300 do 72 km/h: zimne tarcze (25 °C) wydłużają drogę o ok. 13 m; tarcze przód dochodzą do ok. 720 °C. W treningu na GP szczyt to ok. 550–620 °C.
+- Rozkład 60/40 (wcześniej 56/44): przy pełnym hamowaniu przód przenosi ok. 61% obciążenia, a 44% z tyłu blokowałoby tył na prostej.
+- Brak ABS: oś blokuje się, gdy moment hamulca przekracza o 15% to, co opona może przenieść wzdłuż drogi na swoim kole tarcia (z bieżącą siłą boczną), dłużej niż 0,1 s (czas wyhamowania koła). Zablokowana oś ślizga się z 85% przyczepności, zachowuje 30% siły bocznej (auto jedzie prosto), praca idzie w oponę zamiast w tarczę, a płaskie miejsce dodaje 1% zużycia na sekundę. Oś odblokowuje się, gdy moment spadnie poniżej możliwości opony. HUD: „⚠ BLOKADA KÓŁ”, temperatury tarcz przy oponach.
+- Pełny pedał na prostej na suchym nie blokuje kół; pełny pedał w zakręcie blokuje przód. Planista uwzględnia skuteczność tarcz (wcześniej hamuje i mocniej wciska pedał na zimnych lub przegrzanych tarczach).
+- Pomiar wpływu całego etapu (gęstość, wiatr, aquaplaning, hamulce; trening `Population`, 180 s, ziarna 1–8, przed → po): słonecznie 322 → 316 okrążeń, DNF 70 → 66, średni najlepszy czas 53,52 → 53,76 s; deszcz 206 → 204 okrążenia, DNF 62 → 70. Różnice mieszczą się w rozrzucie między ziarnami. Koła są zablokowane w ok. 0,5% kroków auta na suchym i ok. 1,3% w deszczu; tarcze przód dochodzą w treningu do ok. 500–620 °C. Pierwsza wersja (blokada względem budżetu z rezerwą stabilności, rozkład 56/44) blokowała tył na prostej, obniżyła liczbę okrążeń o ok. 30% i podwoiła liczbę DNF, więc ją odrzucono.
+- Test: `npm run test:weather`.
 
 ## Ochrona przed wartościami nieskończonymi (19.10.2026)
 

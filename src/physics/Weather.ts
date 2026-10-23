@@ -88,6 +88,8 @@ export function conditionsOf(wetness: number): TrackConditions {
 const TRACK_TAU = 240, AIR_TAU = 300, GUST_TAU = 3, DIR_TAU = 60, DIR_SIGMA = 0.25;
 /** Rain soaks the track at this rate (1/s at full rain); the sun and a warm track dry it. */
 const SOAK_RATE = 1 / 60, DRY_RATE = 1 / 520;
+/** Extra drying per m/s of mean wind. */
+export const WIND_DRYING = 0.04;
 
 export class Weather {
   readonly state: WeatherState = neutralWeather();
@@ -145,7 +147,8 @@ export class Weather {
       const soaked = Math.min(1, 0.35 + 0.75 * s.rain);
       if (s.wetness < soaked) s.wetness += (soaked - s.wetness) * SOAK_RATE * (0.5 + s.rain) * dt;
     }
-    const evaporation = (0.3 + spec.sun * (1 - s.cloud)) * Math.max(0, (s.trackTemp - 5) / 30);
+    // Wind carries the vapour away: each m/s of mean wind dries 4% faster.
+    const evaporation = (0.3 + spec.sun * (1 - s.cloud)) * Math.max(0, (s.trackTemp - 5) / 30) * (1 + WIND_DRYING * s.windSpeed);
     s.wetness = Math.max(0, Math.min(1, s.wetness - DRY_RATE * evaporation * s.wetness * dt));
     if (s.wetness < 0.005 && s.rain <= 0.02) s.wetness = 0;
     const equilibrium = equilibriumTrackTemp(s.airTemp, spec.sun, s.cloud, s.wetness, s.rain);

@@ -80,7 +80,9 @@ export function planDrive(car: Car, track: Track, leaderSpeeds?: number[]): Driv
   const pushing = car.battlePush.remaining > 0;
   const tyreMu = car.baseTireGrip * Math.min(car.tyreGripFront, car.tyreGripRear);
   const muCorner = tyreMu * (Car.PLAN_CORNER_GRIP + (pressure.cornerGrip - 0.45) * 0.25) * paceMargin;
-  const muBrake = tyreMu * Math.min(0.9, (Car.PLAN_BRAKE_GRIP + (pressure.braking - 1) * 0.15) * car.brakingAggression * (1 + (paceMargin - 1) * 0.5) * (pushing ? 1.08 : 1));
+  // Cold or fading discs cap the deceleration below the tyres' grip: plan the braking with them.
+  const brakeEfficiency = car.brakeEfficiency;
+  const muBrake = tyreMu * Math.min(0.9 * brakeEfficiency, (Car.PLAN_BRAKE_GRIP + (pressure.braking - 1) * 0.15) * car.brakingAggression * (1 + (paceMargin - 1) * 0.5) * (pushing ? 1.08 : 1));
   const aeroPerV2 = 0.5 * car.airDensity * car.downforceCoeff * car.wakeDownforce * (1 - 0.35 * car.damage) * Car.PLAN_AERO_SHARE / car.totalMass;
   const dragPerV2 = 0.5 * car.airDensity * car.dragCoeff / car.totalMass;
   // Braking from v to w (both squared) at a = muBrake·(g + aero·v²) + drag·v²: d(v²)/ds = 2(A + B·v²).
@@ -250,7 +252,8 @@ export function planDrive(car: Car, track: Track, leaderSpeeds?: number[]): Driv
     const tyreDecel = car.baseTireGrip * Math.min(car.tyreGripFront, car.tyreGripRear) * (Car.GRAVITY + 0.5 * car.airDensity * car.downforceCoeff * car.wakeDownforce * v2 / car.totalMass);
     const dragDecel = 0.5 * car.airDensity * car.dragCoeff * v2 / car.totalMass;
     const onset = Math.min(1, (brakingNeed - Car.BRAKE_ONSET) / (1 - Car.BRAKE_ONSET));
-    brake = Math.min(1, Math.max(0, requiredDecel * onset - dragDecel) / Math.max(1, tyreDecel));
+    // Weaker discs need more pedal for the same deceleration.
+    brake = Math.min(1, Math.max(0, requiredDecel * onset - dragDecel) / Math.max(1, tyreDecel * brakeEfficiency));
   } else if (overspeedDelta > -pressure.coastMargin && holdSpeed < Infinity) {
     // Inside the corner that limits the speed: hold it with partial throttle (drag compensation
     // plus a proportional term) instead of coasting down and re-accelerating through the arc.

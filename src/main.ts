@@ -1501,7 +1501,7 @@ class App {
     const rpmEl = document.getElementById('tele-rpm');
     if (rpmEl) rpmEl.textContent = activeCar ? `${Math.round(activeCar.engineRpm / 10) * 10} rpm · prześwit ${Math.round(activeCar.rideHeightFront * 1000)}/${Math.round(activeCar.rideHeightRear * 1000)} mm${activeCar.aeroStall ? ' ⚠ ZERWANIE PRZEPŁYWU' : ''}${activeCar.plankForce > 0 ? ' ⚠ DOBIJANIE DESKI' : ''}${activeCar.porpoisingHz > 0 ? ` ⚠ MORŚWINOWANIE ${activeCar.porpoisingHz.toFixed(1)} Hz` : ''}${activeCar.wakeDrag < 0.97 ? ` · cień aero opór −${Math.round((1 - activeCar.wakeDrag) * 100)}% docisk −${Math.round((1 - activeCar.wakeDownforce) * 100)}%` : ''}` : 'rpm'
     const tyreEl = document.getElementById('tele-tyres');
-    if (tyreEl) tyreEl.textContent = activeCar ? `OPONY ${COMPOUND_SPECS[activeCar.tyreCompound].label.toUpperCase()} · P ${Math.round(activeCar.tyreTempFront)}° T ${Math.round(activeCar.tyreTempRear)}° · zużycie ${Math.round(Math.max(activeCar.tyreWearFront, activeCar.tyreWearRear) * 100)}%` : 'OPONY';
+    if (tyreEl) tyreEl.textContent = activeCar ? `OPONY ${COMPOUND_SPECS[activeCar.tyreCompound].label.toUpperCase()} · P ${Math.round(activeCar.tyreTempFront)}° T ${Math.round(activeCar.tyreTempRear)}° · zużycie ${Math.round(Math.max(activeCar.tyreWearFront, activeCar.tyreWearRear) * 100)}% · hamulce P ${Math.round(activeCar.brakeTempFront)}° T ${Math.round(activeCar.brakeTempRear)}°${activeCar.wheelLockFront || activeCar.wheelLockRear ? ' ⚠ BLOKADA KÓŁ' : ''}${activeCar.aquaplaning > 0.02 ? ' ⚠ AQUAPLANING' : ''}` : 'OPONY';
     const weatherEl = document.getElementById('tele-weather');
     if (weatherEl) weatherEl.textContent = weatherLine(this.sync.session.weather);
     const ersEl = document.getElementById('tele-ers');

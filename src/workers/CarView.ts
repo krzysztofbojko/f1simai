@@ -47,6 +47,11 @@ export interface CarView {
   tyreWearFront: number;
   tyreWearRear: number;
   tyreCompound: TyreCompound;
+  brakeTempFront: number;
+  brakeTempRear: number;
+  wheelLockFront: boolean;
+  wheelLockRear: boolean;
+  aquaplaning: number;
   incidentActive: boolean;
   battleOpponent: string;
   overtakingTargetName: string;
@@ -123,6 +128,11 @@ export function toCarView(car: Car, ctrl?: CarControl, isHeadless: boolean = fal
     tyreWearFront: Math.round(car.tyreWearFront * 1000) / 1000,
     tyreWearRear: Math.round(car.tyreWearRear * 1000) / 1000,
     tyreCompound: car.tyreCompound,
+    brakeTempFront: Math.round(car.brakeTempFront),
+    brakeTempRear: Math.round(car.brakeTempRear),
+    wheelLockFront: car.wheelLockFront,
+    wheelLockRear: car.wheelLockRear,
+    aquaplaning: Math.round(car.aquaplaning * 100) / 100,
     incidentActive: car.incidentActive,
     battleOpponent: car.battleOpponent,
     overtakingTargetName: car.overtakingTargetName,
@@ -210,6 +220,11 @@ export function applyCarView(car: Car, view: CarView): void {
   car.tyreWearFront = view.tyreWearFront ?? 0;
   car.tyreWearRear = view.tyreWearRear ?? 0;
   car.tyreCompound = view.tyreCompound ?? 'medium';
+  car.brakeTempFront = view.brakeTempFront ?? Car.BRAKE_TEMP_START;
+  car.brakeTempRear = view.brakeTempRear ?? Car.BRAKE_TEMP_START;
+  car.wheelLockFront = view.wheelLockFront ?? false;
+  car.wheelLockRear = view.wheelLockRear ?? false;
+  car.aquaplaning = view.aquaplaning ?? 0;
   car.incidentActive = view.incidentActive;
   car.battleOpponent = view.battleOpponent;
   car.overtakingTargetName = view.overtakingTargetName;

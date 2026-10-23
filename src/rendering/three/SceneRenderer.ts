@@ -48,6 +48,9 @@ const SKIES: Record<SkyKind, { file: string; sun: number; sunColor: number; hemi
   night: { file: 'sky_night.webp', sun: 2.6, sunColor: 0xeef2ff, hemi: 0.7, env: 0.6, fog: 0x2a2633 },
 };
 
+/** Cloud cover above which a day sky turns overcast, and below which it clears again. */
+const OVERCAST_ON = 0.65, OVERCAST_OFF = 0.55;
+
 /**
  * The 3D view of the circuit: Three.js scene with PBR materials, a shadow-casting sun that
  * follows the camera, a sky panorama for the backdrop and reflections, the instanced car fleet,
@@ -250,9 +253,12 @@ export class SceneRenderer {
   /**
    * Weather on screen: heavy cloud swaps a day sky for the overcast one and dims the sun, rain
    * falls around the focus and thickens the haze, water darkens the asphalt and makes it shine.
+   * The overcast sky comes above OVERCAST_ON cloud cover and leaves below OVERCAST_OFF, so cover
+   * drifting around one threshold does not swap the sky back and forth.
    */
   private applyWeather(w: WeatherState, view: number, drawMode: boolean, dt: number): void {
-    this.setSky(this.circuitSky === 'day' && w.cloud > 0.6 ? 'overcast' : this.circuitSky);
+    const overcast = this.skyKind === 'overcast' ? w.cloud > OVERCAST_OFF : w.cloud > OVERCAST_ON;
+    this.setSky(this.circuitSky === 'day' && overcast ? 'overcast' : this.circuitSky);
     const look = SKIES[this.skyKind ?? 'day'];
     const dim = this.skyKind === 'night' ? 1 - 0.15 * w.rain : 1 - 0.35 * w.cloud - 0.2 * w.rain;
     this.sun.intensity = look.sun * dim;
