@@ -77,6 +77,7 @@ export interface CarView {
   understeerSlip: number;
   oversteerSlip: number;
   isSkidding: boolean;
+  isSliding: boolean;
   skidMarks: { x: number; y: number }[];
   sensorRays: SerializedRay[];
   ctrl: CarControl;
@@ -158,6 +159,7 @@ export function toCarView(car: Car, ctrl?: CarControl, isHeadless: boolean = fal
     understeerSlip: car.understeerSlip,
     oversteerSlip: car.oversteerSlip,
     isSkidding: car.isSkidding,
+    isSliding: car.isSliding,
     skidMarks: isHeadless ? [] : car.skidMarks.map(m => ({ x: m.x, y: m.y })),
     sensorRays: isHeadless ? [] : car.rayHits.map(h => ({
       x: h.point.x,
@@ -255,6 +257,7 @@ export function applyCarView(car: Car, view: CarView): void {
   car.understeerSlip = view.understeerSlip;
   car.oversteerSlip = view.oversteerSlip;
   car.isSkidding = view.isSkidding;
+  car.isSliding = view.isSliding;
   car.skidMarks = view.skidMarks.map(m => new Vector2(m.x, m.y));
   car.rayHits = view.sensorRays.map(r => ({ point: new Vector2(r.x, r.y), dist: r.dist }));
   if (view.currentSplits) car.currentLapSplits = [...view.currentSplits];

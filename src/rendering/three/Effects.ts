@@ -5,68 +5,108 @@ import { ParticleSystem } from './Particles';
 
 /** Rear wheel contact points in the car frame (m): x behind the CoG, ±z to the sides. */
 const REAR_X = -1.98, REAR_Z = 0.77;
-const SKID_CAPACITY = 12000;
+/** Quads per tyre-mark mesh; a full chunk stays and a new one starts. */
+const SKID_CHUNK = 16384;
+/** Memory guard (~1M quads): past it the oldest chunk is reused. */
+const SKID_MAX_CHUNKS = 64;
 const SKID_HALF_WIDTH = 0.18;
+/** Wheel travel (m) one mark quad spans at least, so slow slides do not burn quads. */
+const SKID_MIN_SEGMENT = 0.4;
 /** Plank load (N) above which the skid block throws sparks. */
 const SPARK_PLANK_FORCE = 800;
 
-interface CarTrail { lx: number; ly: number; rx: number; ry: number; skidding: boolean; impact: number; smoke: number; dust: number; sparks: number; spray: number }
+interface CarTrail { lx: number; ly: number; rx: number; ry: number; sliding: boolean; impact: number; smoke: number; dust: number; sparks: number; spray: number }
+
+interface SkidChunk { mesh: THREE.Mesh; pos: Float32Array; used: number; dirtyFrom: number; dirtyTo: number }
 
 /**
- * Tyre marks as a ring buffer of quads (oldest overwritten first), so a long session keeps a
- * bounded, prealocated mesh.
+ * Tyre marks stay for the whole session (cleared with the track): quads fill fixed-size chunks
+ * that share the index, normals and material, and a full chunk is followed by a new one.
  */
 class SkidMarks {
-  readonly mesh: THREE.Mesh;
-  private readonly pos = new Float32Array(SKID_CAPACITY * 4 * 3);
-  private next = 0;
-  private used = 0;
-  private dirtyFrom = Infinity;
-  private dirtyTo = -1;
+  readonly group = new THREE.Group();
+  private readonly chunks: SkidChunk[] = [];
+  private readonly index: THREE.BufferAttribute;
+  private readonly normal: THREE.BufferAttribute;
+  private readonly material = new THREE.MeshStandardMaterial({
+    color: 0x050505, roughness: 0.6, transparent: true, opacity: 0.42, depthWrite: false,
+    polygonOffset: true, polygonOffsetFactor: -3, polygonOffsetUnits: -12,
+  });
 
   constructor() {
+    const index = new Uint32Array(SKID_CHUNK * 6);
+    for (let i = 0; i < SKID_CHUNK; i++) index.set([i * 4, i * 4 + 1, i * 4 + 2, i * 4 + 1, i * 4 + 3, i * 4 + 2], i * 6);
+    const nrm = new Float32Array(SKID_CHUNK * 4 * 3);
+    for (let i = 0; i < SKID_CHUNK * 4; i++) nrm[i * 3 + 1] = 1;
+    this.index = new THREE.BufferAttribute(index, 1);
+    this.normal = new THREE.BufferAttribute(nrm, 3);
+    this.chunks.push(this.newChunk());
+  }
+
+  private newChunk(): SkidChunk {
+    const pos = new Float32Array(SKID_CHUNK * 4 * 3);
     const geometry = new THREE.BufferGeometry();
-    const index = new Uint32Array(SKID_CAPACITY * 6);
-    for (let i = 0; i < SKID_CAPACITY; i++) index.set([i * 4, i * 4 + 1, i * 4 + 2, i * 4 + 1, i * 4 + 3, i * 4 + 2], i * 6);
-    const nrm = new Float32Array(SKID_CAPACITY * 4 * 3);
-    for (let i = 0; i < SKID_CAPACITY * 4; i++) nrm[i * 3 + 1] = 1;
-    geometry.setAttribute('position', new THREE.BufferAttribute(this.pos, 3).setUsage(THREE.DynamicDrawUsage));
-    geometry.setAttribute('normal', new THREE.BufferAttribute(nrm, 3));
-    geometry.setIndex(new THREE.BufferAttribute(index, 1));
+    geometry.setAttribute('position', new THREE.BufferAttribute(pos, 3).setUsage(THREE.DynamicDrawUsage));
+    geometry.setAttribute('normal', this.normal);
+    geometry.setIndex(this.index);
     geometry.setDrawRange(0, 0);
-    const material = new THREE.MeshStandardMaterial({
-      color: 0x050505, roughness: 0.6, transparent: true, opacity: 0.42, depthWrite: false,
-      polygonOffset: true, polygonOffsetFactor: -3, polygonOffsetUnits: -12,
-    });
-    this.mesh = new THREE.Mesh(geometry, material);
-    this.mesh.frustumCulled = false;
-    this.mesh.receiveShadow = true;
+    const mesh = new THREE.Mesh(geometry, this.material);
+    mesh.frustumCulled = false;
+    mesh.receiveShadow = true;
+    this.group.add(mesh);
+    return { mesh, pos, used: 0, dirtyFrom: Infinity, dirtyTo: -1 };
+  }
+
+  /** The chunk taking new quads: the last one, or a fresh (or the oldest, recycled) one when it is full. */
+  private active(): SkidChunk {
+    const last = this.chunks[this.chunks.length - 1];
+    if (last.used < SKID_CHUNK) return last;
+    if (this.chunks.length < SKID_MAX_CHUNKS) {
+      const chunk = this.newChunk();
+      this.chunks.push(chunk);
+      return chunk;
+    }
+    const oldest = this.chunks.shift()!;
+    oldest.used = 0;
+    oldest.mesh.geometry.setDrawRange(0, 0);
+    this.chunks.push(oldest);
+    return oldest;
   }
 
   /** One quad from the previous to the current wheel position, `sx/sy` the car's lateral unit vector. */
   add(x0: number, y0: number, x1: number, y1: number, sx: number, sy: number): void {
-    const i = this.next, o = i * 12, h = SKID_HALF_WIDTH, y = 0.016;
-    this.pos.set([
+    const chunk = this.active();
+    const i = chunk.used, o = i * 12, h = SKID_HALF_WIDTH, y = 0.016;
+    chunk.pos.set([
       x0 - sx * h, y, y0 - sy * h, x0 + sx * h, y, y0 + sy * h,
       x1 - sx * h, y, y1 - sy * h, x1 + sx * h, y, y1 + sy * h,
     ], o);
-    this.dirtyFrom = Math.min(this.dirtyFrom, i);
-    this.dirtyTo = Math.max(this.dirtyTo, i);
-    this.next = (i + 1) % SKID_CAPACITY;
-    this.used = Math.min(SKID_CAPACITY, this.used + 1);
+    chunk.dirtyFrom = Math.min(chunk.dirtyFrom, i);
+    chunk.dirtyTo = Math.max(chunk.dirtyTo, i);
+    chunk.used = i + 1;
   }
 
   flush(): void {
-    if (this.dirtyTo < 0) return;
-    const attr = this.mesh.geometry.getAttribute('position') as THREE.BufferAttribute;
-    attr.clearUpdateRanges();
-    attr.addUpdateRange(this.dirtyFrom * 12, (this.dirtyTo - this.dirtyFrom + 1) * 12);
-    attr.needsUpdate = true;
-    this.mesh.geometry.setDrawRange(0, this.used * 6);
-    this.dirtyFrom = Infinity; this.dirtyTo = -1;
+    for (const chunk of this.chunks) {
+      if (chunk.dirtyTo < 0) continue;
+      const attr = chunk.mesh.geometry.getAttribute('position') as THREE.BufferAttribute;
+      attr.clearUpdateRanges();
+      attr.addUpdateRange(chunk.dirtyFrom * 12, (chunk.dirtyTo - chunk.dirtyFrom + 1) * 12);
+      attr.needsUpdate = true;
+      chunk.mesh.geometry.setDrawRange(0, chunk.used * 6);
+      chunk.dirtyFrom = Infinity; chunk.dirtyTo = -1;
+    }
   }
 
-  clear(): void { this.next = this.used = 0; this.mesh.geometry.setDrawRange(0, 0); }
+  clear(): void {
+    for (const chunk of this.chunks.splice(1)) {
+      this.group.remove(chunk.mesh);
+      chunk.mesh.geometry.dispose();
+    }
+    const first = this.chunks[0];
+    first.used = 0; first.dirtyFrom = Infinity; first.dirtyTo = -1;
+    first.mesh.geometry.setDrawRange(0, 0);
+  }
 }
 
 /**
@@ -86,7 +126,7 @@ export class Effects {
   private readonly sprayColor = new THREE.Color(0xdfe6ec);
 
   constructor() {
-    this.group.add(this.skids.mesh, this.smoke.points, this.sparks.points);
+    this.group.add(this.skids.group, this.smoke.points, this.sparks.points);
   }
 
   clear(): void { this.skids.clear(); this.smoke.clear(); this.sparks.clear(); }
@@ -118,16 +158,20 @@ export class Effects {
     const rx = car.pos.x + c * REAR_X + sx * REAR_Z, ry = car.pos.y + s * REAR_X + sy * REAR_Z;
     let t = this.trails.get(car);
     if (!t) {
-      t = { lx, ly, rx, ry, skidding: false, impact: car.barrierImpactSpeed, smoke: 0, dust: 0, sparks: 0, spray: 0 };
+      t = { lx, ly, rx, ry, sliding: false, impact: car.barrierImpactSpeed, smoke: 0, dust: 0, sparks: 0, spray: 0 };
       this.trails.set(car, t);
     }
     const alive = car.isAlive && !car.wreckRemoved && !car.isPitting;
     const speed = car.speedKmh / 3.6, vx = c * speed, vy = s * speed;
     const skidding = alive && car.isSkidding;
+    // Only a real slide (lock-up, spin, drift) marks the asphalt; working slip near the limit does not.
+    const sliding = alive && car.isSliding;
 
-    // Marks join the previous frame's contact points; a jump (reset, teleport) starts a new mark.
+    // Marks join the last mark end (or the previous frame's contact points); a jump (reset,
+    // teleport) starts a new mark. Short moves keep the mark start so one quad spans them.
     const moved = Math.hypot(lx - t.lx, ly - t.ly);
-    if (skidding && t.skidding && moved > 0.05 && moved < 8) {
+    const holdStart = sliding && t.sliding && moved < SKID_MIN_SEGMENT;
+    if (sliding && t.sliding && moved >= SKID_MIN_SEGMENT && moved < 8) {
       this.skids.add(t.lx, t.ly, lx, ly, sx, sy);
       this.skids.add(t.rx, t.ry, rx, ry, sx, sy);
     }
@@ -171,7 +215,8 @@ export class Effects {
       for (let i = 0; i < burst / 4; i++) this.puff(car.pos.x, car.pos.y, 0, 0, this.gravelColor, 0.5, 1, 5, 2);
     }
     t.impact = car.barrierImpactSpeed;
-    t.lx = lx; t.ly = ly; t.rx = rx; t.ry = ry; t.skidding = skidding;
+    if (!holdStart) { t.lx = lx; t.ly = ly; t.rx = rx; t.ry = ry; }
+    t.sliding = sliding;
   }
 
   private puff(x: number, y: number, vx: number, vy: number, color: THREE.Color, alpha: number, size0: number, size1: number, life: number): void {
