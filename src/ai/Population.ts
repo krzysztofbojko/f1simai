@@ -3,7 +3,7 @@ import { normalizePressure, pressureProfile } from './DriverPressure';
 import { LineSearch } from './LineSearch';
 import { LineNet } from './LineNet';
 import { distillLineNetwork } from './Distill';
-import { updateRaceSafety, planRaceLine, WRECK_CLEAR_SECONDS } from './RaceTraffic';
+import { updateRaceSafety, planRaceLine, gap, WRECK_CLEAR_SECONDS } from './RaceTraffic';
 import { captureMotion, avoidTraffic, resolveTraffic, computeWake } from '../physics/Traffic';
 import { Car, LapFinishEvent, TrajectoryPoint, driverInputCount } from '../physics/Car';
 import { NeuralNetwork, TopologySpecifier } from './NeuralNetwork';
@@ -283,6 +283,8 @@ export class Population {
    * restores the record brain, so the record can never get worse. Repeated failures raise the
    * mutation step (up to `MAX_SHAKE_RATE`); a personal best anneals it back down.
    */
+  /** Seconds of travel a car must be away from a grid slot before another car respawns there. */
+  static readonly RESPAWN_CLEAR_SECONDS = 3;
   static readonly STAGNATION_LAPS = 8;
   static readonly MAX_SHAKE_RATE = 0.12;
 
@@ -591,9 +593,16 @@ export class Population {
         if (car.respawnTimer <= 0 && car.wreckRemoved) {
           // Own grid slot first, then the nearest free one. With every slot taken the wreck leaves
           // the track while it waits: a car queued behind it may be the one holding its slot.
+          // A slot is free only if no car reaches it within RESPAWN_CLEAR_SECONDS: a car released
+          // at a standstill in front of the passing field is a rear-end crash waiting to happen.
           const free = (k: number) => {
             const pos = track.getGridSlot(k).pos;
-            return !traffic.some(other => other !== car && other.isAlive && other.pos.dist(pos) < 6);
+            return !traffic.some(other => {
+              if (other === car || !other.isAlive) return false;
+              if (other.pos.dist(pos) < 6) return true;
+              const ahead = gap(track, other.pos, pos);
+              return ahead > 0 && ahead < 6 + other.speed * Population.RESPAWN_CLEAR_SECONDS;
+            });
           };
           let slotIdx = -1;
           for (let d = 0; d <= traffic.length && slotIdx < 0; d++) {

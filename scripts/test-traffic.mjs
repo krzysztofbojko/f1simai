@@ -10,7 +10,7 @@ try {
  const {Car} = await import(pathToFileURL(join(dir,'car.mjs')));
  const {Vector2} = await import(pathToFileURL(join(dir,'vector.mjs')));
  const {captureMotion,resolveTraffic,avoidTraffic,computeWake} = await import(pathToFileURL(join(dir,'traffic.mjs')));
- const {planRaceLine,updateRaceSafety,YELLOW_EDGE_MARGIN} = await import(pathToFileURL(join(dir,'race.mjs')));
+ const {planRaceLine,updateRaceSafety,gap,YELLOW_EDGE_MARGIN} = await import(pathToFileURL(join(dir,'race.mjs')));
  const {Population} = await import(pathToFileURL(join(dir,'population.mjs')));
  const {Track} = await import(pathToFileURL(join(dir,'track.mjs')));
  const {NeuralNetwork} = await import(pathToFileURL(join(dir,'network.mjs')));
@@ -99,6 +99,11 @@ try {
  training.update(1/60,circuit);
  assert.equal(trainingRear.isAlive,true,'an occupied own slot blocked the respawn');
  assert.ok(trainingRear.pos.dist(trainingFront.pos)>6,'respawn placed a car in an occupied slot');
+ // Nor in the path of a car about to pass the slot: a standstill respawn there is a rear-end crash.
+ trainingRear.isAlive=false;trainingRear.respawnTimer=0;trainingRear.wreckRemoved=true;
+ trainingFront.pos=slot.pos.sub(Vector2.fromAngle(slot.heading).mul(40));trainingFront.heading=slot.heading;trainingFront.vel=Vector2.fromAngle(slot.heading).mul(50);trainingFront.speed=50;
+ training.update(1/60,circuit);
+ if(trainingRear.isAlive){const ahead=gap(circuit,trainingFront.pos,trainingRear.pos);assert.ok(!(ahead>0&&ahead<6+50*3),`respawn ${ahead.toFixed(1)} m ahead of a car at 50 m/s`);}
  // Wrecks produce a local yellow and are cleared after a fixed time (WRECK_CLEAR_SECONDS).
  a=car(150,0,35);b=car(190,0,0);b.isAlive=false;b.eliminationReason='car';
  updateRaceSafety([a,b],circuit);assert.equal(a.yellowFlag,true);assert.equal(b.wreckAge,0);
