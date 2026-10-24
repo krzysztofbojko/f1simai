@@ -80,6 +80,29 @@ try {
   assert.equal(driver.explorationTrial, false, 'no trials in a race');
   pop.isRaceMode = false;
 
+  // 2b. A lap slowed by a yellow flag still counts but neither reverts the brain nor feeds stagnation.
+  const yPop = new Population(2, track);
+  const yDriver = yPop.cars[0], yRecord = yPop.teamRecords[0];
+  const yLap = (lapTime, yellow) => yPop.recordLap({ compromised: false, yellow, pressure: 0, lapTime, trajectory: [], maxSpeed: 300, avgSpeed: 200, fuelRemaining: 50 }, yDriver, false, track);
+  yLap(60, false);
+  const learned = yDriver.brain.clone();
+  yDriver.replayBuffer = [{}];
+  yLap(75, true);
+  assert.equal(yDriver.brain.toJSON(), learned.toJSON(), 'a yellow lap keeps the brain');
+  assert.equal(yDriver.replayBuffer.length, 1, 'a yellow lap keeps the replay buffer');
+  assert.equal(yRecord.stagnationCounter, 0, 'a yellow lap is not stagnation');
+  assert.equal(yRecord.lapsCount, 2);
+  assert.equal(yRecord.lastLapTime, 75);
+  yDriver.explorationTrial = true;
+  yLap(75, true);
+  assert.equal(yDriver.explorationTrial, true, 'a yellow lap does not judge a trial');
+  yDriver.explorationTrial = false;
+  yLap(75, false);
+  assert.equal(yRecord.stagnationCounter, 1, 'the same slow lap without yellow counts');
+  assert.equal(yDriver.replayBuffer.length, 0, 'without yellow the guard reverts and clears the buffer');
+  yLap(59, true);
+  assert.equal(yRecord.bestLapTime, 59, 'a yellow lap can still set the team best');
+
   // 3. One migration round replaces at most a quarter of the field, largest gains first.
   const main = new Population(Population.MAX_CARS, track);
   const island = new Population(Population.MAX_CARS, track);

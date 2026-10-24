@@ -62,6 +62,8 @@ export interface LapFinishEvent {
   fuelRemaining: number;
   /** Fuel burnt over the lap, kg. */
   fuelUsed?: number;
+  /** The car drove under a local yellow flag at some point of the lap. */
+  yellow?: boolean;
 }
 
 /** LiDAR rays + 5 driving inputs + 8 vehicle-state inputs (tyre temps, wear, ERS, gear, rpm, ride height F/R). */
@@ -771,6 +773,8 @@ export class Car {
   public incidentActive = false;
   public recoveryTimer = 0;
   public lapCompromised = false;
+  /** A local yellow flag touched this lap; the lap still counts but says nothing about the brain. */
+  public lapYellow = false;
   public battlePush = new BattlePush();
   public battleOpponent = '';
   /** Planned lateral position (m from the centreline) at the car; see `raceLineBaseline`. */
@@ -973,6 +977,7 @@ export class Car {
     this.incidentActive = false;
     this.recoveryTimer = 0;
     this.lapCompromised = this.pressureLearningBlocked;
+    this.lapYellow = false;
     this.mistakes.reset();
     this.battlePush.reset();
     this.battleOpponent = '';

@@ -202,6 +202,8 @@ export function checkTrackProgress(car: Car, track: Track): LapFinishEvent | nul
         // A requested stop is taken here, at the line
         if (car.wantsToPit && !car.isFinishedRace) enterPits(car, track);
 
+        const yellow = car.lapYellow;
+        car.lapYellow = false;
         car.pressureLearningBlocked = car.pressureElapsed < 2;
         car.lapCompromised = car.incidentActive || car.recoveryTimer > 0 || car.pressureLearningBlocked;
         car.rollLapPerformanceVariation();
@@ -224,6 +226,7 @@ export function checkTrackProgress(car: Car, track: Track): LapFinishEvent | nul
           avgSpeed: avgSpeedKmh,
           fuelRemaining: Math.round(car.fuelKg * 10) / 10,
           fuelUsed,
+          yellow,
         };
       } else {
         // First time crossing the start/finish line from grid slot: start flying lap!

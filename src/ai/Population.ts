@@ -360,6 +360,8 @@ export class Population {
         }
         car.safeBrainBackup = car.brain ? car.brain.clone() : null;
         car.safeBrainPressure = lapPressure;
+      } else if (lapEvent.yellow) {
+        // Someone else's wreck slowed this lap: it neither punishes the brain nor judges a running trial.
       } else if ((t.bestLapPressure ?? 0) === lapPressure && t.bestBrain && (car.explorationTrial || lapEvent.lapTime > t.bestLapTime + 2.5)) {
         // PERFORMANCE GUARD: a failed exploration trial or a degraded brain goes back to the proven championship brain.
         if (!car.explorationTrial) t.stagnationCounter++;

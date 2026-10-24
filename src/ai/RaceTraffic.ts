@@ -37,6 +37,7 @@ export function updateRaceSafety(cars: Car[], track: Track, dt = 0): void {
       return distance >= -30 && distance <= 200;
     });
     if (car.yellowFlag) {
+      car.lapYellow = true;
       car.battlePush.remaining = 0;
       car.battleOpponent = '';
       // Learning bookkeeping: a yellow spoils a race lap, but a training lap still evaluates the model
