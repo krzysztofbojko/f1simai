@@ -22,6 +22,9 @@ export function gap(track: Track, from: Vector2, to: Vector2): number {
 /** Marshals clear a wreck this many seconds of simulation time after the accident. */
 export const WRECK_CLEAR_SECONDS = 15;
 
+/** A wreck further than this beyond the asphalt edge (m) is no hazard to the field: no yellow. */
+export const YELLOW_EDGE_MARGIN = 5;
+
 /** A crashed car stays on track as a local hazard under yellow flags, then marshals remove it. */
 export function updateRaceSafety(cars: Car[], track: Track, dt = 0): void {
   const elapsed = Number.isFinite(dt) ? Math.max(0, dt) : 0;
@@ -30,7 +33,8 @@ export function updateRaceSafety(cars: Car[], track: Track, dt = 0): void {
     car.wreckAge += elapsed;
     if (car.wreckAge >= WRECK_CLEAR_SECONDS) car.wreckRemoved = true;
   }
-  const wrecks = cars.filter(c => !c.isAlive && !c.wreckRemoved && !c.isPitting && !c.isFinishedRace);
+  const wrecks = cars.filter(c => !c.isAlive && !c.wreckRemoved && !c.isPitting && !c.isFinishedRace
+    && Math.abs(track.sampleSurface(c.pos).lateral) - track.width / 2 <= YELLOW_EDGE_MARGIN);
   for (const car of cars) {
     car.yellowFlag = car.isAlive && wrecks.some(wreck => {
       const distance = gap(track, car.pos, wreck.pos);

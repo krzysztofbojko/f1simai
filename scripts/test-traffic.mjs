@@ -10,7 +10,7 @@ try {
  const {Car} = await import(pathToFileURL(join(dir,'car.mjs')));
  const {Vector2} = await import(pathToFileURL(join(dir,'vector.mjs')));
  const {captureMotion,resolveTraffic,avoidTraffic,computeWake} = await import(pathToFileURL(join(dir,'traffic.mjs')));
- const {planRaceLine,updateRaceSafety} = await import(pathToFileURL(join(dir,'race.mjs')));
+ const {planRaceLine,updateRaceSafety,YELLOW_EDGE_MARGIN} = await import(pathToFileURL(join(dir,'race.mjs')));
  const {Population} = await import(pathToFileURL(join(dir,'population.mjs')));
  const {Track} = await import(pathToFileURL(join(dir,'track.mjs')));
  const {NeuralNetwork} = await import(pathToFileURL(join(dir,'network.mjs')));
@@ -106,6 +106,8 @@ try {
  ctrl=avoidTraffic(a,[a,b],{throttle:1,brake:0,steer:0});assert.equal(ctrl.throttle,0);assert.ok(ctrl.brake>0);
  const rival=car(172,3,20);planRaceLine(a,[a,rival,b],circuit,1/60);assert.equal(a.overtakingTargetName,'','live overtaking under yellow');
  const far=car(400,0,20);updateRaceSafety([a,b,far],circuit);assert.equal(far.yellowFlag,false,'yellow must stay local');
+ // A wreck deep in the runoff is no hazard to the field; one at the edge still is.
+ for(const [beyond,yellow] of [[YELLOW_EDGE_MARGIN+5,false],[YELLOW_EDGE_MARGIN-2,true]]){const runoffWreck=car(190,circuit.width/2+beyond,0);runoffWreck.isAlive=false;runoffWreck.eliminationReason='stuck';const passer=car(150,0,35);updateRaceSafety([passer,runoffWreck],circuit);assert.equal(passer.yellowFlag,yellow,`yellow for a wreck ${beyond} m beyond the edge`);}
  for(let t=0;t<14.9*60;t++)updateRaceSafety([a,b],circuit,1/60);assert.equal(b.wreckRemoved,false,'wreck stays until the marshals arrive');
  for(let t=0;t<0.2*60;t++)updateRaceSafety([a,b],circuit,1/60);assert.equal(b.wreckRemoved,true,'wreck cleared after about 15 s');assert.equal(a.yellowFlag,false);
  const after=avoidTraffic(a,[a,b],{throttle:1,brake:0,steer:0});assert.equal(after.brake,0,'removed wreck remains an obstacle');
