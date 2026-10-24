@@ -102,7 +102,7 @@ export function checkTrackProgress(car: Car, track: Track): LapFinishEvent | nul
   // The skipped gates earn nothing and spoil the lap; without this the car could never clear
   // them and would be retired as stuck while driving, leaving a wreck on the racing line.
   if (car.framesSinceLastCheckpoint > 30 && car.withinTrackLimits && isMovingForwardAlongTrack && !crossedGate && !isNearCp) {
-    const missed = (track.sampleSurface(car.pos).index - clearedCpIdx + cpCount) % cpCount + 1;
+    const missed = (track.gateIndexOf(track.sampleSurface(car.pos).index) - clearedCpIdx + cpCount) % cpCount + 1;
     // On the inside of a hairpin the nearest centreline segment is already the next one before
     // the car reaches the gate: one gate counts as missed only once the car is beyond its line.
     const beyondGate = missed > 1 || car.pos.sub(nextCp.center).dot(nextCp.tangent) > 0;
@@ -135,7 +135,7 @@ export function checkTrackProgress(car: Car, track: Track): LapFinishEvent | nul
     if (track.timingGates && track.timingGates.length === 4) {
       for (let g = 0; g < 3; g++) {
         const gate = track.timingGates[g];
-        if (car.currentLapSplits[g] === null && clearedCpIdx === gate.pointIndex && gateTime > 1.2) {
+        if (car.currentLapSplits[g] === null && clearedCpIdx === gate.checkpointIndex && gateTime > 1.2) {
           const split = gateTime;
           car.currentLapSplits[g] = split;
           const prevPbSplit = car.bestLapSplits[g];

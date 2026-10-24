@@ -18,8 +18,8 @@ function overlay(m: THREE.Material, layer = 6): THREE.Material {
   return m;
 }
 
-/** Catmull-Rom subdivisions per track point of the planned line (the points are ~18 m apart). */
-const PLANNED_STEPS = 3;
+/** Longest stretch (m) of the planned line drawn straight: sparser track points are subdivided by Catmull-Rom. */
+const PLANNED_SAMPLE = 6;
 
 /**
  * Analysis overlays drawn on the asphalt: the planned racing line coloured by the speed it allows,
@@ -99,12 +99,13 @@ export class Overlays {
     const car = this.reference ??= new Car(new Vector2(), 0);
     const speeds = line.speedProfile(car.baseTireGrip * Car.PLAN_CORNER_GRIP,
       0.5 * car.airDensity * car.downforceCoeff * Car.PLAN_AERO_SHARE / car.totalMass, car.baseTireGrip * Car.PLAN_BRAKE_GRIP);
-    const n = track.points.length, low = Math.min(...speeds), high = Math.max(...speeds);
+    const n = track.points.length, low = speeds.reduce((a, b) => Math.min(a, b), Infinity), high = speeds.reduce((a, b) => Math.max(a, b), -Infinity);
+    const steps = Math.max(1, Math.ceil(track.spacing / PLANNED_SAMPLE));
     const points: Point2[] = [], shade: THREE.Color[] = [];
     for (let i = 0; i < n; i++) {
       const p0 = line.point(i - 1), p1 = line.point(i), p2 = line.point(i + 1), p3 = line.point(i + 2);
-      for (let s = 0; s < PLANNED_STEPS; s++) {
-        const t = s / PLANNED_STEPS, t2 = t * t, t3 = t2 * t;
+      for (let s = 0; s < steps; s++) {
+        const t = s / steps, t2 = t * t, t3 = t2 * t;
         const at = (a: number, b: number, c: number, d: number) => 0.5 * (2 * b + (c - a) * t + (2 * a - 5 * b + 4 * c - d) * t2 + (3 * b - a - 3 * c + d) * t3);
         points.push({ x: at(p0.x, p1.x, p2.x, p3.x), y: at(p0.y, p1.y, p2.y, p3.y) });
         const v = speeds[i] * (1 - t) + speeds[(i + 1) % n] * t;

@@ -1,5 +1,5 @@
 import { Car, type CarControl, type DrivePlan } from './Car';
-import type { Track } from '../track/Track';
+import { Track } from '../track/Track';
 import { Vector2 } from '../math/Vector2';
 import { LineProfile } from '../ai/LineProfile';
 import { pressureProfile } from '../ai/DriverPressure';
@@ -22,31 +22,23 @@ export function planDrive(car: Car, track: Track, leaderSpeeds?: number[]): Driv
   if (!car.lineProfile || !car.lineProfile.matches(track)) car.lineProfile = LineProfile.fromLine(track, racingLine.offsets);
   const here = track.sampleSurface(car.pos);
   if (here.surface === 'asphalt' && !car.isPitting && car.recoveryTimer <= 0 && !car.incidentActive && car.speed > 15) {
-    if (here.index !== car.lineProfileIndex) car.lineProfile.record(here.index, here.lateral);
+    if (here.index !== car.lineProfileIndex) car.lineProfile.recordSince(car.lineProfileIndex, car.lineProfileLateral, here.index, here.lateral);
     car.lineProfileIndex = here.index;
+    car.lineProfileLateral = here.lateral;
   }
   // Project onto nearby centerline segments and aim a short physical distance
   // ahead. A whole checkpoint of lookahead cuts across narrow hairpins. The distance grows
   // with speed without a cap: pursuit turns a heading error away in about lookahead / (2·speed),
   // and a capped lookahead made that time shorter than the steering lag at high speed, so the
   // wheels sawed a few times a second.
-  let nearestDistance = Infinity;
-  let segmentIndex = (car.currentCheckpointIdx - 1 + n) % n;
-  let segmentFraction = 0;
-  for (let offset = -3; offset <= 3; offset++) {
-    const index = (car.currentCheckpointIdx + offset + n) % n;
-    const start = track.checkpoints[index].center;
-    const end = track.checkpoints[(index + 1) % n].center;
-    const edge = end.sub(start);
-    const fraction = Math.max(0, Math.min(1, car.pos.sub(start).dot(edge) / Math.max(0.001, edge.magSq())));
-    const distance = car.pos.distSq(start.add(edge.mul(fraction)));
-    if (distance < nearestDistance) { nearestDistance = distance; segmentIndex = index; segmentFraction = fraction; }
-  }
+  const points = track.points, pointCount = points.length;
+  let segmentIndex = here.index;
+  let segmentFraction = here.fraction;
   let remaining = Math.max(8, 5 + car.speed * 0.25);
-  let targetPosition = track.checkpoints[segmentIndex].center;
-  for (let step = 0; step < n; step++) {
-    const start = track.checkpoints[segmentIndex].center;
-    const end = track.checkpoints[(segmentIndex + 1) % n].center;
+  let targetPosition = points[segmentIndex].center;
+  for (let step = 0; step < pointCount; step++) {
+    const start = points[segmentIndex].center;
+    const end = points[(segmentIndex + 1) % pointCount].center;
     const length = start.dist(end);
     const available = length * (1 - segmentFraction);
     if (remaining <= available) {
@@ -54,7 +46,7 @@ export function planDrive(car: Car, track: Track, leaderSpeeds?: number[]): Driv
       break;
     }
     remaining -= available;
-    segmentIndex = (segmentIndex + 1) % n;
+    segmentIndex = (segmentIndex + 1) % pointCount;
     segmentFraction = 0;
     targetPosition = end;
   }
@@ -70,9 +62,10 @@ export function planDrive(car: Car, track: Track, leaderSpeeds?: number[]): Driv
 
   const normalizedSpeed = Math.min(1.0, car.speed / 95.0);
 
-  // 2. Speed-dependent multi-checkpoint braking zone calculation
-  // Lookahead up to 24 steps (~430m) to provide ample runway for high-speed braking
-  const lookaheadSteps = Math.max(8, Math.min(24, Math.ceil(car.speed / 3.4)));
+  // 2. Speed-dependent braking zone: the line ahead, sampled every few metres, over a horizon
+  // of 144 m to 432 m that grows with speed to give ample runway for high-speed braking.
+  const brakingHorizon = Track.GATE_SPACING * Math.max(8, Math.min(24, Math.ceil(car.speed / 3.4)));
+  const sampleStride = track.pointsFor(Car.PLAN_SAMPLE_SPACING);
   let maxOverspeed = -1.0;
   let maxUpcomingCurvature = 0;
 
@@ -112,15 +105,15 @@ export function planDrive(car: Car, track: Track, leaderSpeeds?: number[]): Driv
   // Safe speed of the corner the car is in when that corner is the binding limit ahead.
   let holdSpeed = Infinity;
 
-  for (let k = 0; k <= lookaheadSteps; k++) {
-    const cp = track.checkpoints[(car.currentCheckpointIdx + k) % n];
+  for (let k = sampleStride; accumulatedDist < brakingHorizon && k <= pointCount; k += sampleStride) {
+    const pointIndex = (here.index + k) % pointCount;
     // Distances along the racing line: shorter on the inside, longer around the outside.
-    const linePoint = racingLine.point(cp.index);
+    const linePoint = racingLine.point(pointIndex);
     accumulatedDist += prevPos.dist(linePoint);
     prevPos = linePoint;
 
     // Radius of the line actually driven through this point, not of the centreline.
-    const curK = car.lineProfile.curvature(track, cp.index);
+    const curK = car.lineProfile.curvature(track, pointIndex);
     if (curK > maxUpcomingCurvature) {
       maxUpcomingCurvature = curK;
     }

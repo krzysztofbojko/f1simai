@@ -16,7 +16,7 @@ try {
   if (process.argv[3]) {
     const data = JSON.parse(await readFile('tracks/' + process.argv[3], 'utf8'));
     const width = Math.max(5, Math.min(20, Math.round(data.trackWidth)));
-    track = new Track(Spline.generateClosedTrack(data.rawPoints.map(p => new Vector2(p.x, p.y)), width, 18, true), width);
+    track = new Track(Spline.generateClosedTrack(data.rawPoints.map(p => new Vector2(p.x, p.y)), width, true), width);
   }
   const slot = track.getGridSlot(0);
   const car = new Car(slot.pos, slot.heading, null, '#fff', 'solo', 100, 25);

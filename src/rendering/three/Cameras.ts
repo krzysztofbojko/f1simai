@@ -90,9 +90,7 @@ export class CameraRig {
       if (travelled < TV_SPACING) continue;
       travelled = 0;
       // On the outside of the bend, a few metres behind the barrier and raised like a gantry.
-      let curvature = 0;
-      for (let k = -4; k <= 4; k++) curvature += pts[(i + k + pts.length) % pts.length].curvature;
-      const outsideRight = curvature >= 0;
+      const outsideRight = track.smoothedCurvature[i] >= 0;
       const barrier = outsideRight ? run[i].rightBarrier : run[i].leftBarrier;
       const out = pts[i].normal.mul(outsideRight ? -6 : 6);
       this.stations.push(new THREE.Vector3(barrier.x + out.x, 7, barrier.y + out.y));

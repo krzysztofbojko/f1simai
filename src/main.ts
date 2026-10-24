@@ -22,6 +22,8 @@ import { InputController } from './ui/InputController';
 import { formatLapTime } from './ui/format';
 import realTrackIndex from '../tracks/index.json';
 
+/** Metres between the centre points written to an exported track file. */
+const EXPORT_POINT_SPACING = 5;
 /** Real F1 circuits built by scripts/build-tracks.mjs; each file is fetched only when picked. */
 const REAL_TRACK_FILES = import.meta.glob<string>(['../tracks/*.json', '!../tracks/index.json'], { query: '?raw', import: 'default' });
 
@@ -649,7 +651,7 @@ class App {
         const sourcePoints = (this.rawDrawnPoints && this.rawDrawnPoints.length >= 4)
           ? this.rawDrawnPoints
           : this.track.points.map((p) => p.center);
-        const newPoints = Spline.generateClosedTrack(sourcePoints, dims.effectiveTrackWidth, 18, !!this.trackDirection);
+        const newPoints = Spline.generateClosedTrack(sourcePoints, dims.effectiveTrackWidth, !!this.trackDirection);
         if (newPoints.length > 3) {
           try { this.track = new Track(newPoints, dims.effectiveTrackWidth); }
           catch (error) {
@@ -904,7 +906,9 @@ class App {
         trackWidth: this.trackWidth,
         ...(this.trackDirection ? { direction: this.trackDirection } : {}),
         rawPoints: ptsToSave.map(p => ({ x: Math.round(p.x * 10) / 10, y: Math.round(p.y * 10) / 10 })),
-        centerPoints: this.track.points.map(p => ({ x: Math.round(p.center.x * 10) / 10, y: Math.round(p.center.y * 10) / 10 })),
+        // Every few metres: the loader resplines them, so the file need not hold every track point.
+        centerPoints: this.track.points.filter((_, i) => i % this.track.pointsFor(EXPORT_POINT_SPACING) === 0)
+          .map(p => ({ x: Math.round(p.center.x * 10) / 10, y: Math.round(p.center.y * 10) / 10 })),
         lengthMeters: Math.round(this.track.totalLength / 2),
         savedAt: new Date().toISOString()
       };
@@ -1346,7 +1350,7 @@ class App {
       const dims = Car.getDimensionsForTrackWidth(nextWidth);
       // Real circuits carry their driving direction: keep the file's point order.
       const direction = data.direction === 'clockwise' || data.direction === 'counterclockwise' ? data.direction : null;
-      const splinePoints = Spline.generateClosedTrack(parsedPoints, dims.effectiveTrackWidth, 18, !!direction);
+      const splinePoints = Spline.generateClosedTrack(parsedPoints, dims.effectiveTrackWidth, !!direction);
 
       if (splinePoints.length < 8) {
         alert('Błąd: Nie udało się wygenerować zamkniętej pętli toru z podanych punktów.');
@@ -1399,7 +1403,7 @@ class App {
     if (this.rawDrawnPoints.length < 5) return;
 
     const dims = Car.getDimensionsForTrackWidth(this.trackWidth);
-    const splinePoints = Spline.generateClosedTrack(this.rawDrawnPoints, dims.effectiveTrackWidth, 18);
+    const splinePoints = Spline.generateClosedTrack(this.rawDrawnPoints, dims.effectiveTrackWidth);
     if (splinePoints.length >= 8) {
       try { this.track = new Track(splinePoints, dims.effectiveTrackWidth); this.renderer.setCircuit(); }
       catch (error) {

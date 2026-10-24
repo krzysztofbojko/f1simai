@@ -193,7 +193,7 @@ try {
         for (const width of widthsFor(p.id)) {
           try {
             const effective = Car.getDimensionsForTrackWidth(width).effectiveTrackWidth;
-            const spline = Spline.generateClosedTrack(raw.map(q => new Vector2(q.x, q.y)), effective, 18, true);
+            const spline = Spline.generateClosedTrack(raw.map(q => new Vector2(q.x, q.y)), effective, true);
             if (spline.length < 8) throw new Error('za mało punktów');
             return { raw, width, track: new Track(spline, effective) };
           } catch (error) { lastError = error.message; }

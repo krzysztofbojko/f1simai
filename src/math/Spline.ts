@@ -9,6 +9,13 @@ export interface TrackPoint {
   curvature: number;
 }
 
+/** Metres between consecutive track points: the resolution of the asphalt, kerbs, barriers and racing line. */
+export const TRACK_POINT_SPACING = 1;
+/** Raw spline samples are this close (m) before the arc-length resampling, so the resampled points lie on the curve. */
+const RAW_SAMPLE_SPACING = 0.1;
+/** Upper bound on track points: about 20 km of circuit at 1 m. */
+const MAX_TRACK_POINTS = 20000;
+
 export class Spline {
   /**
    * Catmull-Rom spline evaluation for 4 points
@@ -36,8 +43,8 @@ export class Spline {
   static generateClosedTrack(
     rawPoints: Vector2[],
     trackWidth: number = 90,
-    targetSpacing: number = 20,
-    keepOrder: boolean = false
+    keepOrder: boolean = false,
+    targetSpacing: number = TRACK_POINT_SPACING
   ): TrackPoint[] {
     if (rawPoints.some(p => !Number.isFinite(p.x) || !Number.isFinite(p.y)) || !Number.isFinite(trackWidth) || trackWidth <= 0 || !Number.isFinite(targetSpacing) || targetSpacing <= 0) {
       throw new Error('Tor zawiera niepoprawne współrzędne lub szerokość.');
@@ -68,14 +75,14 @@ export class Spline {
     const n = filtered.length;
     const rawSplinePoints: Vector2[] = [];
 
-    // Subdivide each segment
-    const samplesPerSegment = 12;
+    // Subdivide each segment finely enough that straight chords between samples stay on the curve.
     for (let i = 0; i < n; i++) {
       const p0 = filtered[(i - 1 + n) % n];
       const p1 = filtered[i];
       const p2 = filtered[(i + 1) % n];
       const p3 = filtered[(i + 2) % n];
 
+      const samplesPerSegment = Math.max(12, Math.ceil(p1.dist(p2) * 1.5 / RAW_SAMPLE_SPACING));
       for (let s = 0; s < samplesPerSegment; s++) {
         const t = s / samplesPerSegment;
         rawSplinePoints.push(Spline.catmullRom(p0, p1, p2, p3, t));
@@ -94,7 +101,7 @@ export class Spline {
     }
 
     const numPoints = Math.max(20, Math.round(totalLength / targetSpacing));
-    if (!Number.isFinite(totalLength) || numPoints > 4000) throw new Error('Tor jest zbyt duży lub ma niepoprawne współrzędne.');
+    if (!Number.isFinite(totalLength) || numPoints > MAX_TRACK_POINTS) throw new Error('Tor jest zbyt duży lub ma niepoprawne współrzędne.');
     const stepLength = totalLength / numPoints;
     const uniformCenter: Vector2[] = [];
 

@@ -43,7 +43,7 @@
    "country": "Portugalia",
    "direction": "clockwise",
    "lengthMeters": 4360,
-   "generatedLengthMeters": 4361,
+   "generatedLengthMeters": 4360,
    "trackWidth": 12,
    "circuitType": "stały",
    "grandsPrix": 13
@@ -115,7 +115,7 @@
    "country": "Bahrajn",
    "direction": "clockwise",
    "lengthMeters": 5412,
-   "generatedLengthMeters": 5413,
+   "generatedLengthMeters": 5402,
    "trackWidth": 15,
    "circuitType": "stały",
    "grandsPrix": 21
@@ -139,7 +139,7 @@
    "country": "Hiszpania",
    "direction": "clockwise",
    "lengthMeters": 4657,
-   "generatedLengthMeters": 4652,
+   "generatedLengthMeters": 4658,
    "trackWidth": 13,
    "circuitType": "stały",
    "grandsPrix": 33
@@ -151,7 +151,7 @@
    "country": "Monako",
    "direction": "clockwise",
    "lengthMeters": 3337,
-   "generatedLengthMeters": 3336,
+   "generatedLengthMeters": 3337,
    "trackWidth": 10,
    "circuitType": "uliczny",
    "grandsPrix": 69
@@ -163,7 +163,7 @@
    "country": "Francja",
    "direction": "clockwise",
    "lengthMeters": 4411,
-   "generatedLengthMeters": 4410,
+   "generatedLengthMeters": 4411,
    "trackWidth": 13,
    "circuitType": "stały",
    "grandsPrix": 18
@@ -187,7 +187,7 @@
    "country": "Kanada",
    "direction": "clockwise",
    "lengthMeters": 4361,
-   "generatedLengthMeters": 4362,
+   "generatedLengthMeters": 4358,
    "trackWidth": 11,
    "circuitType": "mieszany",
    "grandsPrix": 42
@@ -199,7 +199,7 @@
    "country": "Stany Zjednoczone",
    "direction": "counterclockwise",
    "lengthMeters": 5513,
-   "generatedLengthMeters": 5514,
+   "generatedLengthMeters": 5513,
    "trackWidth": 15,
    "circuitType": "stały",
    "grandsPrix": 11
@@ -223,7 +223,7 @@
    "country": "Francja",
    "direction": "clockwise",
    "lengthMeters": 5842,
-   "generatedLengthMeters": 5841,
+   "generatedLengthMeters": 5842,
    "trackWidth": 13,
    "circuitType": "stały",
    "grandsPrix": 18
@@ -283,7 +283,7 @@
    "country": "Arabia Saudyjska",
    "direction": "counterclockwise",
    "lengthMeters": 6174,
-   "generatedLengthMeters": 6178,
+   "generatedLengthMeters": 6174,
    "trackWidth": 12,
    "circuitType": "uliczny",
    "grandsPrix": 4
@@ -295,7 +295,7 @@
    "country": "Południowa Afryka",
    "direction": "counterclockwise",
    "lengthMeters": 4261,
-   "generatedLengthMeters": 4521,
+   "generatedLengthMeters": 4513,
    "trackWidth": 12,
    "circuitType": "stały",
    "grandsPrix": 20
@@ -307,7 +307,7 @@
    "country": "Stany Zjednoczone",
    "direction": "counterclockwise",
    "lengthMeters": 6201,
-   "generatedLengthMeters": 6202,
+   "generatedLengthMeters": 6209,
    "trackWidth": 15,
    "circuitType": "uliczny",
    "grandsPrix": 1
@@ -319,7 +319,7 @@
    "country": "Katar",
    "direction": "clockwise",
    "lengthMeters": 5419,
-   "generatedLengthMeters": 5419,
+   "generatedLengthMeters": 5414,
    "trackWidth": 12,
    "circuitType": "uliczny",
    "grandsPrix": 2
@@ -355,7 +355,7 @@
    "country": "Włochy",
    "direction": "clockwise",
    "lengthMeters": 5245,
-   "generatedLengthMeters": 5245,
+   "generatedLengthMeters": 5238,
    "trackWidth": 13,
    "circuitType": "stały",
    "grandsPrix": 1
@@ -367,7 +367,7 @@
    "country": "Niemcy",
    "direction": "clockwise",
    "lengthMeters": 5148,
-   "generatedLengthMeters": 5149,
+   "generatedLengthMeters": 5148,
    "trackWidth": 13,
    "circuitType": "mieszany",
    "grandsPrix": 41
@@ -391,7 +391,7 @@
    "country": "Malezja",
    "direction": "clockwise",
    "lengthMeters": 5543,
-   "generatedLengthMeters": 5543,
+   "generatedLengthMeters": 5532,
    "trackWidth": 16,
    "circuitType": "stały",
    "grandsPrix": 19
@@ -439,7 +439,7 @@
    "country": "Stany Zjednoczone",
    "direction": "clockwise",
    "lengthMeters": 5435,
-   "generatedLengthMeters": 5437,
+   "generatedLengthMeters": 5440,
    "trackWidth": 11,
    "circuitType": "mieszany",
    "grandsPrix": 20
@@ -451,7 +451,7 @@
    "country": "Zjednoczone Emiraty Arabskie",
    "direction": "counterclockwise",
    "lengthMeters": 5281,
-   "generatedLengthMeters": 5273,
+   "generatedLengthMeters": 5279,
    "trackWidth": 15,
    "circuitType": "stały",
    "grandsPrix": 15

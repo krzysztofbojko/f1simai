@@ -240,7 +240,8 @@ export class TrackMesh {
     const half = Math.min(1.2, Math.max(0.5, track.width * 0.06)) / 2;
     const parts: THREE.BufferGeometry[] = [];
     for (const side of [1, -1]) {
-      const isKerb = (i: number) => Math.abs(pts[i].curvature) > 0.003 && Math.sign(pts[i].curvature) === side;
+      const bend = track.localCurvature;
+      const isKerb = (i: number) => Math.abs(bend[i]) > 0.003 && Math.sign(bend[i]) === side;
       // Scan from a straight point, so no run wraps across the scan start.
       const start = pts.findIndex((_, i) => !isKerb(i));
       if (start < 0) { parts.push(this.kerbStrip(track, pts.map((_, i) => i), side, half, true)); continue; }

@@ -14,6 +14,8 @@ export interface TimingGate {
   id: number;           // 1, 2, 3, 4
   name: string;         // "CP 1", "CP 2", "CP 3", "CP 4 (META)"
   pointIndex: number;
+  /** The checkpoint (gate) the timing line sits on. */
+  checkpointIndex: number;
   left: Vector2;
   right: Vector2;
   center: Vector2;
@@ -66,8 +68,33 @@ export class Track {
   /** Seconds a pass through the pit lane costs on this circuit; null: the default (PitStrategy.PIT_LANE_LOSS). */
   public pitLaneLoss: number | null = null;
 
+  /** Metres between consecutive track points (the spline resamples them uniformly). */
+  public spacing: number = 1;
+  /**
+   * Centreline curvature smoothed over a triangular window CURVATURE_WINDOW metres wide: what
+   * corner detection (kerbs, runoff, racing line margins, the line network's road preview) reads.
+   */
+  public smoothedCurvature: Float64Array = new Float64Array(0);
+  /** Centreline curvature averaged over about GATE_SPACING metres: the bend at a point as a gate or kerb sees it. */
+  public localCurvature: Float64Array = new Float64Array(0);
+  /** For every track point, the checkpoint (gate) at or before it. */
+  private pointGate: Int32Array = new Int32Array(0);
+
+  /** Metres between checkpoints (gates): lap progress, fitness and timing count gates, not points. */
+  static readonly GATE_SPACING = 18;
+  /** Base of the triangular curvature filter: 54 m, three points of the former 18 m track. */
+  static readonly CURVATURE_WINDOW = 54;
+  /** Along-track distance under which two stretches of track count as neighbours, not as separate roads. */
+  static readonly NEIGHBOUR_DISTANCE = 45;
+  /** Runoff widens for a corner this many metres before it and keeps the width as far after it. */
+  static readonly RUNOFF_REACH = 54;
+  /** Metres over which a corner's runoff demand falls off by a factor e. */
+  static readonly RUNOFF_FALLOFF = 60;
+  /** Radius (m) searched ring by ring for the nearest centreline before scanning the whole track. */
+  private static readonly SURFACE_SEARCH_RADIUS = 240;
+
   // High-performance spatial grid for O(1) raycasting and collision checks
-  private spatialCellSize: number = 80;
+  private spatialCellSize: number = 8;
   private boundaryGrid: Map<number, IndexedSegment[]> = new Map();
   private centerGrid: Map<number, IndexedSegment[]> = new Map();
   private queryId: number = 0;
@@ -76,13 +103,55 @@ export class Track {
   constructor(points: TrackPoint[], width: number = 90) {
     this.points = points;
     this.width = width;
-    this.validateAsphalt();
+    this.validatePoints();
     this.buildGeometry();
+    this.validateAsphalt();
     this.buildRunoff();
+  }
+
+  /** Track points covering `metres` along the track (at least one). */
+  pointsFor(metres: number): number {
+    return Math.max(1, Math.round(metres / this.spacing));
+  }
+
+  /** The track point `metres` ahead of `index` (behind when negative). */
+  pointAhead(index: number, metres: number): number {
+    const n = this.points.length;
+    return ((index + Math.round(metres / this.spacing)) % n + n) % n;
+  }
+
+  /** The checkpoint at or before a track point: the last gate a car at that point has reached. */
+  gateIndexOf(pointIndex: number): number {
+    const n = this.pointGate.length;
+    return n ? this.pointGate[((pointIndex % n) + n) % n] : 0;
   }
 
   private hashCell(gx: number, gy: number): number {
     return (gx << 16) | (gy & 0xffff);
+  }
+
+  /** Segments of `grid` in cells overlapping the box, each once. */
+  private segmentsInBox(grid: Map<number, IndexedSegment[]>, minX: number, minY: number, maxX: number, maxY: number): IndexedSegment[] {
+    const cs = this.spatialCellSize, found: IndexedSegment[] = [];
+    this.queryId++; const query = this.queryId;
+    for (let gx = Math.floor(minX / cs); gx <= Math.floor(maxX / cs); gx++) {
+      for (let gy = Math.floor(minY / cs); gy <= Math.floor(maxY / cs); gy++) {
+        const cell = grid.get(this.hashCell(gx, gy));
+        if (cell) for (const segment of cell) if (segment.lastQueryId !== query) { segment.lastQueryId = query; found.push(segment); }
+      }
+    }
+    return found;
+  }
+
+  /** Points within which another stretch of track is the same road: at least the two segments sharing an end. */
+  private neighbourPoints(): number {
+    return Math.max(2, Track.NEIGHBOUR_DISTANCE / this.spacing);
+  }
+
+  /** Along-track distance in points between two track points, the short way round. */
+  private separation(i: number, j: number): number {
+    const n = this.points.length, d = Math.abs(i - j);
+    return Math.min(d, n - d);
   }
 
   private addSegmentToGrid(grid: Map<number, IndexedSegment[]>, seg: IndexedSegment): void {
@@ -105,6 +174,24 @@ export class Track {
     }
   }
 
+  /** Centred moving average over `metres` of track (an odd number of points), around the closed loop. */
+  private boxFilter(values: Float64Array, metres: number): Float64Array {
+    const n = values.length, half = Math.floor(this.pointsFor(metres) / 2);
+    const out = new Float64Array(n);
+    if (n === 0) return out;
+    const prefix = new Float64Array(n + 1);
+    for (let i = 0; i < n; i++) prefix[i + 1] = prefix[i] + values[i];
+    // Sum of values[a..b] for any a ≤ b, wrapping around the loop.
+    const sum = (a: number, b: number): number => {
+      const laps = Math.floor(a / n), from = a - laps * n, to = b - laps * n;
+      if (to < n) return prefix[to + 1] - prefix[from];
+      const whole = Math.floor((to + 1) / n);
+      return prefix[n] - prefix[from] + (whole - 1) * prefix[n] + prefix[(to + 1) - whole * n];
+    };
+    for (let i = 0; i < n; i++) out[i] = sum(i - half, i + half) / (2 * half + 1);
+    return out;
+  }
+
   private buildGeometry(): void {
     const n = this.points.length;
     this.leftSegments = [];
@@ -121,6 +208,7 @@ export class Track {
       const next = this.points[nextIdx];
 
       const leftSeg: IndexedSegment = {
+        index: i,
         id: segId++,
         lastQueryId: 0,
         p1: curr.left,
@@ -130,6 +218,7 @@ export class Track {
       this.addSegmentToGrid(this.boundaryGrid, leftSeg);
 
       const rightSeg: IndexedSegment = {
+        index: i,
         id: segId++,
         lastQueryId: 0,
         p1: curr.right,
@@ -148,15 +237,27 @@ export class Track {
       this.addSegmentToGrid(this.centerGrid, centerSeg);
 
       this.totalLength += curr.center.dist(next.center);
+    }
+    this.spacing = n > 0 && this.totalLength > 0 ? this.totalLength / n : 1;
+    const curvature = Float64Array.from(this.points, p => p.curvature);
+    this.smoothedCurvature = this.boxFilter(this.boxFilter(curvature, Track.CURVATURE_WINDOW), Track.CURVATURE_WINDOW);
+    this.localCurvature = this.boxFilter(this.boxFilter(curvature, Track.GATE_SPACING), Track.GATE_SPACING);
 
+    // Gates: evenly spaced points, the first on the start/finish line (point 0).
+    const gates = Math.min(n, Math.max(4, Math.round(this.totalLength / Track.GATE_SPACING)));
+    this.pointGate = new Int32Array(n);
+    for (let g = 0; g < gates; g++) {
+      const i = Math.floor(g * n / gates), curr = this.points[i];
       this.checkpoints.push({
         index: i,
         p1: curr.left,
         p2: curr.right,
         center: curr.center,
         tangent: curr.tangent,
-        curvature: curr.curvature,
+        curvature: this.localCurvature[i],
       });
+      const end = g + 1 < gates ? Math.floor((g + 1) * n / gates) : n;
+      this.pointGate.fill(g, i, end);
     }
 
     // Build 4 timing checkpoints (divided evenly across track distance: 25%, 50%, 75%, 100%)
@@ -176,25 +277,25 @@ export class Track {
       for (let g = 0; g < 4; g++) {
         const frac = fractions[g];
         const targetDist = this.totalLength * frac;
-        let bestIdx = 0;
-        if (frac === 1.0) {
-          bestIdx = 0; // Finish line / start position
-        } else {
+        let bestGate = 0;
+        if (frac !== 1.0) { // the finish line is gate 0, at the start position
           let minDiff = Infinity;
-          for (let i = 0; i < n; i++) {
-            const diff = Math.abs(dists[i] - targetDist);
+          for (let k = 0; k < this.checkpoints.length; k++) {
+            const diff = Math.abs(dists[this.checkpoints[k].index] - targetDist);
             if (diff < minDiff) {
               minDiff = diff;
-              bestIdx = i;
+              bestGate = k;
             }
           }
         }
+        const bestIdx = this.checkpoints[bestGate].index;
 
         const pt = this.points[bestIdx];
         this.timingGates.push({
           id: g + 1,
           name: gateNames[g],
           pointIndex: bestIdx,
+          checkpointIndex: bestGate,
           left: pt.left.clone(),
           right: pt.right.clone(),
           center: pt.center.clone(),
@@ -207,20 +308,28 @@ export class Track {
     }
   }
 
-  private validateAsphalt(): void {
-    const n = this.points.length;
-    if (n < 3 || !Number.isFinite(this.width) || this.width <= 0 || this.points.some(p => !Number.isFinite(p.center.x + p.center.y))) {
+  private validatePoints(): void {
+    if (this.points.length < 3 || !Number.isFinite(this.width) || this.width <= 0
+      || this.points.some(p => ![p.center, p.left, p.right].every(q => Number.isFinite(q.x + q.y)))) {
       throw new Error('Tor zawiera niepoprawną geometrię.');
     }
+  }
+
+  private validateAsphalt(): void {
+    const n = this.points.length, reach = this.width, neighbours = this.neighbourPoints();
     for (let i = 0; i < n; i++) {
       const a = this.points[i], b = this.points[(i + 1) % n];
-      for (let j = i + 2; j < n; j++) {
-        if (i === 0 && j === n - 1) continue;
+      // Two stretches of asphalt can only touch where their centrelines come within a track width.
+      const nearby = this.segmentsInBox(this.centerGrid, Math.min(a.center.x, b.center.x) - reach, Math.min(a.center.y, b.center.y) - reach,
+        Math.max(a.center.x, b.center.x) + reach, Math.max(a.center.y, b.center.y) + reach);
+      for (const segment of nearby) {
+        const j = segment.index!;
+        if (j < i + 2 || (i === 0 && j === n - 1)) continue;
         const c = this.points[j], d = this.points[(j + 1) % n];
-        const separation = Math.min(j - i, n - (j - i));
+        const separated = this.separation(i, j) > neighbours;
         const distance = Math.min(distToSegment(a.center, c.center, d.center), distToSegment(b.center, c.center, d.center), distToSegment(c.center, a.center, b.center), distToSegment(d.center, a.center, b.center));
-        if ((separation > 2 && distance < this.width * 0.98) || segmentsIntersect(a.center, b.center, c.center, d.center) ||
-          (separation > 2 && [a.left, a.right].some((edge, side) =>
+        if ((separated && distance < this.width * 0.98) || segmentsIntersect(a.center, b.center, c.center, d.center) ||
+          (separated && [a.left, a.right].some((edge, side) =>
             [c.left, c.right].some((other, otherSide) => segmentsIntersect(edge, side ? b.right : b.left, other, otherSide ? d.right : d.left))))) {
           throw new Error('Asfalt toru przecina się. Narysuj trasę bez przecinających się odcinków.');
         }
@@ -229,23 +338,19 @@ export class Track {
   }
 
   private buildRunoff(): void {
-    const n = this.points.length, base = this.width * 0.25;
-    const curved = this.points.map((_, i) => {
-      let k = 0;
-      for (let d = -2; d <= 2; d++) k += this.points[(i + d + n) % n].curvature * (3 - Math.abs(d));
-      return k / 9;
-    });
+    const n = this.points.length, base = this.width * 0.25, curved = this.smoothedCurvature;
+    const reach = Math.round(Track.RUNOFF_REACH / this.spacing), neighbours = this.neighbourPoints();
     const desired = this.points.map((_, i) => {
       let left = base, right = base;
       // Look ahead for the corner approach and retain its runoff on the exit.
-      for (let d = -3; d <= 3; d++) {
+      for (let d = -reach; d <= reach; d++) {
         const k = curved[(i + d + n) % n], abs = Math.abs(k);
         if (abs < 0.001) continue;
         const approach = Math.min(85, Math.sqrt(1.3 * 9.81 / Math.max(0.0005, abs)));
         const severity = Math.min(1, abs / 0.008);
         const brakingDistance = approach * approach / (2 * 0.5 * 9.81);
         const width = Math.max(this.width, Math.min(4 * this.width, brakingDistance * severity));
-        const smoothWeight = Math.exp(-Math.abs(d) * 0.3);
+        const smoothWeight = Math.exp(-Math.abs(d) * this.spacing / Track.RUNOFF_FALLOFF);
         if (k > 0) right = Math.max(right, base + (width - base) * smoothWeight);
         else left = Math.max(left, base + (width - base) * smoothWeight);
       }
@@ -257,13 +362,12 @@ export class Track {
         const edge = side ? point.right : point.left;
         const outward = point.normal.mul(side ? -1 : 1);
         // Split the available space with neighbouring stretches of track.
-        for (let j = 0; j < n; j++) {
-          if (Math.min(Math.abs(j - i), n - Math.abs(j - i)) <= 2) continue;
-          const next = this.points[(j + 1) % n];
-          for (const [a, b] of [[this.points[j].left, next.left], [this.points[j].right, next.right]]) {
-            const hit = raySegmentIntersection(edge, outward, a, b, widths[side] * 2 + 1);
-            if (hit) widths[side] = Math.min(widths[side], Math.max(0.15, (hit.dist - 0.5) * 0.45));
-          }
+        const length = widths[side] * 2 + 1, end = edge.add(outward.mul(length));
+        const edges = this.segmentsInBox(this.boundaryGrid, Math.min(edge.x, end.x), Math.min(edge.y, end.y), Math.max(edge.x, end.x), Math.max(edge.y, end.y));
+        for (const segment of edges) {
+          if (this.separation(segment.index!, i) <= neighbours) continue;
+          const hit = raySegmentIntersection(edge, outward, segment.p1, segment.p2, widths[side] * 2 + 1);
+          if (hit) widths[side] = Math.min(widths[side], Math.max(0.15, (hit.dist - 0.5) * 0.45));
         }
       }
       const grassWidth = Math.min(this.width * 0.08, widths[0] * 0.4, widths[1] * 0.4);
@@ -297,11 +401,11 @@ export class Track {
       let changed = false;
       for (let i = 0; i < n; i++) for (const side of ['left', 'right'] as const) {
         const ni = (i + 1) % n, a = this.runoff[i], b = this.runoff[ni];
-        const key = side === 'left' ? 'leftBarrier' : 'rightBarrier';
-        for (let j = 0; j < n; j++) {
-          if (Math.min(Math.abs(j - i), n - Math.abs(j - i)) <= 2) continue;
-          const p = this.points[j], q = this.points[(j + 1) % n];
-          if (segmentsIntersect(a[key], b[key], p.left, q.left) || segmentsIntersect(a[key], b[key], p.right, q.right)) {
+        const key = side === 'left' ? 'leftBarrier' : 'rightBarrier', from = a[key], to = b[key];
+        const edges = this.segmentsInBox(this.boundaryGrid, Math.min(from.x, to.x), Math.min(from.y, to.y), Math.max(from.x, to.x), Math.max(from.y, to.y));
+        for (const segment of edges) {
+          if (this.separation(segment.index!, i) <= neighbours) continue;
+          if (segmentsIntersect(from, to, segment.p1, segment.p2)) {
             for (const idx of [i, ni]) {
               const r = this.runoff[idx], point = this.points[idx];
               if (side === 'left') { r.leftWidth *= 0.7; r.leftBarrier = point.left.add(point.normal.mul(r.leftWidth)); }
@@ -350,13 +454,25 @@ export class Track {
       if (distance < min) { min = distance; best = index; fraction = t; cx = qx; cy = qy; }
     };
     this.queryId++; const query = this.queryId;
-    for (let x = gx - 1; x <= gx + 1; x++) for (let y = gy - 1; y <= gy + 1; y++) {
+    const visit = (x: number, y: number) => {
       const cell = this.centerGrid.get(this.hashCell(x, y));
-      if (!cell) continue;
+      if (!cell) return;
       for (let i = 0; i < cell.length; i++) {
         const seg = cell[i];
         if (seg.lastQueryId !== query) { seg.lastQueryId = query; test(seg.p1, seg.p2, seg.index!); }
       }
+    };
+    // Rings of cells around the position's own: once the nearest segment found so far is closer
+    // than any cell outside the searched square can be, it is the nearest of the whole track.
+    const inner = Math.min(px - gx * cs, (gx + 1) * cs - px, py - gy * cs, (gy + 1) * cs - py);
+    for (let ring = 0, rings = Math.ceil(Track.SURFACE_SEARCH_RADIUS / cs); ring <= rings; ring++) {
+      if (ring === 0) visit(gx, gy);
+      else for (let k = -ring; k <= ring; k++) {
+        visit(gx + k, gy - ring); visit(gx + k, gy + ring);
+        if (k > -ring && k < ring) { visit(gx - ring, gy + k); visit(gx + ring, gy + k); }
+      }
+      const clear = inner + ring * cs;
+      if (min <= clear * clear) break;
     }
     if (!Number.isFinite(min)) for (let i = 0; i < this.points.length; i++) test(this.points[i].center, this.points[(i + 1) % this.points.length].center, i);
     const center = new Vector2(cx, cy);
@@ -379,11 +495,19 @@ export class Track {
   /** Swept oriented 5.5 x 1.8 m body, including rotation and glancing contacts. */
   sweepBarrier(from: Vector2, to: Vector2, fromHeading: number, toHeading: number): BarrierContact | null {
     const pad = 3.1, cs = this.spatialCellSize, candidates: IndexedSegment[] = [];
+    const minX = Math.min(from.x, to.x) - pad, maxX = Math.max(from.x, to.x) + pad, minY = Math.min(from.y, to.y) - pad, maxY = Math.max(from.y, to.y) + pad;
     this.queryId++; const query = this.queryId;
-    for (let x = Math.floor((Math.min(from.x, to.x) - pad) / cs); x <= Math.floor((Math.max(from.x, to.x) + pad) / cs); x++) {
-      for (let y = Math.floor((Math.min(from.y, to.y) - pad) / cs); y <= Math.floor((Math.max(from.y, to.y) + pad) / cs); y++) {
+    for (let x = Math.floor(minX / cs); x <= Math.floor(maxX / cs); x++) {
+      for (let y = Math.floor(minY / cs); y <= Math.floor(maxY / cs); y++) {
         const cell = this.barrierGrid.get(this.hashCell(x, y));
-        if (cell) for (const segment of cell) if (segment.lastQueryId !== query) { segment.lastQueryId = query; candidates.push(segment); }
+        if (cell) for (const segment of cell) {
+          if (segment.lastQueryId === query) continue;
+          segment.lastQueryId = query;
+          // Only segments the swept body can reach.
+          if (Math.max(segment.p1.x, segment.p2.x) < minX || Math.min(segment.p1.x, segment.p2.x) > maxX
+            || Math.max(segment.p1.y, segment.p2.y) < minY || Math.min(segment.p1.y, segment.p2.y) > maxY) continue;
+          candidates.push(segment);
+        }
       }
     }
     if (!candidates.length) return null;
@@ -489,11 +613,12 @@ export class Track {
 
     // On a curve the lateral offset can put a slot past the next gate's line; that gate is then
     // behind the car and could never be crossed, so count it as already passed.
-    let checkpointIdx = t >= 1 ? ahead : behind;
-    for (let guard = 0; guard < 3 && this.checkpoints.length === n; guard++) {
-      const next = this.checkpoints[(checkpointIdx + 1) % n];
+    const gates = this.checkpoints.length;
+    let checkpointIdx = this.gateIndexOf(t >= 1 ? ahead : behind);
+    for (let guard = 0; guard < 3 && gates > 0; guard++) {
+      const next = this.checkpoints[(checkpointIdx + 1) % gates];
       if (pos.sub(next.center).dot(next.tangent) < 0) break;
-      checkpointIdx = (checkpointIdx + 1) % n;
+      checkpointIdx = (checkpointIdx + 1) % gates;
     }
     return { pos, heading, checkpointIdx };
   }
@@ -508,19 +633,20 @@ export class Track {
     let closestDist = maxDist, hitX = tx, hitY = ty;
 
     const cs = this.spatialCellSize;
-    const minGx = Math.floor(Math.min(ox, tx) / cs);
-    const maxGx = Math.floor(Math.max(ox, tx) / cs);
-    const minGy = Math.floor(Math.min(oy, ty) / cs);
-    const maxGy = Math.floor(Math.max(oy, ty) / cs);
+    let gx = Math.floor(ox / cs), gy = Math.floor(oy / cs);
+    const endGx = Math.floor(tx / cs), endGy = Math.floor(ty / cs);
+    // Grid traversal along the ray (Amanatides-Woo): cells in the order the ray enters them.
+    const stepX = dir.x > 0 ? 1 : -1, stepY = dir.y > 0 ? 1 : -1;
+    const deltaX = dir.x !== 0 ? cs / Math.abs(dir.x) : Infinity, deltaY = dir.y !== 0 ? cs / Math.abs(dir.y) : Infinity;
+    let exitX = dir.x !== 0 ? ((stepX > 0 ? (gx + 1) * cs - ox : ox - gx * cs) / Math.abs(dir.x)) : Infinity;
+    let exitY = dir.y !== 0 ? ((stepY > 0 ? (gy + 1) * cs - oy : oy - gy * cs) / Math.abs(dir.y)) : Infinity;
 
     this.queryId++;
     const qId = this.queryId;
 
-    for (let gx = minGx; gx <= maxGx; gx++) {
-      for (let gy = minGy; gy <= maxGy; gy++) {
-        const cell = this.boundaryGrid.get(this.hashCell(gx, gy));
-        if (!cell) continue;
-
+    for (let guard = 0; guard < 4096; guard++) {
+      const cell = this.boundaryGrid.get(this.hashCell(gx, gy));
+      if (cell) {
         const len = cell.length;
         for (let i = 0; i < len; i++) {
           const seg = cell[i];
@@ -547,6 +673,10 @@ export class Track {
           }
         }
       }
+      // A hit before the ray leaves this cell cannot be beaten by any cell further along.
+      const exit = Math.min(exitX, exitY);
+      if (closestDist <= exit || exit >= maxDist || (gx === endGx && gy === endGy)) break;
+      if (exitX < exitY) { gx += stepX; exitX += deltaX; } else { gy += stepY; exitY += deltaY; }
     }
 
     return {

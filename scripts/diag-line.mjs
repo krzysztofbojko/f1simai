@@ -15,7 +15,7 @@ try {
   for (const f of process.argv.slice(2)) {
     const data = JSON.parse(await readFile('tracks/' + f, 'utf8'));
     const width = Math.max(5, Math.min(20, Math.round(data.trackWidth)));
-    tracks.push([f, new Track(Spline.generateClosedTrack(data.rawPoints.map(p => new Vector2(p.x, p.y)), width, 18, true), width)]);
+    tracks.push([f, new Track(Spline.generateClosedTrack(data.rawPoints.map(p => new Vector2(p.x, p.y)), width, true), width)]);
   }
   for (const [name, t] of tracks) {
     const t0 = performance.now(); const line = getRacingLine(t, 0.6); const ms = performance.now() - t0;

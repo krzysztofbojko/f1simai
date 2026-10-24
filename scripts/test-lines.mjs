@@ -16,11 +16,11 @@ try {
  const {Vector2}=await import(pathToFileURL(join(dir,'vector.mjs')));
  const monzaData=JSON.parse(await readFile('tracks/it-1922-monza.json','utf8'));
  const monzaWidth=Math.round(monzaData.trackWidth);
- const monza=new Track(Spline.generateClosedTrack(monzaData.rawPoints.map(p=>new Vector2(p.x,p.y)),monzaWidth,18,true),monzaWidth);
+ const monza=new Track(Spline.generateClosedTrack(monzaData.rawPoints.map(p=>new Vector2(p.x,p.y)),monzaWidth,true),monzaWidth);
  // Minimum-curvature racing line: inside the white lines, outside / kerb at the apex / outside, deterministic.
  let wideCorners=0;
  for(const [name,track] of [['gp',Presets.createGrandPrixTrack(14)],['monza',monza]]) {
-  const line=getRacingLine(track), n=track.points.length, half=track.width/2;
+  const line=getRacingLine(track), n=track.points.length, half=track.width/2, m=metres=>track.pointsFor(metres), span=(from,metres)=>Array.from({length:Math.round(metres/18)},(_,d)=>from+d*m(18));
   assert.equal(getRacingLine(track),line,'one cached line per track and style');
   assert.deepEqual(Array.from(new RacingLine(track).offsets),Array.from(line.offsets),'the line is deterministic (UI thread and worker agree)');
   for(let i=0;i<n;i++){
@@ -28,22 +28,24 @@ try {
    assert.ok(line.upper[i]<=half-RacingLine.INSIDE_MARGIN+1e-9&&line.lower[i]>=-half+RacingLine.INSIDE_MARGIN-1e-9,`${name}: bounds keep the car on the asphalt at ${i}`);
   }
   // Every isolated corner: the apex at the inside kerb, entry and exit out wide.
-  const smooth=i=>{let k=0;for(let d=-2;d<=2;d++)k+=track.points[(i+d+n)%n].curvature*(3-Math.abs(d))/9;return k;};
+  // Windows sampled every 18 m (one track point when the test was written).
+  const smooth=i=>track.smoothedCurvature[((i%n)+n)%n];
   let corners=0, wide=0;
   for(let i=0;i<n;i++){
    const k=smooth(i);
    // Peaks of the corner curvature; an S (an opposite corner close by) is a compromise, not tested here.
-   if(Math.abs(k)<0.01||[-3,-2,-1,1,2,3].some(d=>Math.abs(smooth(i+d))>Math.abs(k))) continue;
-   if(Array.from({length:13},(_,d)=>d-6).some(d=>Math.sign(smooth(i+d))===-Math.sign(k)&&Math.abs(smooth(i+d))>0.006)) continue;
+   if(Math.abs(k)<0.01||Math.abs(smooth(i-1))>=Math.abs(k)||Math.abs(smooth(i+1))>Math.abs(k)||span(i-m(54),126).some(j=>Math.abs(smooth(j))>Math.abs(k))) continue;
+   // The 1 m track resolves the tail of a neighbouring bend that the 18 m samples fell beside: ±90 m.
+   if(span(i-m(90),198).some(j=>Math.sign(smooth(j))===-Math.sign(k)&&Math.abs(smooth(j))>0.006)) continue;
    corners++;
    const side=Math.sign(k), inside=j=>side*line.offsetAt(j);
-   const apex=Math.max(...Array.from({length:7},(_,d)=>inside(i+d-3)));
+   const apex=Math.max(...span(i-m(54),126).map(inside));
    assert.ok(apex>half-RacingLine.INSIDE_MARGIN-0.5,`${name}: apex of the corner at ${i} reaches the inside (${apex.toFixed(2)} of ${half})`);
    // Out wide on the approach and the run-off of the corner (unless another bend in the same direction follows: a double apex).
-   const calm=from=>Array.from({length:6},(_,d)=>from+d).every(j=>Math.abs(smooth(j))<0.006);
-   if(calm(i-9)) { const entry=Math.min(...Array.from({length:6},(_,d)=>inside(i-9+d))); assert.ok(entry<0,`${name}: corner at ${i} is entered from the outside (${entry.toFixed(2)})`); }
-   if(calm(i+4)) { const exit=Math.min(...Array.from({length:6},(_,d)=>inside(i+4+d))); assert.ok(exit<0,`${name}: corner at ${i} is left to the outside (${exit.toFixed(2)})`); }
-   if(calm(i-9)&&calm(i+4)) wide++;
+   const calm=from=>span(from,108).every(j=>Math.abs(smooth(j))<0.006);
+   if(calm(i-m(162))) { const entry=Math.min(...span(i-m(162),108).map(inside)); assert.ok(entry<0,`${name}: corner at ${i} is entered from the outside (${entry.toFixed(2)})`); }
+   if(calm(i+m(72))) { const exit=Math.min(...span(i+m(72),108).map(inside)); assert.ok(exit<0,`${name}: corner at ${i} is left to the outside (${exit.toFixed(2)})`); }
+   if(calm(i-m(162))&&calm(i+m(72))) wide++;
   }
   assert.ok(corners>=2,`${name}: found ${corners} isolated corners`);
   wideCorners+=wide;
@@ -55,7 +57,7 @@ try {
   const early=getRacingLine(track,0), late=getRacingLine(track,1);
   // Where along each corner the car is deepest on the inside (index centroid from the turn-in).
   const runs=[];for(let i=0;i<n;i++){if(Math.abs(smooth(i))>RacingLine.CORNER_CURVATURE&&Math.abs(smooth(i-1))<=RacingLine.CORNER_CURVATURE){let e=i;while(Math.abs(smooth(e+1))>RacingLine.CORNER_CURVATURE&&e-i<n)e++;runs.push([i,e]);}}
-  const centroid=(l,[a,b])=>{let w=0,c=0;for(let j=a-3;j<=b+3;j++){const v=Math.max(0,Math.sign(smooth(j))*l.offsetAt(j));w+=v;c+=v*(j-a);}return w?c/w:0;};
+  const centroid=(l,[a,b])=>{let w=0,c=0;for(let j=a-m(54);j<=b+m(54);j++){const v=Math.max(0,Math.sign(smooth(j))*l.offsetAt(j));w+=v;c+=v*(j-a)/m(18);}return w?c/w:0;};
   const shifts=runs.map(r=>centroid(late,r)-centroid(early,r));
   assert.ok(shifts.every(d=>d>-0.3)&&shifts.some(d=>d>0.2),`${name}: late apex style moves the apex later (${shifts.map(d=>d.toFixed(2)).join(' ')})`);
   const speeds=line.speedProfile(1,0.004,0.7);
@@ -96,7 +98,9 @@ try {
  assert.ok(search.profiles.some(p=>JSON.stringify(p)===JSON.stringify({...champion})) || search.best!==2, 'champion preserved while it is the best');
  assert.ok(search.profiles.some((p,i)=>p.entry!==25+i*5), 'search must generate new trajectories');
  const points=Array.from({length:100},(_,i)=>({center:{dist:()=>2},curvature:i>=40&&i<=50?.02:0}));
- const track={points,width:14,totalLength:200,sampleSurface:pos=>({index:pos.x})};
+ // A 200 m loop of 2 m spacing, with the smoothed curvature a Track gives it.
+ const smoothed=Float64Array.from(points,(_,i)=>{let k=0;for(let d=-13;d<=13;d++)k+=points[(i+d+100)%100].curvature*(14-Math.abs(d))/196;return k;});
+ const track={points,width:14,totalLength:200,spacing:2,smoothedCurvature:smoothed,pointAhead:(i,m)=>((i+Math.round(m/2))%100+100)%100,sampleSurface:pos=>({index:pos.x})};
  const profile=new LineSearch(2);
  const approach=profile.target(track,{x:25},false),apex=profile.target(track,{x:45},false),exit=profile.target(track,{x:60},false);
  assert.ok(approach<0&&apex>0&&exit<0,'outside / apex / outside trajectory');

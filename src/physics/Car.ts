@@ -197,6 +197,8 @@ export class Car {
   public static readonly PLAN_MAX_SPEED = 110;
   /** Hairpins (radius under 20 m) are braked for at their entry rather than at the apex sample. */
   public static readonly PLAN_HAIRPIN_CURVATURE = 0.05;
+  /** Metres between the line samples the braking plan reads ahead of the car. */
+  public static readonly PLAN_SAMPLE_SPACING = 3;
   /**
    * Pedal actuators (first-order lags, s): brake pressure builds and bleeds off, engine torque
    * follows the throttle. A demand that flickers between frames reaches the tyres as a smooth force.
@@ -790,6 +792,8 @@ export class Car {
   public lineProfile: LineProfile | null = null;
   /** Track point last blended into the line profile: one sample per pass, not per frame. */
   public lineProfileIndex = -1;
+  /** Lateral position at `lineProfileIndex`: the points passed since then are interpolated from it. */
+  public lineProfileLateral = 0;
   public pace = new PaceSearch();
   /** The car left the asphalt or touched a barrier by itself during the current lap. */
   public lapExcursion = false;

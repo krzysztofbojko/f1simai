@@ -188,7 +188,7 @@ try {
   assert.ok(wreck.pos.x - start <= speed0 * speed0 / (2 * 12) + 1, 'wreck decelerates at ~12 m/s²');
 
   // 6. Barrier contact: graze costs little speed, a hit sheds a lot; no blanket per-step damping.
-  const road = gp.points[40], fence = gp.runoff[40].leftBarrier;
+  const at = gp.checkpoints[40].index, road = gp.points[at], fence = gp.runoff[at].leftBarrier;
   const probe = (inward) => { const c = new Car(fence.sub(road.normal.mul(1.0)), road.tangent.heading()); c.vel = road.tangent.mul(40).add(road.normal.mul(inward)); c.speed = c.vel.mag();
     const before = c.vel.dot(road.tangent); for (let i = 0; i < 6 && c.isAlive; i++) { c.framesSinceLastCheckpoint = 0; c.updatePhysics(idle, 1 / 60, gp); }
     return { alive: c.isAlive, along: c.vel.dot(road.tangent) / before, c }; };

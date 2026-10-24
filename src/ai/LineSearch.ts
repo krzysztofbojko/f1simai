@@ -28,18 +28,7 @@ export class LineSearch {
     const variant = racing ? this.best : this.current;
     const profile = this.profiles[variant];
     const index = track.sampleSurface(pos).index, n = track.points.length;
-    const curvatureAt = (distance: number): number => {
-      let i = index, travelled = 0;
-      const direction = distance < 0 ? -1 : 1;
-      while (travelled < Math.abs(distance) && travelled < track.totalLength) {
-        const next = (i + direction + n) % n;
-        travelled += track.points[i].center.dist(track.points[next].center);
-        i = next;
-      }
-      let curvature = 0;
-      for (let d = -2; d <= 2; d++) curvature += track.points[(i+d+n)%n].curvature * (3-Math.abs(d))/9;
-      return Math.tanh(curvature * 100);
-    };
+    const curvatureAt = (distance: number): number => Math.tanh(track.smoothedCurvature[track.pointAhead(index, distance)] * 100);
     // Outside before the bend, inside at the apex, outside again on exit.
     const shape = 1.6*curvatureAt(0) - .9*curvatureAt(profile.entry) - .6*curvatureAt(-profile.exit);
     const amplitude = track.width * profile.amplitude;

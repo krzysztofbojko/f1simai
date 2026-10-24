@@ -59,7 +59,7 @@ if (isMainThread) {
   const data = JSON.parse(await readFile(file, 'utf8'));
   const width = Car.getDimensionsForTrackWidth(data.trackWidth).effectiveTrackWidth;
   const keepOrder = data.direction === 'clockwise' || data.direction === 'counterclockwise';
-  const track = new Track(Spline.generateClosedTrack(data.rawPoints.map(p => new Vector2(p.x, p.y)), width, 18, keepOrder), width);
+  const track = new Track(Spline.generateClosedTrack(data.rawPoints.map(p => new Vector2(p.x, p.y)), width, keepOrder), width);
   const pop = new Population(Population.MAX_CARS, track);
 
   // Driving direction as seen on screen (y down): signed area of the centre line in point order.
@@ -67,7 +67,8 @@ if (isMainThread) {
   const area = pts.reduce((sum, p, i) => { const q = pts[(i + 1) % pts.length].center; return sum + p.center.x * q.y - q.x * p.center.y; }, 0);
   const simDirection = area > 0 ? 'clockwise' : 'counterclockwise';
 
-  const visited = new Uint8Array(pts.length);
+  // Coverage by gate (about 18 m): cars are sampled every 10 steps, so most 1 m points fall between samples.
+  const visited = new Uint8Array(track.checkpoints.length);
   let laps = 0, best = Infinity, topSpeed = 0, offRoad = 0, samples = 0, deaths = 0, invalid = 0, simSeconds = 0;
   const alive = new Map();
   pop.onLapCompleted = (car, event) => {
@@ -88,7 +89,7 @@ if (isMainThread) {
       samples++;
       topSpeed = Math.max(topSpeed, car.speedKmh);
       if (car.surface !== 'asphalt') offRoad++;
-      else visited[track.sampleSurface(car.pos).index] = 1;
+      else visited[track.gateIndexOf(track.sampleSurface(car.pos).index)] = 1;
     }
   }
   const coverage = visited.reduce((a, b) => a + b, 0) / visited.length;

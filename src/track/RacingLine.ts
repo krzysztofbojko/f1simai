@@ -47,8 +47,16 @@ export class RacingLine {
   static readonly OUTSIDE_MARGIN = 1.5;
   /** Far from any corner there is nothing to gain at the edge: the line keeps this much room. */
   static readonly STRAIGHT_MARGIN = 2.3;
-  /** Points (each way) searched for a corner before a point counts as part of a straight. */
-  static readonly STRAIGHT_WINDOW = 6;
+  /** Metres (each way) searched for a corner before a point counts as part of a straight. */
+  static readonly STRAIGHT_WINDOW = 108;
+  /** Metres after a corner's last point over which its exit keeps the extra weight. */
+  static readonly EXIT_RUN = 54;
+  /** Metres between the three points of each arc the line's curvature is read from. */
+  static readonly ARC_BASE = 6;
+  /** Grid (m) the line's shape is solved on before it is carried to every track point. */
+  static readonly DETAIL_LEVEL = 18;
+  /** Sweeps at full resolution: they settle the line onto the bounds between the grid points. */
+  static readonly FINE_SWEEPS = 100;
   /** Smoothed centreline curvature (1/m) that marks a corner: its inside gets the kerb margin. */
   static readonly CORNER_CURVATURE = 0.003;
   /** Curvature that counts as a corner to brake, attack or defend for. */
@@ -68,17 +76,14 @@ export class RacingLine {
 
   constructor(private readonly track: Track, readonly lateness = 0.6) {
     const points = track.points, n = points.length, half = track.width / 2;
-    const smooth = points.map((_, i) => {
-      let k = 0;
-      for (let d = -2; d <= 2; d++) k += points[(i + d + n) % n].curvature * (3 - Math.abs(d)) / 9;
-      return k;
-    });
+    const smooth = Array.from(track.smoothedCurvature);
+    const window = track.pointsFor(RacingLine.STRAIGHT_WINDOW);
     this.lower = new Float64Array(n);
     this.upper = new Float64Array(n);
     for (let i = 0; i < n; i++) {
       const inside = Math.abs(smooth[i]) > RacingLine.CORNER_CURVATURE ? Math.sign(smooth[i]) : 0;
       let nearest = 0;
-      for (let d = -RacingLine.STRAIGHT_WINDOW; d <= RacingLine.STRAIGHT_WINDOW; d++) nearest = Math.max(nearest, Math.abs(smooth[(i + d + n) % n]));
+      for (let d = -window; d <= window; d++) nearest = Math.max(nearest, Math.abs(smooth[(i + d + n) % n]));
       const straightness = Math.max(0, Math.min(1, 1 - nearest / (1.5 * RacingLine.CORNER_CURVATURE)));
       const outside = RacingLine.OUTSIDE_MARGIN + (RacingLine.STRAIGHT_MARGIN - RacingLine.OUTSIDE_MARGIN) * straightness;
       this.upper[i] = Math.max(0, half - (inside > 0 ? RacingLine.INSIDE_MARGIN : outside));
@@ -87,7 +92,8 @@ export class RacingLine {
     const weights = this.exitWeights(smooth);
     this.offsets = this.solve(weights);
     this.curvature = new Float64Array(n);
-    for (let i = 0; i < n; i++) this.curvature[i] = menger(this.point(i - 1), this.point(i), this.point(i + 1));
+    const base = track.pointsFor(RacingLine.ARC_BASE);
+    for (let i = 0; i < n; i++) this.curvature[i] = menger(this.point(i - base), this.point(i), this.point(i + base));
     this.cornerDistance = new Float64Array(n).fill(Infinity);
     this.cornerSign = new Int8Array(n);
     // Two backward sweeps carry the next corner around the start/finish line.
@@ -108,6 +114,7 @@ export class RacingLine {
     const start = inCorner.findIndex(c => !c);
     if (start < 0) return weights;
     const spacing = (i: number) => points[i % n].center.dist(points[(i + 1) % n].center);
+    const exitRun = this.track.pointsFor(RacingLine.EXIT_RUN);
     for (let j = start; j < start + n; j++) {
       if (!inCorner[j % n] || inCorner[(j - 1) % n]) continue;
       let end = j;
@@ -116,29 +123,39 @@ export class RacingLine {
       for (let k = end + 1; !inCorner[k % n] && k < end + n; k++) straight += spacing(k);
       const gain = RacingLine.LATE_APEX_GAIN * this.lateness * Math.max(0, Math.min(1, (straight - 100) / 600));
       const length = Math.max(1, end - j);
-      for (let k = j; k <= end + 3; k++) weights[k % n] = Math.max(weights[k % n], 1 + gain * Math.min(1, (k - j) / length));
+      for (let k = j; k <= end + exitRun; k++) weights[k % n] = Math.max(weights[k % n], 1 + gain * Math.min(1, (k - j) / length));
       j = end;
     }
     return weights;
   }
 
-  /** Coarse-to-fine: long-wavelength shape on a sparse grid first, then refined at every point. */
+  /**
+   * Coarse-to-fine: the shape is solved on a grid of DETAIL_LEVEL metres and its coarser levels
+   * (the sweeps those levels need do not converge on a finer grid, where the line would settle on a
+   * different shape), then carried to every track point by a Catmull-Rom spline and smoothed there.
+   */
   private solve(weights: number[]): Float64Array {
-    const points = this.track.points, n = points.length;
+    const points = this.track.points, n = points.length, detail = this.track.pointsFor(RacingLine.DETAIL_LEVEL);
     let alpha: number[] | null = null, previous = 0;
-    for (const stride of [8, 4, 2, 1]) {
+    const levels = [8, 4, 2, 1].map(k => ({ stride: k * detail, sweeps: k > 1 ? 400 * k : 600 }));
+    if (detail > 1) levels.push({ stride: 1, sweeps: RacingLine.FINE_SWEEPS });
+    for (const { stride, sweeps } of levels) {
       const m = Math.floor(n / stride);
       if (m < 12 && stride > 1) continue;
       const index = Array.from({ length: m }, (_, k) => k * stride);
       const level = index.map(i => {
         if (!alpha) return 0;
-        // Linear interpolation from the coarser level (its last span closes the loop).
-        const k = Math.floor(i / previous), at = k * previous, nextAt = (k + 1) * previous;
+        // Catmull-Rom through the coarser level (its last span closes the loop), linear across that shorter span.
+        const c = alpha.length, k = Math.floor(i / previous), at = k * previous, nextAt = (k + 1) * previous;
         const span = (nextAt < n ? nextAt : n) - at, t = (i - at) / span;
-        return alpha[k % alpha.length] * (1 - t) + alpha[(k + 1) % alpha.length] * t;
+        const a = alpha[(k - 1 + c) % c], b = alpha[k % c], d = alpha[(k + 1) % c], e = alpha[(k + 2) % c];
+        if (span !== previous || k === 0 || k + 2 > c) return b * (1 - t) + d * t;
+        const t2 = t * t, t3 = t2 * t;
+        const value = 0.5 * (2 * b + (d - a) * t + (2 * a - 5 * b + 4 * d - e) * t2 + (3 * b - a - 3 * d + e) * t3);
+        return Math.max(this.lower[i], Math.min(this.upper[i], value));
       });
       relax(index.map(i => points[i].center), index.map(i => points[i].tangent.normal()),
-        index.map(i => this.lower[i]), index.map(i => this.upper[i]), index.map(i => weights[i]), level, stride === 1 ? 600 : 400 * stride);
+        index.map(i => this.lower[i]), index.map(i => this.upper[i]), index.map(i => weights[i]), level, sweeps);
       alpha = level;
       previous = stride;
     }

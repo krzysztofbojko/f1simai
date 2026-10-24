@@ -32,12 +32,12 @@ export class Presets {
   ];
 
   static createGrandPrixTrack(width: number = 90): Track {
-    const splinePoints = Spline.generateClosedTrack(Presets.GRAND_PRIX_POINTS, width, 18);
+    const splinePoints = Spline.generateClosedTrack(Presets.GRAND_PRIX_POINTS, width);
     return new Track(splinePoints, width);
   }
 
   static createOvalTrack(width: number = 100): Track {
-    const splinePoints = Spline.generateClosedTrack(Presets.OVAL_POINTS, width, 20);
+    const splinePoints = Spline.generateClosedTrack(Presets.OVAL_POINTS, width);
     return new Track(splinePoints, width);
   }
 }

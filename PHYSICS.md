@@ -8,6 +8,19 @@ Stan po poprawkach z 05.10.2026. Ten dokument zastępuje historyczny opis fizyki
 
 Fizyczny obrys samochodu wynosi 5,5 × 1,8 m. Kolizja z bandą sprawdza ruch obrysu, w tym ścieżki narożników oraz obrót pomiędzy pozycjami, z przestrzennym podziałem do 0,25 m i doprecyzowaniem momentu kontaktu. Powiększony symbol graficzny 9 × 3 jednostki służy czytelności i nie powiększa obrysu kolizji.
 
+### Rozdzielczość toru: punkty co 1 m (24.10.2026)
+
+Każdy tor (GP, owal, rysowany, wczytany z pliku i 39 prawdziwych torów) jest próbkowany co `TRACK_POINT_SPACING` = 1 m (`src/math/Spline.ts`), a nie co 18–20 m. Wcześniej krawędzie asfaltu, krawężniki, bandy i kolizje były wielokątem o bokach 18 m. W nawrocie o promieniu 15 m jeden bok skręcał o ok. 70°, a cięciwa odchodziła od łuku o ok. 2,7 m. Teraz to odchylenie wynosi ok. 8 mm. Splajn jest próbkowany co 0,1 m przed przepróbkowaniem po długości łuku, więc punkty leżą na krzywej. Obraz i fizyka mają ten sam gładki kształt.
+
+- Bramki (checkpointy) zostają co ok. 18 m (`Track.GATE_SPACING`) jako podzbiór punktów. Postęp okrążenia, nagroda fitness, sektory i zaliczanie bramek działają jak dotąd. `track.gateIndexOf(punkt)` zamienia punkt toru na bramkę.
+- Wszystkie okna liczone dawniej w punktach są w metrach. Wygładzona krzywizna (`smoothedCurvature`, dwa filtry pudełkowe po 54 m, jak dawne wagi 1-2-3-2-1) obsługuje pobocza, marginesy linii jazdy, podgląd drogi w `LineNet` i `LineSearch` oraz kamery TV. Krzywizna lokalna (`localCurvature`, ok. 18 m) obsługuje krawężniki i krzywiznę bramek. Pobocze reaguje na zakręt 54 m przed nim i po nim, a za sąsiedni odcinek uznaje się wszystko w promieniu 45 m wzdłuż toru.
+- Planer hamowania czyta linię co 3 m (`Car.PLAN_SAMPLE_SPACING`) na odcinku 144–432 m, zależnym od prędkości. Cel kierowania liczy od najbliższego odcinka osi.
+- Linia jazdy jest rozwiązywana na siatce 18 m, jak dotąd. Na każdy punkt trafia przez splajn Catmull-Rom i 100 przebiegów wygładzania w pełnej rozdzielczości. Bez tego drobne poziomy siatki nie zbiegały się i linia przyjmowała inny kształt. Krzywizna linii i profilu jazdy (`LineProfile`) jest liczona z łuków o podstawie 6 m. `LineProfile` zapisuje każdy mijany punkt (położenie boczne interpolowane między krokami).
+- Siatka przestrzenna ma komórki 8 m. Promienie LiDAR przechodzą komórki wzdłuż promienia (DDA), a nawierzchnia szuka najbliższego odcinka osi pierścieniami komórek. Sprawdzanie przecięć asfaltu i pobocza korzysta z siatki zamiast porównywać każdy odcinek z każdym. Tor buduje się w 15–40 ms, a linia jazdy w ok. 100 ms.
+- Skutek: zakręty mają prawdziwy promień splajnu. Dawny wielobok je łagodził: na GP największa krzywizna osi to 0,050 zamiast 0,038, a w pierwszym zakręcie 0,033 zamiast 0,020. Ekspert jedzie GP w ok. 58 s zamiast ok. 55 s (`diag-line-follow`). W treningu (180 s, ziarna 1–4) najlepsze okrążenie GP to 56,8–64,2 s zamiast 53,5–53,8 s. Na prawdziwych torach jest mniej rozbić na kanciastych krawędziach: w Monako 15–19 → 1–3 DNF, a najlepsze okrążenie 150–160 s (w dwóch ziarnach bez czasu) → 107–118 s; na Monzy 4–10 → 4–16 DNF i 103–147 s → 109–128 s.
+- Prawdziwe tory wygenerowano od nowa (`scripts/build-tracks.mjs`). Najciaśniejszy promień jest teraz mierzony na punktach co 1 m, więc builder wybiera krok punktów kontrolnych, który nie robi nawrotów ciaśniejszych niż splajn. Szerokości i kierunki się nie zmieniły. Najciaśniejszy promień wzrósł np. w Bahrajnie z 5,4 do 8,7 m, na Imoli z 6,9 do 11,7 m, w Montrealu z 6,6 do 9,3 m. `npm run test:tracks`: wszystkie 39 torów bez problemów, 100% toru przejechane. Pokrycie toru liczone jest po bramkach.
+- `npm run bench:step -- 60`: 533 → 591 µs na krok.
+
 ## Siły i integracja
 
 - Masa: 798 kg plus bieżące paliwo; start domyślnie 105 kg, zbiornik 110 kg.

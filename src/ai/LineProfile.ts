@@ -22,11 +22,17 @@ export class LineProfile {
   /** A wobbly line may tighten a corner by a share of its curvature, plus a small absolute slack for straights. */
   static readonly MAX_RATIO = 1.15;
   static readonly MAX_SLACK = 0.0005;
+  /** Metres between the three points of each arc the curvature is read from: short arcs amplify centimetre wobble. */
+  static readonly ARC_BASE = 6;
+  /** Points a car may pass in one step and still have all of them recorded (beyond that it jumped). */
+  static readonly MAX_RECORD_GAP = 12;
   readonly offsets: Float32Array;
   /** Curvature per point; NaN marks an entry whose neighbourhood changed since it was computed. */
   private readonly cache: Float32Array;
   /** Curvature of the precomputed racing line: a car on that line may plan for its wider arcs. */
   private floor: Float32Array | null = null;
+  /** Track points between the three points of an arc (set from the track's spacing). */
+  private base = 1;
 
   constructor(pointCount: number) {
     this.offsets = new Float32Array(pointCount);
@@ -52,11 +58,23 @@ export class LineProfile {
     this.invalidate(index);
   }
 
+  /**
+   * Record every point a car passed since its previous sample, the lateral position interpolated
+   * between the two: at speed a car covers several track points per step.
+   */
+  recordSince(fromIndex: number, fromLateral: number, index: number, lateral: number, rate = LineProfile.RATE): void {
+    const n = this.offsets.length, gap = ((index - fromIndex) % n + n) % n;
+    if (fromIndex < 0 || !Number.isFinite(fromLateral) || gap === 0 || gap > LineProfile.MAX_RECORD_GAP) { this.record(index, lateral, rate); return; }
+    for (let k = 1; k <= gap; k++) this.record((fromIndex + k) % n, fromLateral + (lateral - fromLateral) * k / gap, rate);
+  }
+
   /** Forget cached curvature around a point (call after editing `offsets` directly). */
   invalidate(index?: number): void {
     const n = this.cache.length;
     if (index === undefined) { this.cache.fill(NaN); return; }
-    for (let d = -2; d <= 2; d++) this.cache[((index + d) % n + n) % n] = NaN;
+    // An offset enters the arcs of every point within two arc bases of it.
+    const reach = 2 * this.base;
+    for (let d = -reach; d <= reach; d++) this.cache[((index + d) % n + n) % n] = NaN;
   }
 
   private point(track: Track, index: number): Vector2 {
@@ -80,13 +98,13 @@ export class LineProfile {
   }
 
   private effective(track: Track, index: number): number {
-    const n = track.points.length;
+    const n = track.points.length, b = this.base = track.pointsFor(LineProfile.ARC_BASE);
     let delta = 0;
     // Smooth over three neighbouring arcs; the difference to the centreline arc removes discretisation bias.
     for (let d = -1; d <= 1; d++) {
-      const i = index + d, weight = d === 0 ? 0.5 : 0.25;
-      const line = menger(this.point(track, i - 1), this.point(track, i), this.point(track, i + 1));
-      const axis = menger(track.points[((i - 1) % n + n) % n].center, track.points[((i % n) + n) % n].center, track.points[((i + 1) % n + n) % n].center);
+      const i = index + d * b, weight = d === 0 ? 0.5 : 0.25;
+      const line = menger(this.point(track, i - b), this.point(track, i), this.point(track, i + b));
+      const axis = menger(track.points[((i - b) % n + n) % n].center, track.points[((i % n) + n) % n].center, track.points[((i + b) % n + n) % n].center);
       delta += weight * (line - axis);
     }
     return Math.abs(track.points[((index % n) + n) % n].curvature + delta);

@@ -59,15 +59,15 @@ try {
   const loop = [[0,0],[300,0],[300,300],[0,300]].map(p => new Vector2(...p));
   const loopReversed = [loop[0], ...loop.slice(1).reverse()];
   for (const raw of [loop, loopReversed]) {
-    const kept = new Track(Spline.generateClosedTrack(raw, 14, 18, true), 14);
+    const kept = new Track(Spline.generateClosedTrack(raw, 14, true), 14);
     assert.ok(kept.points[1].center.sub(kept.points[0].center).dot(raw[1].sub(raw[0])) > 0, 'keepOrder must drive towards the second raw point');
   }
   const winding = pts => Math.sign(pts.reduce((sum, p, i) => sum + p.center.cross(pts[(i + 1) % pts.length].center), 0));
-  assert.equal(winding(Spline.generateClosedTrack(loop, 14, 18)), winding(Spline.generateClosedTrack(loopReversed, 14, 18)), 'without keepOrder both windings drive the same way');
-  assert.notEqual(winding(Spline.generateClosedTrack(loop, 14, 18, true)), winding(Spline.generateClosedTrack(loopReversed, 14, 18, true)), 'keepOrder keeps opposite windings');
-  assert.throws(() => new Track(Spline.generateClosedTrack([[0,0],[200,200],[0,200],[200,0]].map(p => new Vector2(...p)),14,18),14), /przecina/);
+  assert.equal(winding(Spline.generateClosedTrack(loop, 14)), winding(Spline.generateClosedTrack(loopReversed, 14)), 'without keepOrder both windings drive the same way');
+  assert.notEqual(winding(Spline.generateClosedTrack(loop, 14, true)), winding(Spline.generateClosedTrack(loopReversed, 14, true)), 'keepOrder keeps opposite windings');
+  assert.throws(() => new Track(Spline.generateClosedTrack([[0,0],[200,200],[0,200],[200,0]].map(p => new Vector2(...p)),14),14), /przecina/);
   const closeRaw = [[0,0],[400,0],[400,80],[80,80],[80,160],[400,160],[400,300],[0,300]].map(p => new Vector2(...p));
-  const closeTrack = new Track(Spline.generateClosedTrack(closeRaw,14,18),14);
+  const closeTrack = new Track(Spline.generateClosedTrack(closeRaw,14),14);
   for (const fence of closeTrack.barrierSegments) for (const road of [...closeTrack.leftSegments,...closeTrack.rightSegments]) {
     assert.equal(segmentsIntersect(fence.p1,fence.p2,road.p1,road.p2),false,'tight-layout fence crosses asphalt');
   }

@@ -5,17 +5,7 @@ import type { Vector2 } from '../math/Vector2';
 
 /** Signed, saturating curvature of the track `distance` metres ahead (negative = behind) of a sample index. */
 export function signedCurvature(track: Track, index: number, distance: number): number {
-  const n = track.points.length;
-  let i = index, travelled = 0;
-  const direction = distance < 0 ? -1 : 1;
-  while (travelled < Math.abs(distance) && travelled < track.totalLength) {
-    const next = (i + direction + n) % n;
-    travelled += track.points[i].center.dist(track.points[next].center);
-    i = next;
-  }
-  let curvature = 0;
-  for (let d = -2; d <= 2; d++) curvature += track.points[(i + d + n) % n].curvature * (3 - Math.abs(d)) / 9;
-  return Math.tanh(curvature * 100);
+  return Math.tanh(track.smoothedCurvature[track.pointAhead(index, distance)] * 100);
 }
 
 const LOOKAHEADS = [0, 18, 40, 70];
