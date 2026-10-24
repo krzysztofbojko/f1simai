@@ -16,13 +16,13 @@ który sprawdza każdy tor tą samą walidacją co symulator; `trackWidth` to ty
 | `br-1977-jacarepagua.json` | Autódromo Internacional Nelson Piquet | Brazylia | 5031 m / 5031 m | przeciwnie do ruchu wskazówek | 12 m |
 | `br-1940-sao-paulo.json` | Autódromo José Carlos Pace | Brazylia | 4309 m / 4309 m | przeciwnie do ruchu wskazówek | 13 m |
 | `ar-1952-buenos-aires.json` | Autódromo Oscar Alfredo Gálvez | Argentyna | 4259 m / 4259 m | zgodnie z ruchem wskazówek | 12 m |
-| `bh-2002-sakhir.json` | Bahrain International Circuit | Bahrajn | 5402 m / 5412 m | zgodnie z ruchem wskazówek | 15 m |
+| `bh-2002-sakhir.json` | Bahrain International Circuit | Bahrajn | 5412 m / 5412 m | zgodnie z ruchem wskazówek | 15 m |
 | `az-2016-baku.json` | Baku City Circuit | Azerbejdżan | 6003 m / 6003 m | przeciwnie do ruchu wskazówek | 10 m |
-| `es-1991-barcelona.json` | Circuit de Barcelona-Catalunya | Hiszpania | 4658 m / 4657 m | zgodnie z ruchem wskazówek | 13 m |
+| `es-1991-barcelona.json` | Circuit de Barcelona-Catalunya | Hiszpania | 4657 m / 4657 m | zgodnie z ruchem wskazówek | 13 m |
 | `mc-1929-monaco.json` | Circuit de Monaco | Monako | 3337 m / 3337 m | zgodnie z ruchem wskazówek | 10 m |
-| `fr-1960-magny-cours.json` | Circuit de Nevers Magny-Cours | Francja | 4411 m / 4411 m | zgodnie z ruchem wskazówek | 13 m |
+| `fr-1960-magny-cours.json` | Circuit de Nevers Magny-Cours | Francja | 4414 m / 4411 m | zgodnie z ruchem wskazówek | 13 m |
 | `be-1925-spa-francorchamps.json` | Circuit de Spa-Francorchamps | Belgia | 7004 m / 7004 m | zgodnie z ruchem wskazówek | 12 m |
-| `ca-1978-montreal.json` | Circuit Gilles Villeneuve | Kanada | 4358 m / 4361 m | zgodnie z ruchem wskazówek | 11 m |
+| `ca-1978-montreal.json` | Circuit Gilles Villeneuve | Kanada | 4361 m / 4361 m | zgodnie z ruchem wskazówek | 11 m |
 | `us-2012-austin.json` | Circuit of the Americas | Stany Zjednoczone | 5513 m / 5513 m | przeciwnie do ruchu wskazówek | 15 m |
 | `nl-1948-zandvoort.json` | Circuit Park Zandvoort | Holandia | 4259 m / 4259 m | zgodnie z ruchem wskazówek | 11 m |
 | `fr-1969-le-castellet.json` | Circuit Paul Ricard | Francja | 5842 m / 5842 m | zgodnie z ruchem wskazówek | 13 m |
@@ -31,24 +31,29 @@ który sprawdza każdy tor tą samą walidacją co symulator; `trackWidth` to ty
 | `us-1909-indianapolis.json` | Indianapolis Motor Speedway | Stany Zjednoczone | 4192 m / 4192 m | zgodnie z ruchem wskazówek | 15 m |
 | `tr-2005-istanbul.json` | Istanbul Park | Turcja | 5338 m / 5338 m | przeciwnie do ruchu wskazówek | 15 m |
 | `sa-2021-jeddah.json` | Jeddah Corniche Circuit | Arabia Saudyjska | 6174 m / 6174 m | przeciwnie do ruchu wskazówek | 12 m |
-| `za-1961-johannesburg.json` | Kyalami Circuit | Południowa Afryka | 4513 m / 4261 m | przeciwnie do ruchu wskazówek | 12 m |
-| `us-2023-las-vegas.json` | Las Vegas Street Circuit | Stany Zjednoczone | 6209 m / 6201 m | przeciwnie do ruchu wskazówek | 15 m |
-| `qa-2004-lusail.json` | Losail International Circuit | Katar | 5414 m / 5419 m | zgodnie z ruchem wskazówek | 12 m |
+| `za-1961-johannesburg.json` | Kyalami Circuit | Południowa Afryka | 4521 m / 4261 m | przeciwnie do ruchu wskazówek | 12 m |
+| `us-2023-las-vegas.json` | Las Vegas Street Circuit | Stany Zjednoczone | 6201 m / 6201 m | przeciwnie do ruchu wskazówek | 15 m |
+| `qa-2004-lusail.json` | Losail International Circuit | Katar | 5419 m / 5419 m | zgodnie z ruchem wskazówek | 12 m |
 | `sg-2008-singapore.json` | Marina Bay Street Circuit | Singapur | 4940 m / 5063 m | przeciwnie do ruchu wskazówek | 11 m |
 | `us-2022-miami.json` | Miami International Autodrome | Stany Zjednoczone | 5410 m / 5410 m | przeciwnie do ruchu wskazówek | 13 m |
-| `it-1914-scarperia-e-san-piero.json` | Mugello Circuit | Włochy | 5238 m / 5245 m | zgodnie z ruchem wskazówek | 13 m |
+| `it-1914-scarperia-e-san-piero.json` | Mugello Circuit | Włochy | 5245 m / 5245 m | zgodnie z ruchem wskazówek | 13 m |
 | `de-1927-nurburg.json` | Nürburgring | Niemcy | 5148 m / 5148 m | zgodnie z ruchem wskazówek | 13 m |
 | `at-1969-spielberg.json` | Red Bull Ring | Austria | 4318 m / 4318 m | zgodnie z ruchem wskazówek | 13 m |
-| `my-1999-sepang.json` | Sepang International Circuit | Malezja | 5532 m / 5543 m | zgodnie z ruchem wskazówek | 16 m |
+| `my-1999-sepang.json` | Sepang International Circuit | Malezja | 5543 m / 5543 m | zgodnie z ruchem wskazówek | 16 m |
 | `cn-2004-shanghai.json` | Shanghai International Circuit | Chiny | 5451 m / 5451 m | zgodnie z ruchem wskazówek | 15 m |
 | `gb-1948-silverstone.json` | Silverstone Circuit | Wielka Brytania | 5891 m / 5891 m | zgodnie z ruchem wskazówek | 15 m |
 | `ru-2014-sochi.json` | Sochi Autodrom | Rosja | 5848 m / 5848 m | zgodnie z ruchem wskazówek | 14 m |
-| `us-1956-dix.json` | Watkins Glen | Stany Zjednoczone | 5440 m / 5435 m | zgodnie z ruchem wskazówek | 11 m |
-| `ae-2009-yas-marina.json` | Yas Marina Circuit | Zjednoczone Emiraty Arabskie | 5279 m / 5281 m | przeciwnie do ruchu wskazówek | 15 m |
+| `us-1956-dix.json` | Watkins Glen | Stany Zjednoczone | 5435 m / 5435 m | zgodnie z ruchem wskazówek | 11 m |
+| `ae-2009-yas-marina.json` | Yas Marina Circuit | Zjednoczone Emiraty Arabskie | 5281 m / 5281 m | przeciwnie do ruchu wskazówek | 15 m |
 
 Geometria jest przeskalowana (pole `scale`, zwykle 1,00–1,02), tak by linia środkowa po wygładzeniu splajnem symulatora
 miała oficjalną długość toru (`generatedLengthMeters` ≈ `lengthMeters`, tolerancja 0,2 %). Wyjątki: Kyalami zachowuje skalę źródła
 (dzisiejsza konfiguracja, inna niż w F1), Marina Bay ma długość konfiguracji od 2023 r. (4940 m).
+
+Źródło rysuje zakręt dwoma–trzema wierzchołkami, więc łamana próbkowana co ok. 25 m jest wygładzana trzema przebiegami
+Chaikina (odcinanie wierzchołków), a punkty są zapisywane co ok. 3 m (pole `pointSpacing`). Symulator zachowuje wtedy
+wszystkie punkty pliku (rysowane trasy i pliki bez tego pola: co najmniej 18 m), więc zakręty nie mają załamań ciaśniejszych,
+niż bolid może skręcić. Oś odchodzi od łamanej źródła o kilka metrów (raport `npm run build:tracks`).
 
 ## Pominięte
 

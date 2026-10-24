@@ -10,11 +10,19 @@ import { resolve, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 const OUT_DIR = resolve('tracks');
-const SPACING = 25;           // m between control points (the spline drops points closer than 18 m)
-/** Other steps tried when the spline makes a corner tighter than MIN_RADIUS (a hairpin cut between samples). */
-const SPACING_FALLBACK = [24, 23, 22, 21, 20, 26, 27, 28, 29, 30];
+const SPACING = 25;           // m between the samples of the source outline that are smoothed
+/** Other steps tried when the result has a corner tighter than MIN_RADIUS (a longer step cuts it wider). */
+const SPACING_FALLBACK = [26, 27, 28, 29, 30, 32, 34, 24, 23, 22];
 /** Tightest centre-line radius allowed (m): the car turns no tighter than about 8.5 m at full lock. */
 const MIN_RADIUS = 9.5;
+/**
+ * The outline draws a corner with two or three vertices; a spline through them leaves a kink of a
+ * few metres' radius at the apex. Chaikin corner cutting (each pass halves the step) instead
+ * converges on a smooth curve that cuts the vertices by a few metres, within the outline's accuracy.
+ */
+const CHAIKIN_PASSES = 3;
+/** Largest distance (m) the centre line may stray from the source outline without a warning. */
+const MAX_DEVIATION = 6;
 /**
  * Typical asphalt width of each circuit (m, averaged over the lap; approximate public figures).
  * A track loads at its real width; where the simulator's validation rejects it (the asphalt of
@@ -128,6 +136,31 @@ function resample(points, step) {
   return { points: out, length: total };
 }
 
+/** Chaikin corner cutting of a closed polyline: every edge is replaced by its points at 1/4 and 3/4. */
+function chaikin(points, passes) {
+  let p = points;
+  for (let pass = 0; pass < passes; pass++) {
+    const next = [];
+    for (let i = 0; i < p.length; i++) {
+      const a = p[i], b = p[(i + 1) % p.length];
+      next.push({ x: 0.75 * a.x + 0.25 * b.x, y: 0.75 * a.y + 0.25 * b.y }, { x: 0.25 * a.x + 0.75 * b.x, y: 0.25 * a.y + 0.75 * b.y });
+    }
+    p = next;
+  }
+  return p;
+}
+
+/** Largest distance (m) from a source vertex to the nearest point of the generated centre line. */
+function deviation(source, track) {
+  let worst = 0;
+  for (const s of source) {
+    let best = Infinity;
+    for (const q of track.points) best = Math.min(best, (q.center.x - s.x) ** 2 + (q.center.y - s.y) ** 2);
+    worst = Math.max(worst, Math.sqrt(best));
+  }
+  return worst;
+}
+
 /** Shoelace sum in screen coordinates (y down): positive = clockwise on screen, north up. */
 const isClockwise = pts => pts.reduce((sum, p, i) => { const q = pts[(i + 1) % pts.length]; return sum + p.x * q.y - q.x * p.y; }, 0) > 0;
 
@@ -137,7 +170,7 @@ try {
   await build({ configFile: false, logLevel: 'silent', build: { outDir: output, emptyOutDir: true, minify: false,
     lib: { entry: Object.fromEntries(Object.entries(entries).map(([key, path]) => [key, resolve('src/' + path + '.ts')])), formats: ['es'], fileName: (_, name) => name + '.mjs' } } });
   const modules = Object.fromEntries(await Promise.all(Object.keys(entries).map(async key => [key, await import(pathToFileURL(join(output, key + '.mjs')))])));
-  const { Car } = modules.car, { Track } = modules.track, { Vector2 } = modules.vector, { Spline } = modules.spline;
+  const { Car } = modules.car, { Track } = modules.track, { Vector2 } = modules.vector, { Spline, pointGapFor } = modules.spline;
 
   const geo = JSON.parse(await readFile('scripts/data/f1-circuits.geojson', 'utf8'));
   const wiki = JSON.parse(await readFile('scripts/data/wikipedia-f1-circuits.json', 'utf8'));
@@ -146,7 +179,7 @@ try {
   await mkdir(OUT_DIR, { recursive: true });
   for (const f of await readdir(OUT_DIR)) if (f.endsWith('.json')) await unlink(join(OUT_DIR, f));
 
-  const index = [], skipped = [], warnings = [], used = new Set();
+  const index = [], skipped = [], warnings = [], report = [], used = new Set();
   for (const feature of geo.features) {
     const p = feature.properties, row = byName.get(MATCH[p.id]);
     if (!row) { skipped.push({ id: p.id, name: p.Name, reason: 'brak na liście torów F1 z Wikipedii' }); continue; }
@@ -180,7 +213,15 @@ try {
         notes.push(`${row.name}: linia startu przesunięta o ${START_OFFSET[p.id]} m`);
       }
 
-      // The spline smooths the corners, so the centre line comes out a little shorter than the
+      // Driving direction and start are settled on the samples; the smoothing keeps both.
+      const pointSpacing = Math.round(spacing / 2 ** CHAIKIN_PASSES * 100) / 100;
+      // The smoothed loop starts at its point nearest to the start sample.
+      const startSample = points[0];
+      points = chaikin(points, CHAIKIN_PASSES);
+      const first = points.reduce((best, q, i) => Math.hypot(q.x - startSample.x, q.y - startSample.y) < Math.hypot(points[best].x - startSample.x, points[best].y - startSample.y) ? i : best, 0);
+      points = [...points.slice(first), ...points.slice(0, first)];
+
+      // The smoothing cuts the corners, so the centre line comes out a little shorter than the
       // polyline: scale the layout until the simulated lap is as long as the real one.
       const official = row.lengthMeters || p.length;
       const target = p.id in TARGET_LENGTH ? (TARGET_LENGTH[p.id] ?? length) : official;
@@ -188,14 +229,16 @@ try {
         const scaled = points.map(q => ({ x: q.x * scale, y: q.y * scale }));
         // Shift into positive coordinates with a 100 m margin.
         const minX = Math.min(...scaled.map(q => q.x)), minY = Math.min(...scaled.map(q => q.y));
-        const raw = scaled.map(q => ({ x: Math.round((q.x - minX + 100) * 10) / 10, y: Math.round((q.y - minY + 100) * 10) / 10 }));
+        // Centimetres: at a few metres between points, decimetre rounding is a visible curvature ripple.
+        const raw = scaled.map(q => ({ x: Math.round((q.x - minX + 100) * 100) / 100, y: Math.round((q.y - minY + 100) * 100) / 100 }));
+        const source = projected.map(q => ({ x: q.x * scale - minX + 100, y: q.y * scale - minY + 100 }));
         let lastError = '';
         for (const width of widthsFor(p.id)) {
           try {
             const effective = Car.getDimensionsForTrackWidth(width).effectiveTrackWidth;
-            const spline = Spline.generateClosedTrack(raw.map(q => new Vector2(q.x, q.y)), effective, true);
+            const spline = Spline.generateClosedTrack(raw.map(q => new Vector2(q.x, q.y)), effective, true, pointGapFor(pointSpacing));
             if (spline.length < 8) throw new Error('za mało punktów');
-            return { raw, width, track: new Track(spline, effective) };
+            return { raw, width, source, track: new Track(spline, effective) };
           } catch (error) { lastError = error.message; }
         }
         return { error: lastError };
@@ -206,17 +249,19 @@ try {
         accepted = build(scale);
       }
       const minRadius = accepted.track ? Math.min(...accepted.track.points.map(q => 1 / Math.max(1e-6, Math.abs(q.curvature)))) : 0;
-      const candidate = { accepted, length, scale, direction, official, target, notes, minRadius, spacing };
+      const candidate = { accepted, length, scale, direction, official, target, notes, minRadius, spacing, pointSpacing };
       if (!accepted.track) failure = accepted.error;
       if (accepted.track && (!chosen?.accepted.track || minRadius > chosen.minRadius)) chosen = candidate;
       if (accepted.track && minRadius >= MIN_RADIUS) break;
     }
-    const { accepted, length, scale, direction, official, target, notes, minRadius, spacing } = chosen ?? { accepted: { error: failure } };
+    const { accepted, length, scale, direction, official, target, notes, minRadius, spacing, pointSpacing } = chosen ?? { accepted: { error: failure } };
     if (accepted.track) {
       warnings.push(...notes);
       if (spacing !== SPACING) warnings.push(`${row.name}: krok ${spacing} m zamiast ${SPACING} m, najciaśniejszy promień ${minRadius.toFixed(1)} m`);
       if (minRadius < MIN_RADIUS) warnings.push(`${row.name}: najciaśniejszy promień ${minRadius.toFixed(1)} m < ${MIN_RADIUS} m`);
     }
+    const strayed = accepted.track ? deviation(accepted.source, accepted.track) : 0;
+    if (strayed > MAX_DEVIATION) warnings.push(`${row.name}: oś odchodzi od źródła do ${strayed.toFixed(1)} m`);
     if (!accepted.track) { skipped.push({ id: p.id, name: row.name, reason: `symulator odrzuca geometrię: ${accepted.error}` }); continue; }
 
     const generated = Math.round(accepted.track.totalLength);
@@ -241,6 +286,7 @@ try {
       grandsPrix: row.grandsPrix,
       grandPrix: row.grandPrix,
       trackWidth: accepted.width,
+      pointSpacing,
       ...(NOTES[p.id] ? { note: NOTES[p.id] } : {}),
       source: {
         geometry: `bacinger/f1-circuits ${p.id} (MIT, https://github.com/bacinger/f1-circuits)`,
@@ -248,7 +294,11 @@ try {
       },
       rawPoints: accepted.raw,
     };
-    await writeFile(join(OUT_DIR, file), JSON.stringify(data, null, 1) + '\n');
+    // One point per line: a few thousand points stay readable and diffable.
+    const json = JSON.stringify({ ...data, rawPoints: '__RAW_POINTS__' }, null, 1)
+      .replace('"__RAW_POINTS__"', '[\n' + data.rawPoints.map(q => '  ' + JSON.stringify(q)).join(',\n') + '\n ]');
+    await writeFile(join(OUT_DIR, file), json + '\n');
+    report.push(`  ${file.padEnd(36)} krok ${String(spacing).padStart(2)} m, najciaśniejszy promień ${minRadius.toFixed(1).padStart(5)} m, odchylenie od źródła ${strayed.toFixed(1)} m`);
     index.push({ file, name: row.name, location, country, direction, lengthMeters: official, generatedLengthMeters: generated, trackWidth: accepted.width, circuitType: data.circuitType, grandsPrix: row.grandsPrix });
   }
 
@@ -272,6 +322,11 @@ Geometria jest przeskalowana (pole \`scale\`, zwykle 1,00–1,02), tak by linia 
 miała oficjalną długość toru (\`generatedLengthMeters\` ≈ \`lengthMeters\`, tolerancja 0,2 %). Wyjątki: Kyalami zachowuje skalę źródła
 (dzisiejsza konfiguracja, inna niż w F1), Marina Bay ma długość konfiguracji od 2023 r. (4940 m).
 
+Źródło rysuje zakręt dwoma–trzema wierzchołkami, więc łamana próbkowana co ok. 25 m jest wygładzana trzema przebiegami
+Chaikina (odcinanie wierzchołków), a punkty są zapisywane co ok. 3 m (pole \`pointSpacing\`). Symulator zachowuje wtedy
+wszystkie punkty pliku (rysowane trasy i pliki bez tego pola: co najmniej 18 m), więc zakręty nie mają załamań ciaśniejszych,
+niż bolid może skręcić. Oś odchodzi od łamanej źródła o kilka metrów (raport \`npm run build:tracks\`).
+
 ## Pominięte
 
 ${skipped.map(s => `- ${s.name} (\`${s.id}\`): ${s.reason}`).join('\n')}
@@ -289,6 +344,7 @@ Test wytrzymałościowy: \`npm run test:tracks [minuty=20] [wątki=12] [filtr]\`
 
   console.log(`Zapisano ${index.length} torów do ${OUT_DIR}`);
   for (const t of index) console.log(`  ${t.file.padEnd(36)} ${String(t.generatedLengthMeters).padStart(5)} m / ${String(t.lengthMeters).padStart(5)} m  szer. ${t.trackWidth} m  ${t.direction}`);
+  console.log('Geometria:'); for (const line of report) console.log(line);
   if (skipped.length) { console.log('Pominięte:'); for (const s of skipped) console.log(`  ${s.id} ${s.name}: ${s.reason}`); }
   if (warnings.length) { console.log('Uwagi:'); for (const w of warnings) console.log(`  ${w}`); }
   console.log(`Bez geometrii w źródle: ${missing.length} torów z listy Wikipedii`);

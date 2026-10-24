@@ -163,9 +163,14 @@ export function resolveTraffic(cars: Car[], motion: Map<Car, Motion>, onlyCar?: 
   for (let i = 0; i < cars.length; i++) for (let j = i + 1; j < cars.length; j++) {
     const a = cars[i], b = cars[j];
     if (onlyCar && a !== onlyCar && b !== onlyCar) continue;
-    if (a.wreckRemoved || b.wreckRemoved || (!a.isAlive && !b.isAlive && a.speed < 0.5 && b.speed < 0.5) || a.isPitting || b.isPitting || a.isFinishedRace || b.isFinishedRace) continue;
+    if (a.wreckRemoved || b.wreckRemoved || a.isPitting || b.isPitting || a.isFinishedRace || b.isFinishedRace) continue;
     const ma = motion.get(a), mb = motion.get(b);
     if (!ma || !mb) continue;
+    // A wreck at rest is immovable. One that still moved this step (sliding to rest) can still
+    // run into another wreck, so only two wrecks that are both at rest are skipped.
+    const restingA = !a.isAlive && a.speed < 0.5 && a.pos.x === ma.pos.x && a.pos.y === ma.pos.y;
+    const restingB = !b.isAlive && b.speed < 0.5 && b.pos.x === mb.pos.x && b.pos.y === mb.pos.y;
+    if (restingA && restingB) continue;
     const hit = contact(a, b, ma, mb);
     if (!hit) continue;
     contacts++;
@@ -178,7 +183,7 @@ export function resolveTraffic(cars: Car[], motion: Map<Car, Motion>, onlyCar?: 
     const fa = Vector2.fromAngle(a.heading), fb = Vector2.fromAngle(b.heading);
     const radius = 2.75 * (Math.abs(fa.dot(hit.normal)) + Math.abs(fb.dot(hit.normal))) + a.width / 2 * Math.abs(fa.normal().dot(hit.normal)) + b.width / 2 * Math.abs(fb.normal().dot(hit.normal));
     const overlap = Math.max(.02, radius - b.pos.sub(a.pos).dot(hit.normal) + .02);
-    const ia = a.isAlive || a.speed > 0.5 ? 1 / a.totalMass : 0, ib = b.isAlive || b.speed > 0.5 ? 1 / b.totalMass : 0, inv = ia + ib;
+    const ia = restingA ? 0 : 1 / a.totalMass, ib = restingB ? 0 : 1 / b.totalMass, inv = ia + ib;
     a.pos.subMut(hit.normal.mul(overlap * ia / inv));
     b.pos.addMut(hit.normal.mul(overlap * ib / inv));
     if (closing > 0) applyContactImpulse(a, b, hit.normal, ia, ib);

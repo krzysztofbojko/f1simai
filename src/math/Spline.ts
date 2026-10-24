@@ -15,6 +15,19 @@ export const TRACK_POINT_SPACING = 1;
 const RAW_SAMPLE_SPACING = 0.1;
 /** Upper bound on track points: about 20 km of circuit at 1 m. */
 const MAX_TRACK_POINTS = 20000;
+/** Raw points closer than this (m) to the previous kept one are dropped: the jitter of a drawn line. */
+export const DRAWN_POINT_GAP = 18;
+
+/**
+ * Gap for a track file's points from its `pointSpacing` (typical m between its points): files with
+ * dense, already smooth points keep them all, so their corners keep the radius they were built
+ * with. A quarter of the spacing, as smoothed points bunch up in corners. Files without the field
+ * are drawn-style and use DRAWN_POINT_GAP.
+ */
+export function pointGapFor(pointSpacing: unknown): number {
+  return typeof pointSpacing === 'number' && Number.isFinite(pointSpacing) && pointSpacing > 0
+    ? Math.max(0.25, Math.min(DRAWN_POINT_GAP, pointSpacing / 4)) : DRAWN_POINT_GAP;
+}
 
 export class Spline {
   /**
@@ -39,14 +52,16 @@ export class Spline {
    * Smooth raw points into a closed spline with uniform point spacing.
    * `keepOrder` keeps the given point order as the driving direction (real circuits);
    * otherwise the loop is normalised to one winding, as for hand-drawn tracks.
+   * `minPointGap`: raw points closer than this to the previous kept one are dropped (see `pointGapFor`).
    */
   static generateClosedTrack(
     rawPoints: Vector2[],
     trackWidth: number = 90,
     keepOrder: boolean = false,
+    minPointGap: number = DRAWN_POINT_GAP,
     targetSpacing: number = TRACK_POINT_SPACING
   ): TrackPoint[] {
-    if (rawPoints.some(p => !Number.isFinite(p.x) || !Number.isFinite(p.y)) || !Number.isFinite(trackWidth) || trackWidth <= 0 || !Number.isFinite(targetSpacing) || targetSpacing <= 0) {
+    if (rawPoints.some(p => !Number.isFinite(p.x) || !Number.isFinite(p.y)) || !Number.isFinite(trackWidth) || trackWidth <= 0 || !Number.isFinite(targetSpacing) || targetSpacing <= 0 || !Number.isFinite(minPointGap) || minPointGap <= 0) {
       throw new Error('Tor zawiera niepoprawne współrzędne lub szerokość.');
     }
     if (rawPoints.length < 4) return [];
@@ -54,7 +69,7 @@ export class Spline {
     // Filter points that are too close
     const filtered: Vector2[] = [rawPoints[0]];
     for (let i = 1; i < rawPoints.length; i++) {
-      if (rawPoints[i].dist(filtered[filtered.length - 1]) > 18) {
+      if (rawPoints[i].dist(filtered[filtered.length - 1]) > minPointGap) {
         filtered.push(rawPoints[i]);
       }
     }

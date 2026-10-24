@@ -51,7 +51,7 @@ if (isMainThread) {
 } else {
   const { output, file, seconds, seed } = workerData;
   const load = name => import(pathToFileURL(join(output, name + '.mjs')));
-  const [{ Population }, { Car }, { Track }, { Vector2 }, { Spline }] = await Promise.all(['population', 'car', 'track', 'vector', 'spline'].map(load));
+  const [{ Population }, { Car }, { Track }, { Vector2 }, { Spline, pointGapFor }] = await Promise.all(['population', 'car', 'track', 'vector', 'spline'].map(load));
   let state = seed >>> 0;
   Math.random = () => { state = (Math.imul(1664525, state) + 1013904223) >>> 0; return state / 4294967296; };
 
@@ -59,7 +59,7 @@ if (isMainThread) {
   const data = JSON.parse(await readFile(file, 'utf8'));
   const width = Car.getDimensionsForTrackWidth(data.trackWidth).effectiveTrackWidth;
   const keepOrder = data.direction === 'clockwise' || data.direction === 'counterclockwise';
-  const track = new Track(Spline.generateClosedTrack(data.rawPoints.map(p => new Vector2(p.x, p.y)), width, keepOrder), width);
+  const track = new Track(Spline.generateClosedTrack(data.rawPoints.map(p => new Vector2(p.x, p.y)), width, keepOrder, pointGapFor(data.pointSpacing)), width);
   const pop = new Population(Population.MAX_CARS, track);
 
   // Driving direction as seen on screen (y down): signed area of the centre line in point order.

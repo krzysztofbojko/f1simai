@@ -199,8 +199,8 @@ export class SimBridge {
     this.worker?.postMessage({ type: 'SET_SPEED', speed });
   }
 
-  public setTrackWidth(trackWidth: number, points?: { x: number; y: number }[], keepOrder = false): void {
-    this.worker?.postMessage({ type: 'SET_TRACK_WIDTH', trackWidth, points, keepOrder });
+  public setTrackWidth(trackWidth: number, points?: { x: number; y: number }[], keepOrder = false, pointGap?: number): void {
+    this.worker?.postMessage({ type: 'SET_TRACK_WIDTH', trackWidth, points, keepOrder, pointGap });
   }
 
   public setPreset(preset: 'gp' | 'oval'): void {
@@ -209,8 +209,9 @@ export class SimBridge {
 
   /** `keepOrder`: the points' order is the driving direction (imported real circuits). */
   /** `pitLaneLoss`: seconds a pass through this circuit's pit lane costs (omitted: the default). */
-  public setCustomTrack(points: { x: number; y: number }[], trackWidth?: number, keepOrder = false, pitLaneLoss?: number): void {
-    this.worker?.postMessage({ type: 'SET_CUSTOM_TRACK', points, trackWidth, keepOrder, pitLaneLoss });
+  /** `pointGap`: see `Spline.generateClosedTrack` (omitted: drawn-track gap). */
+  public setCustomTrack(points: { x: number; y: number }[], trackWidth?: number, keepOrder = false, pitLaneLoss?: number, pointGap?: number): void {
+    this.worker?.postMessage({ type: 'SET_CUSTOM_TRACK', points, trackWidth, keepOrder, pitLaneLoss, pointGap });
   }
 
   public setDriverPressure(value: number): void {

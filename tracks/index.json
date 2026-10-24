@@ -115,7 +115,7 @@
    "country": "Bahrajn",
    "direction": "clockwise",
    "lengthMeters": 5412,
-   "generatedLengthMeters": 5402,
+   "generatedLengthMeters": 5412,
    "trackWidth": 15,
    "circuitType": "stały",
    "grandsPrix": 21
@@ -139,7 +139,7 @@
    "country": "Hiszpania",
    "direction": "clockwise",
    "lengthMeters": 4657,
-   "generatedLengthMeters": 4658,
+   "generatedLengthMeters": 4657,
    "trackWidth": 13,
    "circuitType": "stały",
    "grandsPrix": 33
@@ -163,7 +163,7 @@
    "country": "Francja",
    "direction": "clockwise",
    "lengthMeters": 4411,
-   "generatedLengthMeters": 4411,
+   "generatedLengthMeters": 4414,
    "trackWidth": 13,
    "circuitType": "stały",
    "grandsPrix": 18
@@ -187,7 +187,7 @@
    "country": "Kanada",
    "direction": "clockwise",
    "lengthMeters": 4361,
-   "generatedLengthMeters": 4358,
+   "generatedLengthMeters": 4361,
    "trackWidth": 11,
    "circuitType": "mieszany",
    "grandsPrix": 42
@@ -295,7 +295,7 @@
    "country": "Południowa Afryka",
    "direction": "counterclockwise",
    "lengthMeters": 4261,
-   "generatedLengthMeters": 4513,
+   "generatedLengthMeters": 4521,
    "trackWidth": 12,
    "circuitType": "stały",
    "grandsPrix": 20
@@ -307,7 +307,7 @@
    "country": "Stany Zjednoczone",
    "direction": "counterclockwise",
    "lengthMeters": 6201,
-   "generatedLengthMeters": 6209,
+   "generatedLengthMeters": 6201,
    "trackWidth": 15,
    "circuitType": "uliczny",
    "grandsPrix": 1
@@ -319,7 +319,7 @@
    "country": "Katar",
    "direction": "clockwise",
    "lengthMeters": 5419,
-   "generatedLengthMeters": 5414,
+   "generatedLengthMeters": 5419,
    "trackWidth": 12,
    "circuitType": "uliczny",
    "grandsPrix": 2
@@ -355,7 +355,7 @@
    "country": "Włochy",
    "direction": "clockwise",
    "lengthMeters": 5245,
-   "generatedLengthMeters": 5238,
+   "generatedLengthMeters": 5245,
    "trackWidth": 13,
    "circuitType": "stały",
    "grandsPrix": 1
@@ -391,7 +391,7 @@
    "country": "Malezja",
    "direction": "clockwise",
    "lengthMeters": 5543,
-   "generatedLengthMeters": 5532,
+   "generatedLengthMeters": 5543,
    "trackWidth": 16,
    "circuitType": "stały",
    "grandsPrix": 19
@@ -439,7 +439,7 @@
    "country": "Stany Zjednoczone",
    "direction": "clockwise",
    "lengthMeters": 5435,
-   "generatedLengthMeters": 5440,
+   "generatedLengthMeters": 5435,
    "trackWidth": 11,
    "circuitType": "mieszany",
    "grandsPrix": 20
@@ -451,7 +451,7 @@
    "country": "Zjednoczone Emiraty Arabskie",
    "direction": "counterclockwise",
    "lengthMeters": 5281,
-   "generatedLengthMeters": 5279,
+   "generatedLengthMeters": 5281,
    "trackWidth": 15,
    "circuitType": "stały",
    "grandsPrix": 15

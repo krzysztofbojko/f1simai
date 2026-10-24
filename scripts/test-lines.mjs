@@ -12,11 +12,11 @@ try {
  const {Presets}=await import(pathToFileURL(join(dir,'presets.mjs')));
  const {RacingLine,getRacingLine}=await import(pathToFileURL(join(dir,'racing.mjs')));
  const {Track}=await import(pathToFileURL(join(dir,'track.mjs')));
- const {Spline}=await import(pathToFileURL(join(dir,'spline.mjs')));
+ const {Spline,pointGapFor}=await import(pathToFileURL(join(dir,'spline.mjs')));
  const {Vector2}=await import(pathToFileURL(join(dir,'vector.mjs')));
  const monzaData=JSON.parse(await readFile('tracks/it-1922-monza.json','utf8'));
  const monzaWidth=Math.round(monzaData.trackWidth);
- const monza=new Track(Spline.generateClosedTrack(monzaData.rawPoints.map(p=>new Vector2(p.x,p.y)),monzaWidth,true),monzaWidth);
+ const monza=new Track(Spline.generateClosedTrack(monzaData.rawPoints.map(p=>new Vector2(p.x,p.y)),monzaWidth,true,pointGapFor(monzaData.pointSpacing)),monzaWidth);
  // Minimum-curvature racing line: inside the white lines, outside / kerb at the apex / outside, deterministic.
  let wideCorners=0;
  for(const [name,track] of [['gp',Presets.createGrandPrixTrack(14)],['monza',monza]]) {

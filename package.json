@@ -27,6 +27,7 @@
     "test:qualifying": "node scripts/test-qualifying.mjs",
     "test:islands": "node scripts/test-islands.mjs",
     "diag:nn": "node scripts/diag-nn.mjs",
+    "diag:corners": "node scripts/diag-corners.mjs",
     "bench:step": "node scripts/bench-step.mjs",
     "build:tracks": "node scripts/build-tracks.mjs",
     "test:tracks": "node scripts/test-tracks.mjs"

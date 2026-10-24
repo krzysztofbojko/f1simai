@@ -10,12 +10,12 @@ try {
   await build({ configFile: false, logLevel: 'silent', build: { outDir: out, emptyOutDir: true, minify: false,
     lib: { entry: Object.fromEntries(Object.entries(entries).map(([k, p]) => [k, resolve('src/' + p + '.ts')])), formats: ['es'], fileName: (_, name) => name + '.mjs' } } });
   const I = f => import(pathToFileURL(join(out, f + '.mjs')));
-  const { getRacingLine } = await I('rl'); const { Track } = await I('track'); const { Vector2 } = await I('vector'); const { Spline } = await I('spline'); const { Presets } = await I('presets');
+  const { getRacingLine } = await I('rl'); const { Track } = await I('track'); const { Vector2 } = await I('vector'); const { Spline, pointGapFor } = await I('spline'); const { Presets } = await I('presets');
   const tracks = [['gp', Presets.createGrandPrixTrack(14)]];
   for (const f of process.argv.slice(2)) {
     const data = JSON.parse(await readFile('tracks/' + f, 'utf8'));
     const width = Math.max(5, Math.min(20, Math.round(data.trackWidth)));
-    tracks.push([f, new Track(Spline.generateClosedTrack(data.rawPoints.map(p => new Vector2(p.x, p.y)), width, true), width)]);
+    tracks.push([f, new Track(Spline.generateClosedTrack(data.rawPoints.map(p => new Vector2(p.x, p.y)), width, true, pointGapFor(data.pointSpacing)), width)]);
   }
   for (const [name, t] of tracks) {
     const t0 = performance.now(); const line = getRacingLine(t, 0.6); const ms = performance.now() - t0;

@@ -11,12 +11,12 @@ try {
   await build({ configFile: false, logLevel: 'silent', build: { outDir: output, emptyOutDir: true, minify: false,
     lib: { entry: Object.fromEntries(Object.entries(entries).map(([k, p]) => [k, resolve('src/' + p + '.ts')])), formats: ['es'], fileName: (_, name) => name + '.mjs' } } });
   const I = f => import(pathToFileURL(join(output, f + '.mjs')));
-  const { Car } = await I('car'); const { Presets } = await I('presets'); const { Track } = await I('track'); const { Vector2 } = await I('vector'); const { Spline } = await I('spline');
+  const { Car } = await I('car'); const { Presets } = await I('presets'); const { Track } = await I('track'); const { Vector2 } = await I('vector'); const { Spline, pointGapFor } = await I('spline');
   let track = Presets.createGrandPrixTrack(14);
   if (process.argv[3]) {
     const data = JSON.parse(await readFile('tracks/' + process.argv[3], 'utf8'));
     const width = Math.max(5, Math.min(20, Math.round(data.trackWidth)));
-    track = new Track(Spline.generateClosedTrack(data.rawPoints.map(p => new Vector2(p.x, p.y)), width, true), width);
+    track = new Track(Spline.generateClosedTrack(data.rawPoints.map(p => new Vector2(p.x, p.y)), width, true, pointGapFor(data.pointSpacing)), width);
   }
   const slot = track.getGridSlot(0);
   const car = new Car(slot.pos, slot.heading, null, '#fff', 'solo', 100, 25);

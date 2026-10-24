@@ -5,7 +5,7 @@ import { Presets } from '../track/Presets';
 import { Population, LapLeaderboardEntry } from '../ai/Population';
 import { Car, CarControl, TrajectoryPoint, driverInputCount } from '../physics/Car';
 import { clampStressShare } from '../physics/SimConfig';
-import { Spline } from '../math/Spline';
+import { DRAWN_POINT_GAP, Spline } from '../math/Spline';
 import { Vector2 } from '../math/Vector2';
 import { TopologySpecifier } from '../ai/NeuralNetwork';
 import { RaceSession, type RaceState, type RaceStanding, type QualifyingSnapshot } from '../race/RaceSession';
@@ -482,7 +482,7 @@ self.onmessage = (e: MessageEvent) => {
       try {
         const nextWidth = Car.getDimensionsForTrackWidth(data.trackWidth).effectiveTrackWidth;
         const source = data.points?.length >= 4 ? data.points.map((p: {x: number; y: number}) => new Vector2(p.x, p.y)) : track.points.map(p => p.center);
-        const newPoints = Spline.generateClosedTrack(source, nextWidth, !!data.keepOrder);
+        const newPoints = Spline.generateClosedTrack(source, nextWidth, !!data.keepOrder, data.pointGap ?? DRAWN_POINT_GAP);
         const nextTrack = new Track(newPoints, nextWidth);
         nextTrack.pitLaneLoss = track.pitLaneLoss;
         trackWidth = nextWidth; track = nextTrack;
@@ -519,7 +519,7 @@ self.onmessage = (e: MessageEvent) => {
         const parsedPoints: Vector2[] = (data.points || []).map((p: {x: number; y: number}) => new Vector2(p.x, p.y));
         if (parsedPoints.length < 4) throw new Error('Tor wymaga co najmniej czterech punktów.');
         const nextWidth = Car.getDimensionsForTrackWidth(data.trackWidth ?? trackWidth).effectiveTrackWidth;
-        const splinePoints = Spline.generateClosedTrack(parsedPoints, nextWidth, !!data.keepOrder);
+        const splinePoints = Spline.generateClosedTrack(parsedPoints, nextWidth, !!data.keepOrder, data.pointGap ?? DRAWN_POINT_GAP);
         if (splinePoints.length < 8) throw new Error('Tor jest zbyt krótki.');
         const nextTrack = new Track(splinePoints, nextWidth);
         if (typeof data.pitLaneLoss === 'number' && data.pitLaneLoss > 0) nextTrack.pitLaneLoss = data.pitLaneLoss;

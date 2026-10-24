@@ -158,7 +158,8 @@ try {
   const warm = stop(Car.BRAKE_TEMP_START), cold = stop(25), raceStop = stop(Car.BRAKE_TEMP_START, true);
   assert.ok(warm.peak > Car.BRAKE_TEMP_START + 250 && warm.peak < Car.BRAKE_WINDOW_HIGH, `a stop from 300 km/h heats the front discs to ${warm.peak.toFixed(0)} °C`);
   assert.ok(!warm.locked, 'full pedal in a straight line on a dry track does not lock the wheels');
-  assert.ok(cold.distance > warm.distance + 5, `cold discs stop later: ${cold.distance.toFixed(1)} m vs ${warm.distance.toFixed(1)} m`);
+  // About 5 m from 300 km/h to 72 km/h (4.9 m with the 24.10.2026 tyre heating).
+  assert.ok(cold.distance > warm.distance + 4, `cold discs stop later: ${cold.distance.toFixed(1)} m vs ${warm.distance.toFixed(1)} m`);
   assert.deepEqual(raceStop, warm, 'the same stop in training and in a race');
   // Cooling at speed, independent of the step.
   const cool = dt => { const c = brakeCar(70, 900); for (let t = 0; t < 10 - 1e-9; t += dt) { c.vel = new Vector2(70, 0); c.speed = 70; c.updatePhysics({ throttle: 0.5, brake: 0, steer: 0 }, dt, plane); c.framesSinceLastCheckpoint = 0; } return c.brakeTempFront; };

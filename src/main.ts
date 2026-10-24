@@ -1,6 +1,6 @@
 import { loadDriverPressure, normalizePressure } from './ai/DriverPressure';
 import { Vector2 } from './math/Vector2';
-import { Spline } from './math/Spline';
+import { DRAWN_POINT_GAP, Spline, pointGapFor } from './math/Spline';
 import { Track } from './track/Track';
 import { Presets } from './track/Presets';
 import { getRacingLine } from './track/RacingLine';
@@ -79,6 +79,8 @@ class App {
   private rawDrawnPoints: Vector2[] = [];
   /** Driving direction of an imported real circuit: its point order is kept. Null for drawn tracks and presets. */
   private trackDirection: 'clockwise' | 'counterclockwise' | null = null;
+  /** Gap below which `rawDrawnPoints` are dropped when resplined: smaller for dense track files (see `pointGapFor`). */
+  private trackPointGap = DRAWN_POINT_GAP;
   private drawSourceBackup: Vector2[] = [];
   private drawnTrackRejected = false;
   private mousePos: Vector2 | null = null;
@@ -601,6 +603,7 @@ class App {
       this.renderer.setCircuit();
       this.rawDrawnPoints = Presets.GRAND_PRIX_POINTS.map(p => p.clone());
       this.trackDirection = null;
+      this.trackPointGap = DRAWN_POINT_GAP;
       this.population = new Population(Population.MAX_CARS, this.track, this.population.rayCount, this.population.topology);
       this.population.setDriverPressure(this.driverPressure, true);
       this.bridge.setPreset('gp');
@@ -620,6 +623,7 @@ class App {
       this.renderer.setCircuit();
       this.rawDrawnPoints = Presets.OVAL_POINTS.map(p => p.clone());
       this.trackDirection = null;
+      this.trackPointGap = DRAWN_POINT_GAP;
       this.population = new Population(Population.MAX_CARS, this.track, this.population.rayCount, this.population.topology);
       this.population.setDriverPressure(this.driverPressure, true);
       this.bridge.setPreset('oval');
@@ -651,7 +655,7 @@ class App {
         const sourcePoints = (this.rawDrawnPoints && this.rawDrawnPoints.length >= 4)
           ? this.rawDrawnPoints
           : this.track.points.map((p) => p.center);
-        const newPoints = Spline.generateClosedTrack(sourcePoints, dims.effectiveTrackWidth, !!this.trackDirection);
+        const newPoints = Spline.generateClosedTrack(sourcePoints, dims.effectiveTrackWidth, !!this.trackDirection, this.trackPointGap);
         if (newPoints.length > 3) {
           try { this.track = new Track(newPoints, dims.effectiveTrackWidth); }
           catch (error) {
@@ -660,7 +664,7 @@ class App {
             alert(error instanceof Error ? error.message : 'Niepoprawna szerokość toru.'); return;
           }
           this.population.resetAll(this.track);
-          this.bridge.setTrackWidth(this.trackWidth, sourcePoints.map(p => ({ x: p.x, y: p.y })), !!this.trackDirection);
+          this.bridge.setTrackWidth(this.trackWidth, sourcePoints.map(p => ({ x: p.x, y: p.y })), !!this.trackDirection, this.trackPointGap);
           if (this.playerCar) {
             this.playerCar.reset(this.track.startPosition, this.track.startAngle, true);
             this.playerCar.updateDimensionsForTrackWidth(this.trackWidth);
@@ -905,6 +909,7 @@ class App {
         name: trackName,
         trackWidth: this.trackWidth,
         ...(this.trackDirection ? { direction: this.trackDirection } : {}),
+        ...(this.trackPointGap !== DRAWN_POINT_GAP ? { pointSpacing: this.trackPointGap * 4 } : {}),
         rawPoints: ptsToSave.map(p => ({ x: Math.round(p.x * 10) / 10, y: Math.round(p.y * 10) / 10 })),
         // Every few metres: the loader resplines them, so the file need not hold every track point.
         centerPoints: this.track.points.filter((_, i) => i % this.track.pointsFor(EXPORT_POINT_SPACING) === 0)
@@ -1350,7 +1355,8 @@ class App {
       const dims = Car.getDimensionsForTrackWidth(nextWidth);
       // Real circuits carry their driving direction: keep the file's point order.
       const direction = data.direction === 'clockwise' || data.direction === 'counterclockwise' ? data.direction : null;
-      const splinePoints = Spline.generateClosedTrack(parsedPoints, dims.effectiveTrackWidth, !!direction);
+      const pointGap = pointGapFor(data.pointSpacing);
+      const splinePoints = Spline.generateClosedTrack(parsedPoints, dims.effectiveTrackWidth, !!direction, pointGap);
 
       if (splinePoints.length < 8) {
         alert('Błąd: Nie udało się wygenerować zamkniętej pętli toru z podanych punktów.');
@@ -1365,12 +1371,13 @@ class App {
       document.getElementById('val-track-width')!.textContent = String(nextWidth);
       this.rawDrawnPoints = parsedPoints;
       this.trackDirection = direction;
+      this.trackPointGap = pointGap;
       this.population = new Population(Population.MAX_CARS, this.track, this.population.rayCount, this.population.topology);
       this.population.setDriverPressure(this.driverPressure, true);
       this.selectedCar = null;
       const pitLaneLoss = typeof data.pitLaneLoss === 'number' && data.pitLaneLoss > 0 ? data.pitLaneLoss : undefined;
       this.track.pitLaneLoss = pitLaneLoss ?? null;
-      this.bridge.setCustomTrack(parsedPoints.map(p => ({ x: p.x, y: p.y })), this.trackWidth, !!direction, pitLaneLoss);
+      this.bridge.setCustomTrack(parsedPoints.map(p => ({ x: p.x, y: p.y })), this.trackWidth, !!direction, pitLaneLoss, pointGap);
 
       if (this.playerCar) {
         this.playerCar.reset(this.track.startPosition, this.track.startAngle, true);
@@ -1413,6 +1420,7 @@ class App {
         return;
       }
       this.trackDirection = null;
+      this.trackPointGap = DRAWN_POINT_GAP;
       this.population = new Population(Population.MAX_CARS, this.track, this.population.rayCount, this.population.topology);
       this.population.setDriverPressure(this.driverPressure, true);
       this.selectedCar = null;

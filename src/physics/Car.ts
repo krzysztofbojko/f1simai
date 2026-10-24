@@ -527,7 +527,7 @@ export class Car {
   public static readonly TYRE_AMBIENT = 25;      // air (deg C) of the calibrated reference weather
   public static readonly TYRE_TRACK = 38;        // track surface (deg C) of the reference weather
   public static readonly TYRE_HEAT_CAPACITY = 12000; // J/K per axle (tread + carcass: ~40 s time constant)
-  public static TYRE_HEAT_SCALE = 1;             // calibration of slip / hysteresis heating
+  public static TYRE_HEAT_SCALE = 0.75;          // calibration of slip / hysteresis heating (training field p50 ~100 C)
   public static TYRE_FRONT_HEAT = 1.6;           // fronts work harder per newton (steering, braking)
   public static TYRE_LAT_HEAT = 2;               // cornering slip power weight
   public static TYRE_LONG_HEAT = 0.012;          // creep power as a fraction of |Fx|*v
