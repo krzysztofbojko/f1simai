@@ -1591,9 +1591,12 @@ class App {
     document.getElementById('stat-alive')!.textContent = `${this.population.aliveCount} / ${this.population.populationSize}`;
     document.getElementById('stat-fitness')!.textContent = Math.round(this.population.bestFitness).toLocaleString();
 
-    document.getElementById('stat-best-lap')!.textContent = this.population.globalBestLap ? formatLapTime(this.population.globalBestLap) : '--:--.---';
-
     this.raceUI.update();
+
+    // The learning reference (clean laps in the current conditions) can trail the leaderboard,
+    // which also counts race laps spoilt by fights and bests from before a weather change.
+    const bestLaps = [this.population.globalBestLap, this.raceUI.sessionFastestLap].filter((t): t is number => typeof t === 'number' && t > 0);
+    document.getElementById('stat-best-lap')!.textContent = bestLaps.length > 0 ? formatLapTime(Math.min(...bestLaps)) : '--:--.---';
 
     // Telemetry panel
     if (activeCar) {

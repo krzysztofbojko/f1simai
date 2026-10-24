@@ -25,6 +25,8 @@ export class RaceUI {
   private hasShownQualiModal = false;
   private hasShownPodiumModal = false;
   private qualiCountdownTimer: number | null = null;
+  /** Fastest personal best on the leaderboard after the last update (the stats bar shows it too). */
+  public sessionFastestLap: number | null = null;
 
   constructor(private readonly host: RaceUIHost) {
     document.getElementById('btn-quali-start-race')?.addEventListener('click', () => {
@@ -180,6 +182,7 @@ export class RaceUI {
       .map(e => this.getDriverTrueBest(e.carColor, e.lapTime, e.hasFinishedLap))
       .filter((t): t is number => typeof t === 'number' && t > 0);
     const sessionFastestLap = sessionBests.length > 0 ? Math.min(...sessionBests) : null;
+    this.sessionFastestLap = sessionFastestLap;
 
     // Top 10 of the field; a followed driver or the player outside it is appended below a divider.
     const topRows = standings.slice(0, RaceUI.LEADERBOARD_ROWS);
