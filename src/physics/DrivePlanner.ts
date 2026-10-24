@@ -26,7 +26,10 @@ export function planDrive(car: Car, track: Track, leaderSpeeds?: number[]): Driv
     car.lineProfileIndex = here.index;
   }
   // Project onto nearby centerline segments and aim a short physical distance
-  // ahead. A whole checkpoint of lookahead cuts across narrow hairpins.
+  // ahead. A whole checkpoint of lookahead cuts across narrow hairpins. The distance grows
+  // with speed without a cap: pursuit turns a heading error away in about lookahead / (2·speed),
+  // and a capped lookahead made that time shorter than the steering lag at high speed, so the
+  // wheels sawed a few times a second.
   let nearestDistance = Infinity;
   let segmentIndex = (car.currentCheckpointIdx - 1 + n) % n;
   let segmentFraction = 0;
@@ -39,7 +42,7 @@ export function planDrive(car: Car, track: Track, leaderSpeeds?: number[]): Driv
     const distance = car.pos.distSq(start.add(edge.mul(fraction)));
     if (distance < nearestDistance) { nearestDistance = distance; segmentIndex = index; segmentFraction = fraction; }
   }
-  let remaining = Math.max(8, Math.min(14, 5 + car.speed * 0.25));
+  let remaining = Math.max(8, 5 + car.speed * 0.25);
   let targetPosition = track.checkpoints[segmentIndex].center;
   for (let step = 0; step < n; step++) {
     const start = track.checkpoints[segmentIndex].center;

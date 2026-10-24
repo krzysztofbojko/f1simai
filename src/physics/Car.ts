@@ -135,7 +135,10 @@ export class Car {
   public static readonly GRAVITY: number = 9.81; // m/s^2
   /** Closing speed (m/s) at which a single contact wrecks a car; smaller hits accumulate as damage ∝ v². */
   public static readonly CRASH_CLOSING_SPEED: number = 12;
-  /** Steering actuator (driver's hands and rack): first-order lag of the road wheels behind the command. */
+  /**
+   * Steering actuator (driver's hands and rack): total lag of the road wheels behind the command,
+   * split into two equal first-order stages so the wheels never jump into motion.
+   */
   public static readonly STEERING_LAG: number = 0.09; // s
   /** The front axle saturates slightly before the rear: a stable, understeer-biased balance at the limit. */
   public static readonly FRONT_GRIP_BIAS: number = 1.0;
@@ -688,6 +691,7 @@ export class Car {
   private frontLateralInUse = 0;     // N of lateral tyre force used last step (stability reserve)
   private rearLateralInUse = 0;
   public wheelAngle: number = 0;     // Actual road-wheel angle (rad), lagging the steering command
+  private steeringHands = 0;         // First stage of the steering lag (rad of road-wheel angle)
   public weightFrontRatio: number = 0.46; // Dynamic front weight distribution
   public understeerSlip: number = 0; // 0 to 1
   public oversteerSlip: number = 0;  // 0 to 1
@@ -999,7 +1003,7 @@ export class Car {
     this.pitchAngle = 0;
     this.rollAngle = 0;
     this.resetSuspension();
-    this.wheelAngle = 0;
+    this.wheelAngle = this.steeringHands = 0;
     this.frontLateralInUse = this.rearLateralInUse = 0;
     this.understeerSlip = 0;
     this.oversteerSlip = 0;
@@ -1524,8 +1528,14 @@ export class Car {
     const rearLateral = Math.sqrt(Math.max(0, rearLimit * rearLimit - rearFx * rearFx)) * (this.wheelLockRear ? Car.LOCKED_LATERAL : 1);
     const lateralLimit = frontLateral + rearLateral;
     const nextForwardSpeed = forwardSpeed + longitudinalForce / currentMass * dt;
-    // Steering actuator: the road wheels follow the command with a short lag.
-    this.wheelAngle += (control.steer * this.maxSteerAngle - this.wheelAngle) * (1 - Math.exp(-dt / Car.STEERING_LAG));
+    // Steering actuator: two equal first-order stages (hands, then rack), solved exactly for a
+    // command held over the step. A jump in the command starts the wheels moving gently.
+    {
+      const tau = Car.STEERING_LAG / 2, target = control.steer * this.maxSteerAngle, decay = Math.exp(-dt / tau);
+      const handsError = this.steeringHands - target, wheelError = this.wheelAngle - target;
+      this.wheelAngle = target + (wheelError + handsError * dt / tau) * decay;
+      this.steeringHands = target + handsError * decay;
+    }
     // The kinematic yaw follows the road wheels, as the slip-angle model below does: a jump or
     // chatter in the command reaches the body only through the steering lag, at every speed.
     const targetYaw = nextForwardSpeed / this.wheelbase * Math.tan(this.wheelAngle);

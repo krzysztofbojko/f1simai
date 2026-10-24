@@ -133,6 +133,39 @@ try {
     assert.ok(c.isAlive && c.currentLap >= 1, `the expert must lap the GP circuit: ${JSON.stringify({ alive: c.isAlive, reason: c.eliminationReason, laps: c.currentLap, frames, cp: c.currentCheckpointIdx })}`);
     assert.ok(braking > 0, 'the expert never braked');
     assert.ok(switches / (frames / 60) < 2, `expert brake switches ${(switches / (frames / 60)).toFixed(1)} times per second`); }
+  // Steering actuator: a step in the command starts the road wheels moving gently (no jump into
+  // motion), settles without overshoot and gives the same angle at every step rate.
+  { const wheelAfter = (dt, seconds) => { const c = new Car(new Vector2(0, 0), 0); c.vel = new Vector2(30, 0); c.speed = 30;
+      const angles = [];
+      for (let t = 0; t < Math.round(seconds / dt); t++) { c.framesSinceLastCheckpoint = 0; c.updatePhysics({ throttle: 0, brake: 0, steer: 0.5 }, dt, stub); angles.push(c.wheelAngle); }
+      return angles; };
+    const target = 0.5 * new Car(new Vector2(0, 0), 0).maxSteerAngle;
+    const at = [1 / 30, 1 / 60, 1 / 120].map(dt => wheelAfter(dt, 0.1).at(-1));
+    assert.ok(at.every(x => Math.abs(x - at[1]) < 1e-9), `road-wheel angle depends on the step: ${at}`);
+    const fine = wheelAfter(1 / 120, 0.5);
+    // One 1/120 s step covers 1.5% of the way (a single 0.09 s lag covered 8.8%).
+    assert.ok(fine[0] < target * 0.03, `the wheels jump into motion: ${fine[0]} rad after one step`);
+    assert.ok(fine[1] - fine[0] > fine[0], 'the wheels must speed up from rest');
+    assert.ok(fine.every((x, i) => x <= target + 1e-12 && (i === 0 || x >= fine[i - 1])), 'the wheels overshoot or swing back');
+    assert.ok(Math.abs(fine.at(-1) - target) < target * 0.01, `wheels not settled after 0.5 s: ${fine.at(-1)} of ${target}`); }
+  // The expert steers smoothly: the road wheels never snap (that was over 6800 deg/s² at 60 Hz and
+  // 14500 at 120 Hz, from a first-order actuator and a pursuit loop faster than the steering lag).
+  for (const hz of [60, 120]) {
+    const c = new Car(gp.startPosition, gp.startAngle, null, '#fff', 'teacher', 60);
+    const slot = gp.getGridSlot(0);
+    c.reset(slot.pos, slot.heading, true, (slot.checkpointIdx + 1) % gp.checkpoints.length);
+    c.mistakesEnabled = false; c.updateDimensionsForTrackWidth(gp.width);
+    let lastAngle = c.wheelAngle, lastRate = null, maxAccel = 0;
+    for (let i = 0; i < 60 * hz && c.isAlive; i++) {
+      c.updateSensors(gp);
+      c.updatePhysics(c.planDrive(gp).expert, 1 / hz, gp);
+      const rate = (c.wheelAngle - lastAngle) * hz;
+      if (i > 5 * hz && lastRate !== null) maxAccel = Math.max(maxAccel, Math.abs(rate - lastRate) * hz * 180 / Math.PI);
+      lastAngle = c.wheelAngle; lastRate = rate;
+    }
+    assert.ok(c.isAlive, `the expert crashed at ${hz} Hz: ${c.eliminationReason}`);
+    assert.ok(maxAccel < (hz === 60 ? 4000 : 6000), `road wheels snap at ${maxAccel.toFixed(0)} deg/s² (${hz} Hz)`);
+  }
 
   // 5. Impacts: damage accumulates, gentle contact does not wreck, hard contact does and the wreck keeps sliding.
   const body = (x, vx) => { const c = new Car(new Vector2(x, 0), 0); c.vel = new Vector2(vx, 0); c.speed = Math.abs(vx); c.isRaceMode = true; return c; };
