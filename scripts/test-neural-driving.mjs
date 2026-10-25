@@ -312,6 +312,34 @@ try {
   const empty = speedUp(0, 15);
   assert.ok(chargedEnergy < Car.ERS_CAPACITY, 'deployment drains the battery');
   assert.ok(charged > empty + 0.1, `hybrid boost accelerates harder: ${charged} vs ${empty}`);
+  // Standing start on a flat straight: 0-100 km/h is traction-limited (~2.5 s, as an F1 car), the
+  // MGU-K adds only the torque the rear tyres can use, then deploys its full 350 kW above 40% charge.
+  {
+    const flat = { checkpoints: [], timingGates: [], width: 76, isOutOfBounds: () => false };
+    const origin = { x: 0, y: 0, clone() { return this; } };
+    const launch = soc => {
+      const c = new Car(origin, 0);
+      c.pos = c.vel.clone(); c.prevPos = c.vel.clone();
+      c.lapPowerFactor = c.lapGripFactor = c.lapDragFactor = 1;
+      c.ersEnergy = Car.ERS_CAPACITY * soc;
+      const at = {}; let t = 0, energyAt100 = null;
+      for (let i = 0; i < 60 * 12; i++) {
+        c.framesSinceLastCheckpoint = 0;
+        c.updatePhysics({ throttle: 1, brake: 0, steer: 0 }, 1 / 60, flat);
+        t += 1 / 60;
+        for (const kmh of [100, 200, 300]) if (at[kmh] === undefined && c.speedKmh >= kmh) at[kmh] = t;
+        if (energyAt100 === null && at[100] !== undefined) energyAt100 = c.ersEnergy;
+      }
+      return { at, used100: Car.ERS_CAPACITY * soc - energyAt100 };
+    };
+    const full = launch(0.85), half = launch(0.5);
+    assert.ok(full.at[100] > 2.35 && full.at[100] < 2.65, `0-100 km/h ${full.at[100].toFixed(2)} s`);
+    assert.ok(full.at[200] < 4.85, `0-200 km/h ${full.at[200].toFixed(2)} s`);
+    assert.ok(full.at[300] < 9, `0-300 km/h ${full.at[300]?.toFixed(2)} s`);
+    assert.ok(half.at[200] < 4.85, `0-200 km/h at 50% charge ${half.at[200].toFixed(2)} s`);
+    // A traction-limited launch must not burn the battery for nothing (350 kW for 2.5 s would be 875 kJ).
+    assert.ok(full.used100 < 300000, `MGU-K energy to 100 km/h: ${Math.round(full.used100 / 1000)} kJ`);
+  }
   ersCar.reset(gp.startPosition, gp.startAngle, true, 1); ersCar.ersEnergy = 1e6; ersCar.vel = Vector2.fromAngle(ersCar.heading).mul(60); ersCar.speed = 60;
   for (let i = 0; i < 30; i++) ersCar.updatePhysics({ throttle: 0, brake: 0.8, steer: 0 }, 1 / 60, gp);
   assert.ok(ersCar.ersEnergy > 1e6, 'braking harvests energy');

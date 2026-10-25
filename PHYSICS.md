@@ -176,15 +176,30 @@ Jednostka napędowa według regulaminu 2026 (bez MGU-H):
 
 - Moc napędu = ICE 400 kW · gaz · f(obroty) + MGU-K do 350 kW (razem nadal 750 kW). Bateria: 4 MJ użytecznego okna (`ERS_CAPACITY`).
 - Oddawanie przy gazie > 0,65. Moc MGU-K maleje liniowo od 290 km/h do zera przy 355 km/h (`ERS_TAPER_START/END`).
-- Zarządzanie energią: moc oddawania rośnie liniowo ze stanem baterii od 10% (`ERS_CLIP_SOC`) do pełnej przy 90% (`ERS_LOW_SOC`). Dzięki temu energia oddana na okrążeniu zbliża się do odzyskanej, a bateria nie stoi w miejscu.
+- Kontrola trakcji dozuje moment MGU-K: oddaje on tylko tyle mocy, ile tylne opony przeniosą ponad moc ICE. Przy ruszaniu i na wyjściu z wolnego zakrętu (ograniczenie trakcją) bateria się więc nie rozładowuje bez pożytku.
+- Zarządzanie energią: pełna moc oddawania od 40% baterii (`ERS_LOW_SOC`), poniżej maleje liniowo do zera przy 10% (`ERS_CLIP_SOC`). Dzięki temu energia oddana na okrążeniu zbliża się do odzyskanej, a bateria nie spada skokowo do clippingu.
 - Poniżej 10% przy pełnym gazie następuje „super clipping”: MGU-K ładuje baterię mocą 50 kW, odbierając ją z napędu.
 - Odzysk ograniczony do 8,5 MJ na okrążenie (`ERS_LAP_HARVEST`, licznik zerowany na linii mety):
   - hamowanie do 350 kW, niezależnie od siły nacisku na pedał (brake-by-wire najpierw używa MGU-K), ale nie więcej niż moc rozpraszana przez hamulce;
   - lift-and-coast powyżej 30 m/s: 105 kW;
   - częściowy gaz: do 100 kW · gaz (ICE napędza MGU-K jako generator);
   - sprawność 88%.
-- Na torze Grand Prix (szer. 14 m) bateria waha się w trakcie okrążenia o ok. 30 punktów procentowych: sieć neuronowa ok. 32–69%, ekspert 25–55%. W modelu sprzed zmiany (120 kW oddawania, 350 kW odzysku) bateria w aplikacji stała zwykle na 90–95%.
+- Na torze Grand Prix (szer. 14 m) bateria stawki po 200 s treningu stoi na ok. 38–99% (`diag:nn`; przed zmianą z 25.10.2026 39–70%). W modelu sprzed 13.10.2026 (120 kW oddawania, 350 kW odzysku) stała zwykle na 90–95%.
 - Przy ograniczeniu trakcją (niskie prędkości) dodatkowa moc nie przyspiesza; różnicę widać powyżej ok. 60 m/s. W telemetrii: „ERS xx%”.
+
+### Przyspieszenie: MGU-K według trakcji i pełna moc od 40% baterii (25.10.2026)
+
+Wcześniej moc oddawania rosła liniowo ze stanem baterii od 10% do 90%, a MGU-K oddawał ją także wtedy, gdy siłę napędową ograniczała przyczepność. Na starcie bateria traciła więc ok. 0,9 MJ, a auto nie przyspieszało ani trochę szybciej. Potem, przy stanie baterii typowym na torze (40–70%), MGU-K dawał tylko 110–250 kW zamiast 350 kW. Pomiar (start z miejsca, pełny gaz, płaska prosta, 105 kg paliwa, opony 85 °C, krok 1/60 s):
+
+| | przed | po | F1 (orientacyjnie) |
+|---|---|---|---|
+| 0–100 km/h, bateria 85% | 2,50 s | 2,50 s | ok. 2,5–2,6 s |
+| 0–200 km/h, bateria 85% | 4,92 s | 4,72 s | ok. 4,5–4,8 s |
+| 0–300 km/h, bateria 85% | 11,7 s | 8,35 s | ok. 8,5–9,5 s |
+| 0–200 km/h, bateria 50% | 5,22 s | 4,72 s | |
+| 0–300 km/h, bateria 50% | 15,1 s | 11,3 s | |
+
+0–100 km/h ogranicza trakcja tylnej osi (ok. 1,13 g), więc się nie zmienia. Sam próg 40% bez dozowania według trakcji pogarszał okrążenie (najlepsze 54,52 → 55,20 s, mediana rekordów 58,44 → 59,76 s), bo bateria opadała do 12–58%. Z dozowaniem `bench-laptime` (600 s, ziarna 145/456/789) daje: najlepsze okrążenie 54,52 → 54,54 s, mediana rekordów 58,44 → 58,12 s, czyli w granicach rozrzutu ziaren. Zmiana dotyczy wszystkich sesji jednakowo. Test: `test-neural-driving` (0–100 w 2,35–2,65 s, 0–200 < 4,85 s także przy 50% baterii, 0–300 < 9 s, energia MGU-K do 100 km/h < 300 kJ).
 
 ## Pogoda (`src/physics/Weather.ts`)
 

@@ -280,10 +280,11 @@ export class Car {
   public static readonly ERS_TAPER_START = 290 / 3.6;
   public static readonly ERS_TAPER_END = 355 / 3.6;
   /**
-   * Energy management: below ERS_LOW_SOC deployment fades so a lap's deployment matches its harvest;
-   * at ERS_CLIP_SOC the MGU-K stops deploying and clips.
+   * Energy management: the MGU-K deploys its full power down to ERS_LOW_SOC, then fades so a lap's
+   * deployment matches its harvest; at ERS_CLIP_SOC it stops deploying and clips. Scaling the whole
+   * range by charge (0.9) left 110-250 kW on a typical exit and 0-300 km/h took 11.7 s instead of ~8.5.
    */
-  public static readonly ERS_LOW_SOC = 0.9;
+  public static readonly ERS_LOW_SOC = 0.4;
   public static readonly ERS_CLIP_SOC = 0.1;
   /** Part-throttle charging: the ICE drives the MGU-K as a generator through corners. */
   public static readonly ERS_PART_THROTTLE_CHARGE = 100000;
@@ -1480,6 +1481,15 @@ export class Car {
     // Rolling resistance and braking share each axle's longitudinal tire budget.
     const rollingFront = Math.min(frontLimit, 0.012 * frontLoad);
     const rollingRear = Math.min(rearLimit, 0.012 * rearLoad + engineBrakeForce);
+    // Stability priority (traction control / brake-by-wire): each axle keeps the lateral
+    // force it was using last step, so power or braking never silently removes the grip
+    // that is holding the car on its line. Drive and brake use the rest of the friction circle.
+    const longitudinalBudget = (limit: number, lateralInUse: number) => {
+      const reserve = Math.min(limit, Car.STABILITY_RESERVE * lateralInUse);
+      return Math.sqrt(Math.max(0, limit * limit - reserve * reserve));
+    };
+    const frontLongLimit = longitudinalBudget(frontLimit, this.frontLateralInUse);
+    const rearLongLimit = longitudinalBudget(rearLimit, this.rearLateralInUse);
     // Hybrid power: MGU-K torque fill on a wide-open throttle, harvesting under braking and lift-and-coast.
     let ersPower = 0;
     this.ersDeploying = false;
@@ -1494,7 +1504,11 @@ export class Car {
       const socScale = Math.max(0, Math.min(1, (soc - Car.ERS_CLIP_SOC) / (Car.ERS_LOW_SOC - Car.ERS_CLIP_SOC)));
       const taper = Math.max(0, Math.min(1, (Car.ERS_TAPER_END - forwardSpeed) / (Car.ERS_TAPER_END - Car.ERS_TAPER_START)));
       if (socScale > 0) {
-        const joules = Math.min(Car.ERS_POWER * actualThrottle * taper * socScale * dt, this.ersEnergy);
+        // Traction control meters the MGU-K torque: it adds only what the rear tyres can put down
+        // beyond the ICE, so a traction-limited launch or corner exit does not drain the battery.
+        const drivePower = Math.max(0, rearLongLimit - rollingRear) * Math.max(12, Math.abs(forwardSpeed)) / this.lapPowerFactor;
+        const usable = Math.max(0, drivePower - Car.ICE_POWER * actualThrottle * icePower);
+        const joules = Math.min(Math.min(Car.ERS_POWER * actualThrottle * taper * socScale, usable) * dt, this.ersEnergy);
         ersPower = joules / dt;
         this.ersEnergy -= joules;
         this.ersDeploying = ersPower > 0;
@@ -1510,15 +1524,6 @@ export class Car {
     const harvesting = !this.ersDeploying && forwardSpeed > 8 && (control.brake > 0.05 || (actualThrottle < 0.02 && forwardSpeed > 30));
     const engineForce = (actualThrottle > 0.005 || ersPower > 0)
       ? Math.max(0, Car.ICE_POWER * actualThrottle * icePower + ersPower) * this.lapPowerFactor / Math.max(12, Math.abs(forwardSpeed)) : 0;
-    // Stability priority (traction control / brake-by-wire): each axle keeps the lateral
-    // force it was using last step, so power or braking never silently removes the grip
-    // that is holding the car on its line. Drive and brake use the rest of the friction circle.
-    const longitudinalBudget = (limit: number, lateralInUse: number) => {
-      const reserve = Math.min(limit, Car.STABILITY_RESERVE * lateralInUse);
-      return Math.sqrt(Math.max(0, limit * limit - reserve * reserve));
-    };
-    const frontLongLimit = longitudinalBudget(frontLimit, this.frontLateralInUse);
-    const rearLongLimit = longitudinalBudget(rearLimit, this.rearLateralInUse);
     const driveForce = Math.min(Math.max(0, rearLongLimit - rollingRear), engineForce);
     const brakeDemand = control.brake * (frontLimit + rearLimit);
     // The discs turn the pedal into torque by their temperature; torque beyond what the tyre can
