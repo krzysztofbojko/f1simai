@@ -69,7 +69,10 @@ try {
   const gp=Presets.createGrandPrixTrack(14), n=gp.points.length, line=getRacingLine(gp);
   const centre=new LineProfile(n);
   assert.ok(centre.matches(gp));
-  for(let i=0;i<n;i++) assert.ok(Math.abs(centre.curvature(gp,i)-Math.abs(gp.points[i].curvature))<1e-9,'untrained profile follows the centreline');
+  // Curvature of the centreline on the profile's ARC_BASE arc (the per-point value amplifies resampling wobble).
+  const arcBase=gp.pointsFor(LineProfile.ARC_BASE), at=i=>gp.points[((i%n)+n)%n].center;
+  const axisK=i=>{const a=at(i-arcBase),b=at(i),c=at(i+arcBase);const den=a.dist(b)*b.dist(c)*a.dist(c);return den>1e-6?Math.abs(2*((b.x-a.x)*(c.y-b.y)-(b.y-a.y)*(c.x-b.x))/den):0;};
+  for(let i=0;i<n;i++) assert.ok(Math.abs(centre.curvature(gp,i)-axisK(i))<1e-9,'untrained profile follows the centreline');
   const wide=LineProfile.fromLine(gp,line.offsets), pinched=new LineProfile(n);
   for(let i=0;i<n;i++) pinched.offsets[i]=-line.offsets[i];
   pinched.invalidate();
@@ -77,7 +80,18 @@ try {
   const speedRatio=profile=>{ const r=[]; for(let i=0;i<n;i++){ const k=Math.abs(gp.points[i].curvature); if(k>0.008) r.push(Math.sqrt(k/profile.curvature(gp,i))); } return r.reduce((a,b)=>a+b,0)/r.length; };
   assert.ok(speedRatio(wide)>1.05,`outside-apex-outside opens the corners: ${speedRatio(wide)}`);
   assert.ok(speedRatio(pinched)<0.99,`the mirrored line tightens them: ${speedRatio(pinched)}`);
-  for(let i=0;i<n;i++){ const c=pinched.curvature(gp,i), a=Math.abs(gp.points[i].curvature); assert.ok(c>=a*LineProfile.MIN_RATIO*(1-1e-6)&&c<=(a*LineProfile.MAX_RATIO+LineProfile.MAX_SLACK)*(1+1e-6),'bounded'); }
+  for(let i=0;i<n;i++){ const c=pinched.curvature(gp,i), a=axisK(i); assert.ok(c>=a*LineProfile.MIN_RATIO*(1-1e-6)&&c<=(a*LineProfile.MAX_RATIO+LineProfile.MAX_SLACK)*(1+1e-6),'bounded'); }
+  // Albert Park's resampled 1 m points wobble by millimetres; the radius read along its fast arcs must not.
+  {
+   const {tracks}=JSON.parse(await readFile(resolve('tracks/index.json'),'utf8'));
+   const data=JSON.parse(await readFile(resolve('tracks',tracks.find(t=>t.file.startsWith('au-1953')).file),'utf8'));
+   const mel=new Track(Spline.generateClosedTrack(data.rawPoints.map(p=>new Vector2(p.x,p.y)),data.trackWidth,true,pointGapFor(data.pointSpacing)),data.trackWidth);
+   const profile=new LineProfile(mel.points.length), m=mel.points.length;
+   const k=Array.from({length:m},(_,i)=>profile.curvature(mel,i));
+   // Point-to-point zigzag: the radius of a real arc changes smoothly over a metre.
+   const zigzag=k.map((v,i)=>Math.abs(v-(k[(i+m-1)%m]+k[(i+1)%m])/2)).sort((a,b)=>a-b)[Math.floor(0.99*m)];
+   assert.ok(zigzag<0.001,`curvature without point-to-point zigzag: p99 ${(zigzag*1000).toFixed(2)} 1/km`);
+  }
   const learner=new LineProfile(n); for(let lap=0;lap<30;lap++) learner.record(5,3); assert.ok(Math.abs(learner.offsets[5]-3)<0.01,'profile converges to the driven offset');
   learner.record(-1,3); learner.record(n,3); learner.record(6,NaN); assert.equal(learner.offsets[6],0,'invalid samples ignored');
  }

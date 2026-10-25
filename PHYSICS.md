@@ -303,6 +303,23 @@ Na Albert Park samotny ekspert jechał 1:53, a wytrenowana stawka ponad 2 minuty
 - Pozostała różnica do ok. 1:20 na Albert Park wynika z modelu auta: nasycenia siły bocznej (tanh), przyczepności ok. 2 g na płycie poślizgowej i wrażliwości opon na obciążenie. Druga przyczyna to luka między siecią a ekspertem.
 - `scripts/test-pressure.mjs`: przy wyższych budżetach sieć częściej wypada na drugim okrążeniu. Test jeździ teraz do pierwszego czystego okrążenia, które ustala rekord (najwyżej 5 okrążeń). Skrót stanu `bench:step` się zmienia.
 
+## Krzywizna linii bez szumu i gaz na wyjściu z zakrętu (25.10.2026)
+
+- `LineProfile` liczył krzywiznę z krzywizny osi w pojedynczym punkcie (punkty co 1 m) plus poprawki linii. Milimetrowe nierówności po przepróbkowaniu toru dawały szum ±2–5 /km. W łuku Albert Park o promieniu ok. 450 m odczyt skakał między ok. 220 a 3900 m, a planista hamował na najciaśniejszym odczycie (277 → 259 km/h przy wykorzystaniu przyczepności ok. 50%). Teraz krzywizna osi i linii pochodzi z łuku `ARC_BASE` (6 m) wokół punktu. Uśrednianie trzech sąsiednich łuków spłaszczało szczyt nawrotów (Monako: 8,0 m zamiast ok. 5 m), więc go nie ma. Zygzak krzywizny z punktu na punkt na Albert Park (p99): 4,43 → 0,48 /km (`scripts/test-lines.mjs`).
+- Szum działał jak ukryty zapas planisty. Bez niego kierowca regułowy częściej wypadał (czas poza asfaltem na 6 torach ok. 5 → 8,4 s), i to głównie na wyjściach z zakrętów: pełny gaz przy skręcie poniżej 0,35 zabierał tylnym oponom przyczepność potrzebną do skrętu i auto wynosiło na zewnątrz. Teraz przy obciążeniu bocznym powyżej 25% przyczepności gaz eksperta ograniczony jest do reszty koła tarcia tylnej osi: `EXIT_DRIVE_SHARE · 0,54 · a_opon · √(1 − u²)` podzielone przez przyspieszenie przy pełnej mocy ICE + MGU-K. `EXIT_DRIVE_SHARE` = 1,7, bo pełna moc rzadko jest dostępna (krzywa ICE na niskich obrotach, zwężanie ERS).
+- Mniejszy budżet w ciasnych zakrętach (0,56–0,60 przy promieniu ≤ 30 m) i osobny, wyższy budżet dla części siły z docisku sprawdzono w tym samym skrypcie. Nie zmniejszały wypadnięć ani nie skracały okrążeń, więc ich nie ma.
+- Kalibracja nagrzewania opon (`TYRE_HEAT_SCALE` 0,55–0,65, szersze okno temperatury) dawała ok. 1% na sumie torów. W zakrętach opony pracują w 99–132 °C (przyczepność 0,87–0,99), więc model opon został bez zmian.
+
+Samotny ekspert (`seedRandom(1)`, 3 okrążenia, najlepsze okrążenie):
+
+| Tor | 0,65/0,55 (wcześniej tego dnia) | krzywizna | krzywizna + gaz na wyjściu |
+|---|---|---|---|
+| suma 5 prawdziwych torów | 470,1 s | 456,7 s | 461,1 s |
+| czas poza asfaltem (6 torów) | 5,0 s | 8,4 s | 4,1 s |
+| GP | 51,78 s | 51,49 s | 52,40 s |
+
+Wytrenowana stawka na Albert Park (900 s treningu, 20 aut, ziarna 145 / 456, przed → po): najlepsze okrążenie 104,6 → 101,8 s / 102,9 → 100,8 s, mediana wszystkich okrążeń 116,5 → 125,9 s / 117,0 → 118,2 s, mediana czystych okrążeń 112,7 → 116,6 s / 109,0 → 111,1 s, wraki na minutę 0,9 → 0,5 / 1,3 → 1,5. Najlepsze okrążenie się poprawia, a typowe nie: w 6–9 generacjach sieci nie doganiają szybszego nauczyciela, a rozrzut między ziarnami jest duży. Skrót stanu `bench:step` się zmienia.
+
 ## Ochrona przed wartościami nieskończonymi (19.10.2026)
 
 Po całkowaniu, a przed przesunięciem auta, `updatePhysics` sprawdza stan dynamiczny: pozycję, prędkość, kurs, prędkość kątową, heave/pitch/roll z prędkościami, temperatury opon, ERS i paliwo. Wartość NaN lub ∞ zostałaby w stanie auta na zawsze, a pozycja NaN psuje też zapytania toru. Taki krok jest więc odrzucany. Pozycja zostaje ostatnią skończoną, zawieszenie wraca do statyki, złe wartości są resetowane, a auto kończy jazdę jak po uderzeniu w bandę (w treningu respawn po usunięciu wraku). Pierwsze takie zdarzenie trafia do `console.warn`. Test w `test-suspension`.

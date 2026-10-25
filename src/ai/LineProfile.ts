@@ -92,21 +92,24 @@ export class LineProfile {
 
   private compute(track: Track, index: number): number {
     const n = track.points.length;
-    const centre = Math.abs(track.points[((index % n) + n) % n].curvature);
+    const centre = Math.abs(this.arcs(track, index, true));
     const lower = Math.min(centre * LineProfile.MIN_RATIO, this.floor?.[((index % n) + n) % n] ?? Infinity);
     return Math.max(lower, Math.min(centre * LineProfile.MAX_RATIO + LineProfile.MAX_SLACK, this.effective(track, index)));
   }
 
   private effective(track: Track, index: number): number {
+    return Math.abs(this.arcs(track, index, false));
+  }
+
+  /**
+   * Signed curvature of the driven line (or of the centreline) on the ARC_BASE arc around a point.
+   * The per-point curvature of a 1 m track turns millimetre resampling wobble into swings of
+   * several 1/km, enough to make a 400 m sweeper look like a 200 m corner; averaging neighbouring
+   * arcs as well would blunt the apex of a hairpin.
+   */
+  private arcs(track: Track, index: number, axis: boolean): number {
     const n = track.points.length, b = this.base = track.pointsFor(LineProfile.ARC_BASE);
-    let delta = 0;
-    // Smooth over three neighbouring arcs; the difference to the centreline arc removes discretisation bias.
-    for (let d = -1; d <= 1; d++) {
-      const i = index + d * b, weight = d === 0 ? 0.5 : 0.25;
-      const line = menger(this.point(track, i - b), this.point(track, i), this.point(track, i + b));
-      const axis = menger(track.points[((i - b) % n + n) % n].center, track.points[((i % n) + n) % n].center, track.points[((i + b) % n + n) % n].center);
-      delta += weight * (line - axis);
-    }
-    return Math.abs(track.points[((index % n) + n) % n].curvature + delta);
+    const at = (i: number) => axis ? track.points[((i % n) + n) % n].center : this.point(track, i);
+    return menger(at(index - b), at(index), at(index + b));
   }
 }

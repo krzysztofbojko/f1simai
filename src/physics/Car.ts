@@ -206,6 +206,14 @@ export class Car {
   /** Highest pedal the expert holds with no cornering force: the front axle's share of the brake torque at its limit. */
   public static TRAIL_BRAKE_PEDAL = 0.8;
   /**
+   * Scale of the expert's corner-exit throttle cap (the rear friction circle left over from cornering).
+   * The cap divides by the full ICE + MGU-K force, which the low-rpm torque curve and the ERS taper
+   * rarely deliver, so a scale of 1 lifts too early; 1.7 is calibrated on six tracks.
+   */
+  public static EXIT_DRIVE_SHARE = 1.7;
+  /** Static share of the weight on the rear axle. */
+  public static readonly REAR_WEIGHT_SHARE = 0.54;
+  /**
    * Live push: while the tyres have grip to spare (low utilisation, no slide, cool enough, room to
    * the outside edge) the corner the car is in may be taken up to this share faster than planned.
    */

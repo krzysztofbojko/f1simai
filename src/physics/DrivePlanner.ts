@@ -295,6 +295,15 @@ export function planDrive(car: Car, track: Track, leaderSpeeds?: number[]): Driv
     }
   }
 
+  // Corner exit: the rear tyres already carry their share of the cornering force, so the drive may
+  // take only the rest of their friction circle; more pushes the car wide onto the outside kerb.
+  const v2 = car.speed * car.speed;
+  const tyreAccel = car.baseTireGrip * Math.min(car.tyreGripFront, car.tyreGripRear) * (Car.GRAVITY + 0.5 * car.airDensity * car.downforceCoeff * car.wakeDownforce * v2 / car.totalMass);
+  const cornerShare = Math.min(1, Math.abs(car.lateralG) * Car.GRAVITY / Math.max(1, tyreAccel));
+  const driveAccel = Car.EXIT_DRIVE_SHARE * Car.REAR_WEIGHT_SHARE * tyreAccel * Math.sqrt(1 - cornerShare * cornerShare);
+  const fullDriveAccel = (Car.ICE_POWER + Car.ERS_POWER) / Math.max(10, car.speed) / car.totalMass;
+  if (cornerShare > 0.25) throttle = Math.min(throttle, Math.max(0.2, driveAccel / fullDriveAccel));
+
   // 4. Traction & Stability Control:
   if (car.isSliding) {
     throttle = Math.min(throttle, 0.20);
