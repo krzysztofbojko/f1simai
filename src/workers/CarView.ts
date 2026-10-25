@@ -1,5 +1,6 @@
 import { Car, type CarControl, type CheckpointDelta } from '../physics/Car';
 import type { TyreCompound } from '../physics/Tyres';
+import type { PitPhase } from '../physics/PitStrategy';
 import { Vector2 } from '../math/Vector2';
 
 export interface SerializedRay {
@@ -89,6 +90,13 @@ export interface CarView {
   isPitting: boolean;
   pitTimer: number;
   pitStopsCount: number;
+  pitPhase: PitPhase;
+  pitLaneTime: number;
+  lastPitLaneTime: number | null;
+  lastPitServiceTime: number;
+  lastPitNote: string;
+  pitShowTimer: number;
+  teamIndex: number;
   trackLimitExits: number;
   raceLapsCompleted: number;
 }
@@ -179,6 +187,13 @@ export function toCarView(car: Car, ctrl?: CarControl, isHeadless: boolean = fal
     isPitting: car.isPitting,
     pitTimer: Math.max(0, Math.round(car.pitTimer * 10) / 10),
     pitStopsCount: car.pitStopsCount,
+    pitPhase: car.pitPhase,
+    pitLaneTime: car.pitLaneTime,
+    lastPitLaneTime: car.lastPitLaneTime,
+    lastPitServiceTime: car.lastPitServiceTime,
+    lastPitNote: car.lastPitNote,
+    pitShowTimer: car.pitShowTimer,
+    teamIndex: car.teamIndex,
     trackLimitExits: car.trackLimitExits,
     raceLapsCompleted: car.raceLapsCompleted
   };
@@ -267,6 +282,13 @@ export function applyCarView(car: Car, view: CarView): void {
   car.isPitting = view.isPitting;
   car.pitTimer = view.pitTimer;
   car.pitStopsCount = view.pitStopsCount;
+  car.pitPhase = view.pitPhase ?? '';
+  car.pitLaneTime = view.pitLaneTime ?? 0;
+  car.lastPitLaneTime = view.lastPitLaneTime ?? null;
+  car.lastPitServiceTime = view.lastPitServiceTime ?? 0;
+  car.lastPitNote = view.lastPitNote ?? '';
+  car.pitShowTimer = view.pitShowTimer ?? 0;
+  car.teamIndex = view.teamIndex ?? -1;
   car.trackLimitExits = view.trackLimitExits ?? 0;
   car.raceLapsCompleted = view.raceLapsCompleted;
 }

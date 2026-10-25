@@ -65,7 +65,7 @@ AI śledzi krótką trajektorię wzdłuż osi toru zamiast celować o całe chec
 
 Zużycie paliwa wynika z mocy silnika: `FUEL_FLOW_MAX · gaz · f(obroty)` plus 0,0006 kg/s na biegu jałowym, gdzie `FUEL_FLOW_MAX` = 100 kg/h (limit przepływu z regulaminu), a `f` to krzywa mocy ICE. Daje to ok. 0,32–0,33 kg/km (GP: ok. 0,94 kg/okr., Spielberg ok. 1,37 kg/okr.), czyli ok. 100 kg na 300 km wyścigu.
 
-Postoje (`src/physics/PitStrategy.ts`) działają tak samo w treningu, kwalifikacjach i wyścigu. Nikt nie tankuje. Zgłoszony postój zaczyna się przy przecięciu linii mety. Auto zjeżdża w aleję: znika z toru, nie bierze udziału w ruchu i nie widzą go czujniki. Traci czas przejazdu aleją (`PIT_LANE_LOSS` = 20 s, tor może ustawić własne `pitLaneLoss`) oraz 2,5 s wymiany opon. Dostaje nowy komplet opon i naprawiony nos. Wraca na tor przy linii, wzdłuż toru, z prędkością limitu alei (80 km/h), ale dopiero gdy w promieniu 12 m nie ma auta i żadne nie nadjeżdża z tyłu szybciej niż w 1,5 s. Postój wlicza się do czasu okrążenia i wyścigu. Okrążenie wyjazdowe nie jest okrążeniem wzorcowym (nie ustala rekordu ani nie ocenia modelu).
+Postoje (`src/physics/PitStrategy.ts`) działają tak samo w treningu, kwalifikacjach i wyścigu. Nikt nie tankuje. Od 25.10.2026 auto przejeżdża prawdziwą aleją serwisową (patrz „Aleja serwisowa” niżej). Dostaje nowy komplet opon i naprawione uszkodzenia. Postój wlicza się do czasu okrążenia i wyścigu. Okrążenie wyjazdowe nie jest okrążeniem wzorcowym (nie ustala rekordu ani nie ocenia modelu).
 
 Strategia AI: zjazd przy zużyciu opon > 70% (nie na ostatnich dwóch okrążeniach wyścigu), zjazd w dowolnym momencie, gdy opony nie pasują do warunków, a w wyścigu na suchym obowiązek użycia dwóch mieszanek slick. Jeśli auto do połowy dystansu nie zmieniło mieszanki, zjeżdża wtedy. Zasada nie obowiązuje, jeśli użyto opon przejściowych lub deszczowych. Gracz decyduje o postojach sam (klawisz P).
 
@@ -97,7 +97,7 @@ Wiatr jest jednorodny na całym torze (bez osłonięć trybunami). Brak pełnej 
 
 `npm test` uruchamia oba zestawy oraz sprawdza limity sił, hamowanie od spoczynku i w obu kierunkach, telemetrię, jazdę bokiem, brak paliwa, postój bez tankowania i zegary, skalę, obrys oraz ukończenie okrążeń GP przez AI. Test workera z kontrolowanym zegarem sprawdza 1× przy tickerach 16 ms i 20 ms oraz pauzę. Dodatkowo sprawdza checkpointy pól startowych, ukończenie 10-okrążeniowego wyścigu przez AI, zamrożenie czasu po mecie i powrót do treningu. `npm run audit:physics` wypisuje wyniki numeryczne; `npm run build` sprawdza TypeScript i bundlowanie.
 
-`docs/archive/AUDIT_PHYSICS.md` zachowuje dowody stanu sprzed napraw. Poprawiono osiem opisanych tam problemów i akumulator czasu; dynamika poślizgu (model jednośladu) i kontakty między bolidami doszły później (opisane niżej). Aleja serwisowa nie ma własnej geometrii: auto znika z toru na czas postoju (strata alei plus zmiana opon) i wraca przy linii mety, gdy tor przy wyjeździe jest wolny.
+`docs/archive/AUDIT_PHYSICS.md` zachowuje dowody stanu sprzed napraw. Poprawiono osiem opisanych tam problemów i akumulator czasu; dynamika poślizgu (model jednośladu) i kontakty między bolidami doszły później (opisane niżej). Od 25.10.2026 aleja serwisowa ma własną geometrię (patrz „Aleja serwisowa”).
 
 ### Krótkie ataki na rywala
 
@@ -319,6 +319,22 @@ Samotny ekspert (`seedRandom(1)`, 3 okrążenia, najlepsze okrążenie):
 | GP | 51,78 s | 51,49 s | 52,40 s |
 
 Wytrenowana stawka na Albert Park (900 s treningu, 20 aut, ziarna 145 / 456, przed → po): najlepsze okrążenie 104,6 → 101,8 s / 102,9 → 100,8 s, mediana wszystkich okrążeń 116,5 → 125,9 s / 117,0 → 118,2 s, mediana czystych okrążeń 112,7 → 116,6 s / 109,0 → 111,1 s, wraki na minutę 0,9 → 0,5 / 1,3 → 1,5. Najlepsze okrążenie się poprawia, a typowe nie: w 6–9 generacjach sieci nie doganiają szybszego nauczyciela, a rozrzut między ziarnami jest duży. Skrót stanu `bench:step` się zmienia.
+
+## Aleja serwisowa (25.10.2026)
+
+Wcześniej auto zjeżdżało do boksu na linii mety, znikało z toru i stało niewidoczne przez 20 s straty alei plus 2,5 s wymiany opon. Teraz:
+
+- **Geometria** (`src/track/PitLane.ts`, budowana w konstruktorze `Track`): 130 m drogi wjazdowej, 260 m pod limitem 80 km/h i 60 m drogi wyjazdowej. Aleja leży na najprostszym odcinku w zasięgu ±500 m od linii mety (wraz ze 100 m za wyjazdem), więc auto wraca na prostą, a nie w zakręt. Na torze GP linia mety leży w łuku R76 z nawrotem za nim, dlatego aleja jest tam przesunięta. Pas szeroki na 5 m biegnie za poboczem (najwyżej 6 m) i murkiem 1 m, po tej stronie, po której nie ma innego odcinka toru. Na pasie jest 10 stanowisk zespołów co 12 m (bliżej na krótkiej alei). Pole `pitLaneLoss` w plikach torów wczytuje się, ale już nie działa.
+- **Przejazd:** auto wezwane do boksu skręca w aleję na linii PIT IN. Dalej jedzie kinematycznie po krzywej alei: hamowanie do 80 km/h przed linią limitu, limit, hamowanie 8 m/s² do swojego stanowiska, obsługa, ruszanie 6 m/s², za linią limitu 8 m/s² do wyjazdu. Hamowanie do stanowiska ma stałe opóźnienie kończące się dokładnie w punkcie postoju, a przecięcie linii wyjazdu jest interpolowane w kroku. Czas alei przy 30, 60 i 120 Hz różni się najwyżej o 2 kroki (`test-pitstops`). Auto w alei jest widoczne, ale nie bierze udziału w ruchu i nie widzą go czujniki aut na torze. W alei trzyma 8 m odstępu do auta przed sobą. Bramki sektorów i linia mety leżące przy alei liczą się przy mijaniu ich w alei. Na linii PIT OUT obowiązuje dotychczasowa reguła wolnego toru (12 m, 1,5 s). Auto wraca przy krawędzi toru z co najmniej 80 km/h, a planista łączy je z linią jazdy stopniowo.
+- **Obsługa** (`serviceTime`, losowanie przez `random()`):
+  - ekipa zespołu (`PIT_CREW_BASE`): wymiana kół 2,0–2,8 s plus rozrzut ±0,3 s;
+  - uszkodzenie poniżej 0,1 jest naprawiane w czasie wymiany kół, 0,1–0,25 to szybka naprawa +1–3 s, od 0,25 wymiana nosa i skrzydła +6–9 s;
+  - wpadka (koło, podnośnik) z prawdopodobieństwem 4%, a przy wymianie skrzydła 8%: +2–8 s;
+  - podwójny postój: gdy partner z zespołu stoi na stanowisku albo do niego dojeżdża, auto czeka 7 m przed nim.
+- **Typowa strata:** przejazd alei na GP ok. 21 s (z obsługą ok. 2,3 s), z nowym nosem ok. 28 s. `pitStopDuration(track)` szacuje go z geometrii (przejazd w limicie plus 2,4 s).
+- **Widok:** nad autem w alei licznik `🔧 PIT 12,4 s` od linii wjazdu do linii wyjazdu. Po wyjeździe przez 5 s zostaje czas alei i postoju z dopiskiem „skrzydło”, „naprawa” albo „wpadka”. Panel wyścigu pokazuje najszybszy pit stop (najkrótszy czas alei, `RaceSession.fastestPitStop`).
+
+Test ostatniego okrążenia w `test-race-finish` ma zaliczone dwie mieszanki: obowiązkowy zjazd na samym ostatnim okrążeniu kończył się teraz w alei, gdy wyścig zamykał limit czasu. Skrót stanu `bench:step` się zmienia.
 
 ## Ochrona przed wartościami nieskończonymi (19.10.2026)
 

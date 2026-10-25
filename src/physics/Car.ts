@@ -12,7 +12,7 @@ import { getRacingLine, RacingLine } from '../track/RacingLine';
 import { COMPOUND_SPECS, compoundGrip, isSlick, weatherCompound, type TyreCompound } from './Tyres';
 import { checkTrackProgress } from './LapTiming';
 import { scoreStep } from './Fitness';
-import { pitCompound, servicePitStop } from './PitStrategy';
+import { pitCompound, servicePitStop, maybeEnterPitLane, type PitPhase, type PitStopEvent } from './PitStrategy';
 import { planDrive } from './DrivePlanner';
 
 import { createSimConfig, type SimConfig } from './SimConfig';
@@ -913,8 +913,28 @@ export class Car {
   // Race & Pit Stop State
   public wantsToPit: boolean = false;
   public isPitting: boolean = false;
+  /** Service still to go at the box, s (0 while driving the lane). */
   public pitTimer: number = 0;
   public pitStopsCount: number = 0;
+  /** Index of the car's team in Population.F1_TEAMS: its pit crew and box (-1: no team, the middle box). */
+  public teamIndex = -1;
+  /** Where the car is in the pit lane (PitStrategy.ts). */
+  public pitPhase: PitPhase = '';
+  /** Distance from the start/finish line along the track while in the pit lane, m. */
+  public pitDistance = 0;
+  /** Lateral offset at which the car left the track for the pit lane, m. */
+  public pitEntryOffset = 0;
+  /** Time since the pit entry line, s; the stationary time and what the crew did at the box. */
+  public pitLaneTime = 0;
+  public pitServiceTime = 0;
+  public pitNote = '';
+  /** The last completed stop, shown for PIT_SHOW_TIME after the exit line. */
+  public lastPitLaneTime: number | null = null;
+  public lastPitServiceTime = 0;
+  public lastPitNote = '';
+  public pitShowTimer = 0;
+  /** Set for one step when the car crosses the pit exit line; the race session reads it. */
+  public pitStopEvent: PitStopEvent | null = null;
   /** Race distance in laps while racing (the pit strategy plans with it); 0 outside a race. */
   public raceDistanceLaps = 0;
   /** Compounds fitted during this race (start set and every stop), for the dry-race tyre rule. */
@@ -1062,6 +1082,9 @@ export class Car {
     this.wantsToPit = false;
     this.isPitting = false;
     this.pitTimer = 0;
+    this.pitPhase = '';
+    this.pitStopEvent = null;
+    this.pitShowTimer = 0;
     this.isFinishedRace = false;
     this.currentControl = { steer: 0, throttle: 0, brake: 0 };
     this.effectiveThrottle = 0;
@@ -1208,6 +1231,16 @@ export class Car {
     else { this.tyreTempRear = next; this.tyreWearRear = nextWear; }
   }
 
+  /** A car placed along a path rather than driven (the pit lane): no yaw rate, wheels straight, no slip carried over. */
+  settleChassis(): void {
+    this.resetSuspension();
+    this.angularVelocity = 0;
+    this.wheelAngle = this.steeringHands = 0;
+    this.frontLateralInUse = this.rearLateralInUse = 0;
+    this.understeerSlip = this.oversteerSlip = 0;
+    this.isSliding = this.isSkidding = false;
+  }
+
   /** Compound fitted at the next stop: the player's request, else the strategy for the conditions (PitStrategy.ts). */
   pitCompound(): TyreCompound {
     return pitCompound(this);
@@ -1328,6 +1361,8 @@ export class Car {
   updatePhysics(control: CarControl, dt: number, track: Track, traffic: readonly Car[] = []): LapFinishEvent | null {
     this.lastStepDt = dt;
     this.sectorEvent = null;
+    this.pitStopEvent = null;
+    if (Number.isFinite(dt) && dt > 0) this.pitShowTimer = Math.max(0, this.pitShowTimer - dt);
     if (!this.isAlive) {
       this.effectiveThrottle = 0;
       this.lateralG = 0;
@@ -1368,6 +1403,8 @@ export class Car {
     const actuated = this.actuatedControl;
     actuated.steer = control.steer; actuated.throttle = this.throttleResponse; actuated.brake = this.brakePressure;
     control = actuated;
+    // The pit lane is driven by its own rules, off the track: no surface, no track limits.
+    if (this.isPitting) return servicePitStop(this, dt, track, traffic);
     this.updateSurface(track);
     if (!this.withinTrackLimits) {
       this.lapCompromised = true;
@@ -1377,10 +1414,6 @@ export class Car {
       this.replayStepTimer = 0;
     }
 
-    if (this.isPitting) {
-      servicePitStop(this, dt, track, traffic);
-      return null;
-    }
 
     this.timeAlive += dt;
     this.lapTime += dt;
@@ -1749,6 +1782,7 @@ export class Car {
       this.peakFitness = this.fitness;
     }
     const finishEvent = this.checkTrackProgress(track);
+    maybeEnterPitLane(this, track);
     if (this.fitness > this.peakFitness) {
       this.peakFitness = this.fitness;
     }

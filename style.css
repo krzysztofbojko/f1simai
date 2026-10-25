@@ -1318,6 +1318,7 @@ input[type="checkbox"] {
 
 .race-info-banner {
   display: flex;
+  flex-wrap: wrap;
   background: var(--bg-inset);
   border: 1px solid var(--border-soft);
   border-radius: var(--radius-sm);
@@ -1360,6 +1361,32 @@ input[type="checkbox"] {
 }
 
 .race-info-lbl { font-size: 11px; }
+
+.race-fastest-pit {
+  flex-basis: 100%;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  padding-top: 6px;
+  border-top: 1px solid var(--border-soft);
+}
+
+.race-fastest-pit-val {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-main);
+  text-align: right;
+}
+
+.race-fastest-pit-val .pit-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  margin-right: 5px;
+}
 
 .race-info-val {
   font-family: var(--font-mono);

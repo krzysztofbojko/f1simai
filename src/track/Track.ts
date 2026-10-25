@@ -1,5 +1,6 @@
 import { Vector2, LineSegment, raySegmentIntersection, IntersectionResult, distToSegment, segmentsIntersect } from '../math/Vector2';
 import { TrackPoint } from '../math/Spline';
+import { PitLane } from './PitLane';
 
 export interface Checkpoint {
   index: number;
@@ -65,8 +66,10 @@ export class Track {
   public timingGates: TimingGate[] = [];
   public width: number;
   public totalLength: number = 0;
-  /** Seconds a pass through the pit lane costs on this circuit; null: the default (PitStrategy.PIT_LANE_LOSS). */
+  /** Former per-circuit pit-lane loss: still read from track files, no longer used (the lane is driven). */
   public pitLaneLoss: number | null = null;
+  /** The pit lane beside the start/finish straight (null on a track too short for one). */
+  public pitLane: PitLane | null = null;
 
   /** Metres between consecutive track points (the spline resamples them uniformly). */
   public spacing: number = 1;
@@ -107,6 +110,7 @@ export class Track {
     this.buildGeometry();
     this.validateAsphalt();
     this.buildRunoff();
+    this.pitLane = PitLane.build(this);
   }
 
   /** Track points covering `metres` along the track (at least one). */

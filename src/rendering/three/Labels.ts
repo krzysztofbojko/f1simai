@@ -9,13 +9,23 @@ interface Pending { view: CarView; text: string; kind: string; priority: boolean
 /** Average advance of JetBrains Mono, as a share of the font size (emoji count double). */
 const CHAR_WIDTH = 0.62;
 
+/** What the crew did beyond the tyres (PitStopEvent.note codes). */
+const PIT_NOTES: Record<string, string> = { wing: 'skrzydło', repair: 'naprawa', slow: 'wpadka' };
+
+/** Seconds with one decimal and a Polish decimal comma. */
+function seconds(t: number): string { return `${t.toFixed(1).replace('.', ',')} s`; }
+
 function labelText(view: CarView): { text: string; kind: string } {
   const car = view.car;
   const speed = Math.round(car.speedKmh);
   const match = car.driverName.match(/^([^\s]+)\s+([^\s(]+)/);
   const short = match ? match[2] : car.driverName.split(' ')[0];
   if (!car.isAlive) return { text: '💥 DNF', kind: 'dnf' };
-  if (car.isPitting) return { text: `🔧 ${short}: PIT STOP (${car.pitTimer.toFixed(1)}s)`, kind: 'pitting' };
+  if (car.isPitting) return { text: `🔧 ${short}: PIT ${seconds(car.pitLaneTime)}`, kind: 'pitting' };
+  if (car.pitShowTimer > 0 && car.lastPitLaneTime !== null) {
+    const notes = car.lastPitNote ? ` (${car.lastPitNote.split(',').map(n => PIT_NOTES[n] ?? n).join(', ')})` : '';
+    return { text: `🔧 ${short}: PIT ${seconds(car.lastPitLaneTime)} · postój ${seconds(car.lastPitServiceTime)}${notes}`, kind: 'pitting' };
+  }
   if (car.yellowFlag) return { text: `⚑ ŻÓŁTA: ${short} ${speed} km/h`, kind: 'yellow' };
   if (car.isOutOfFuel) return { text: `⚠️ ${short}: LIMP MODE (NO FUEL)`, kind: 'pit' };
   if (car.wantsToPit) return { text: `🔧 ${short}: BOX THIS LAP`, kind: 'pit' };
@@ -78,15 +88,16 @@ export class Labels {
     const lift = ppm ? Math.max(24, 0.9 * ppm + 16) : 30;
     for (const view of views) {
       const car = view.car;
-      if (car.wreckRemoved || car.isPitting || (!showSpeed && car.isAlive)) continue;
+      const pitInfo = car.isPitting || car.pitShowTimer > 0;
+      if (car.wreckRemoved || (!showSpeed && car.isAlive && !pitInfo)) continue;
       if (!rig.worldToScreen(car.pos.x, car.pos.y, 1.2, this.p)) continue;
       const { text, kind } = labelText(view);
-      const strong = view.isLeader || view.isPlayer || view.isSelected || car.isPitting;
+      const strong = view.isLeader || view.isPlayer || view.isSelected || pitInfo;
       const font = strong ? 10 : 9;
       let chars = 0;
       for (const ch of text) chars += ch.codePointAt(0)! > 0x2000 ? 2 : 1;
       const w = chars * font * CHAR_WIDTH + 14, h = strong ? 18 : 16;
-      const priority = strong || car.yellowFlag || car.wantsToPit || car.isOutOfFuel || !car.isAlive;
+      const priority = strong || pitInfo || car.yellowFlag || car.wantsToPit || car.isOutOfFuel || !car.isAlive;
       this.pending.push({ view, text, kind: strong ? `${kind} strong` : kind, priority, x: this.p.x - w / 2, y: this.p.y - lift - h, w, h });
     }
 

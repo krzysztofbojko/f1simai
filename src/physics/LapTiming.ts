@@ -3,7 +3,6 @@ import type { Track } from '../track/Track';
 import { lineCrossingT, segmentIntersectionT } from '../math/Vector2';
 import { CONDITION_BANDS } from './Weather';
 import { scoreGate, scoreLap, scoreSplit } from './Fitness';
-import { enterPits } from './PitStrategy';
 
 /**
  * Lap timing of a car: gates cleared in order along the track, splits and sectors, the lap at the
@@ -117,131 +116,139 @@ export function checkTrackProgress(car: Car, track: Track): LapFinishEvent | nul
   }
 
   if (car.withinTrackLimits && isMovingForwardAlongTrack && (crossedGate || isNearCp)) {
-    car.checkpointsCleared++;
-    // Seconds between the moment the car met the gate line and the end of this step: the step
-    // ends past the line by (1 - t) of its length. A gate taken just before its line (close to its
-    // centre) is timed where the car will meet the line at its present speed.
-    const gateT = crossingT ?? lineCrossingT(car.prevPos, car.pos, nextCp.p1, nextCp.p2);
-    const overshoot = gateT === null ? 0 : Math.max(-0.5, Math.min(car.lastStepDt, (1 - Math.max(0, gateT)) * car.lastStepDt));
-    const gateTime = car.lapTime - overshoot;
-
-    scoreGate(car, track, nextCp, clearedCpIdx);
-
-    car.framesSinceLastCheckpoint = 0;
-    car.currentCheckpointIdx = (clearedCpIdx + 1) % cpCount;
-    car.lineNet?.passPoint(clearedCpIdx, cpCount, car.lapTime);
-
-    // Check 4 timing checkpoints (CP1, CP2, CP3)
-    if (track.timingGates && track.timingGates.length === 4) {
-      for (let g = 0; g < 3; g++) {
-        const gate = track.timingGates[g];
-        if (car.currentLapSplits[g] === null && clearedCpIdx === gate.checkpointIndex && gateTime > 1.2) {
-          const split = gateTime;
-          car.currentLapSplits[g] = split;
-          const prevPbSplit = car.bestLapSplits[g];
-          const delta = prevPbSplit !== null ? (split - prevPbSplit) : 0;
-          car.lastCheckpointDelta = {
-            gateIndex: g,
-            gateName: gate.name,
-            delta,
-            splitTime: split,
-            sectorTime: timeSector(car, g, split),
-          };
-          scoreSplit(car, delta);
-        }
-      }
-    }
-
-    // Completed a full lap crossing the start/finish line (cleared checkpoint 0)!
-    if (clearedCpIdx === 0) {
-      car.ersHarvestedLap = 0;
-      car.lineCrossingRaceTime = car.totalRaceTime - overshoot;
-      if (car.checkpointsCleared >= track.checkpoints.length * 0.8) {
-        const finishedLapTime = gateTime;
-        car.lastLapTime = finishedLapTime;
-        car.currentLapSplits[3] = finishedLapTime;
-        const prevPbFinish = car.bestLapSplits[3] || car.bestLapTime;
-        car.lastCheckpointDelta = {
-          gateIndex: 3,
-          gateName: 'CP 4 (META)',
-          delta: prevPbFinish !== null ? (finishedLapTime - prevPbFinish) : 0,
-          splitTime: finishedLapTime,
-          sectorTime: timeSector(car, 3, finishedLapTime),
-        };
-
-        // Handed over as it is: the car starts a fresh array for the next lap below.
-        const finishedTrajectory = car.currentLapTrajectory;
-        const finishedMaxSpeedKmh = Math.round(car.maxSpeedInLap * 3.6);
-        const avgSpeedKmh = finishedLapTime > 0
-          ? Math.round((track.totalLength / finishedLapTime) * 3.6 * 10) / 10
-          : 0;
-
-        car.currentLap++;
-        // Laps after the chequered flag are not raced: they neither count nor set a time.
-        const afterFlag = car.isFinishedRace;
-        if (!afterFlag) car.raceLapsCompleted++;
-        // Training compares laps within one track-condition class: a lap the rain caught is timed, not learnt from.
-        const [bandLow, bandHigh] = CONDITION_BANDS[Car.config.conditions];
-        const offConditions = !car.isRaceMode && (car.lapWetMin < bandLow || car.lapWetMax > bandHigh);
-        car.lapWetMin = car.lapWetMax = car.wetness;
-        if (!car.lapCompromised && !offConditions) scoreLap(car, finishedLapTime);
-        const compromised = car.lapCompromised || car.pressureLearningBlocked || offConditions || afterFlag;
-        if (!car.isManual) car.pace.finishLap(finishedLapTime, !compromised, car.lapExcursion && !car.lapContact);
-        car.lapExcursion = false;
-        car.lapContact = false;
-        if (!compromised && (!car.bestLapTime || finishedLapTime < car.bestLapTime)) {
-          car.bestLapTime = finishedLapTime;
-          car.bestLapPressure = car.driverPressure;
-          car.bestLapSplits = [...car.currentLapSplits];
-          if (car.brain) {
-            car.safeBrainBackup = car.brain.clone();
-            car.safeBrainPressure = car.driverPressure;
-          }
-        }
-
-        // A requested stop is taken here, at the line
-        if (car.wantsToPit && !car.isFinishedRace) enterPits(car, track);
-
-        const yellow = car.lapYellow;
-        car.lapYellow = false;
-        car.pressureLearningBlocked = car.pressureElapsed < 2;
-        car.lapCompromised = car.incidentActive || car.recoveryTimer > 0 || car.pressureLearningBlocked;
-        car.rollLapPerformanceVariation();
-        car.currentLapTrajectory = [];
-        car.maxSpeedInLap = 0;
-        car.distanceCoveredInLap = 0;
-        // The part of this step beyond the line already belongs to the new lap.
-        car.lapTime = overshoot;
-        car.flyingLap = true;
-        car.currentLapSplits = [null, null, null, null];
-        const fuelUsed = car.lapStartFuel - car.fuelKg;
-        car.lapStartFuel = car.fuelKg;
-
-        return {
-          compromised,
-          pressure: car.driverPressure,
-          lapTime: finishedLapTime,
-          trajectory: finishedTrajectory,
-          maxSpeed: finishedMaxSpeedKmh,
-          avgSpeed: avgSpeedKmh,
-          fuelRemaining: Math.round(car.fuelKg * 10) / 10,
-          fuelUsed,
-          yellow,
-        };
-      } else {
-        // First time crossing the start/finish line from grid slot: start flying lap!
-        car.lapTime = overshoot;
-        car.lapStartFuel = car.fuelKg;
-        car.flyingLap = true;
-        car.lapWetMin = car.lapWetMax = car.wetness;
-        car.currentLapSplits = [null, null, null, null];
-        car.lastCheckpointDelta = null;
-        car.currentLapTrajectory = [];
-        car.maxSpeedInLap = 0;
-        car.distanceCoveredInLap = 0;
-      }
-    }
+    // A gate taken just before its line (close to its centre) is timed where the car will meet the line at its present speed.
+    return passGate(car, track, crossingT ?? lineCrossingT(car.prevPos, car.pos, nextCp.p1, nextCp.p2));
   }
 
   return null;
 }
+
+/**
+ * The car clears its next gate: splits, sectors and, at the start/finish gate, the lap. `gateT` is
+ * the fraction of this step at which it met the gate line (null: at the end of the step); the step
+ * ends past the line by (1 - t) of its length. The pit lane clears the gates it runs beside too.
+ */
+export function passGate(car: Car, track: Track, gateT: number | null): LapFinishEvent | null {
+  const cpCount = track.checkpoints.length;
+  const clearedCpIdx = car.currentCheckpointIdx % cpCount;
+  const nextCp = track.checkpoints[clearedCpIdx];
+  car.checkpointsCleared++;
+  const overshoot = gateT === null ? 0 : Math.max(-0.5, Math.min(car.lastStepDt, (1 - Math.max(0, gateT)) * car.lastStepDt));
+  const gateTime = car.lapTime - overshoot;
+
+  scoreGate(car, track, nextCp, clearedCpIdx);
+
+  car.framesSinceLastCheckpoint = 0;
+  car.currentCheckpointIdx = (clearedCpIdx + 1) % cpCount;
+  car.lineNet?.passPoint(clearedCpIdx, cpCount, car.lapTime);
+
+  // Check 4 timing checkpoints (CP1, CP2, CP3)
+  if (track.timingGates && track.timingGates.length === 4) {
+    for (let g = 0; g < 3; g++) {
+      const gate = track.timingGates[g];
+      if (car.currentLapSplits[g] === null && clearedCpIdx === gate.checkpointIndex && gateTime > 1.2) {
+        const split = gateTime;
+        car.currentLapSplits[g] = split;
+        const prevPbSplit = car.bestLapSplits[g];
+        const delta = prevPbSplit !== null ? (split - prevPbSplit) : 0;
+        car.lastCheckpointDelta = {
+          gateIndex: g,
+          gateName: gate.name,
+          delta,
+          splitTime: split,
+          sectorTime: timeSector(car, g, split),
+        };
+        scoreSplit(car, delta);
+      }
+    }
+  }
+
+  // Completed a full lap crossing the start/finish line (cleared checkpoint 0)!
+  if (clearedCpIdx === 0) {
+    car.ersHarvestedLap = 0;
+    car.lineCrossingRaceTime = car.totalRaceTime - overshoot;
+    if (car.checkpointsCleared >= track.checkpoints.length * 0.8) {
+      const finishedLapTime = gateTime;
+      car.lastLapTime = finishedLapTime;
+      car.currentLapSplits[3] = finishedLapTime;
+      const prevPbFinish = car.bestLapSplits[3] || car.bestLapTime;
+      car.lastCheckpointDelta = {
+        gateIndex: 3,
+        gateName: 'CP 4 (META)',
+        delta: prevPbFinish !== null ? (finishedLapTime - prevPbFinish) : 0,
+        splitTime: finishedLapTime,
+        sectorTime: timeSector(car, 3, finishedLapTime),
+      };
+
+      // Handed over as it is: the car starts a fresh array for the next lap below.
+      const finishedTrajectory = car.currentLapTrajectory;
+      const finishedMaxSpeedKmh = Math.round(car.maxSpeedInLap * 3.6);
+      const avgSpeedKmh = finishedLapTime > 0
+        ? Math.round((track.totalLength / finishedLapTime) * 3.6 * 10) / 10
+        : 0;
+
+      car.currentLap++;
+      // Laps after the chequered flag are not raced: they neither count nor set a time.
+      const afterFlag = car.isFinishedRace;
+      if (!afterFlag) car.raceLapsCompleted++;
+      // Training compares laps within one track-condition class: a lap the rain caught is timed, not learnt from.
+      const [bandLow, bandHigh] = CONDITION_BANDS[Car.config.conditions];
+      const offConditions = !car.isRaceMode && (car.lapWetMin < bandLow || car.lapWetMax > bandHigh);
+      car.lapWetMin = car.lapWetMax = car.wetness;
+      if (!car.lapCompromised && !offConditions) scoreLap(car, finishedLapTime);
+      const compromised = car.lapCompromised || car.pressureLearningBlocked || offConditions || afterFlag;
+      if (!car.isManual) car.pace.finishLap(finishedLapTime, !compromised, car.lapExcursion && !car.lapContact);
+      car.lapExcursion = false;
+      car.lapContact = false;
+      if (!compromised && (!car.bestLapTime || finishedLapTime < car.bestLapTime)) {
+        car.bestLapTime = finishedLapTime;
+        car.bestLapPressure = car.driverPressure;
+        car.bestLapSplits = [...car.currentLapSplits];
+        if (car.brain) {
+          car.safeBrainBackup = car.brain.clone();
+          car.safeBrainPressure = car.driverPressure;
+        }
+      }
+
+      const yellow = car.lapYellow;
+      car.lapYellow = false;
+      car.pressureLearningBlocked = car.pressureElapsed < 2;
+      car.lapCompromised = car.incidentActive || car.recoveryTimer > 0 || car.pressureLearningBlocked;
+      car.rollLapPerformanceVariation();
+      car.currentLapTrajectory = [];
+      car.maxSpeedInLap = 0;
+      car.distanceCoveredInLap = 0;
+      // The part of this step beyond the line already belongs to the new lap.
+      car.lapTime = overshoot;
+      car.flyingLap = true;
+      car.currentLapSplits = [null, null, null, null];
+      const fuelUsed = car.lapStartFuel - car.fuelKg;
+      car.lapStartFuel = car.fuelKg;
+
+      return {
+        compromised,
+        pressure: car.driverPressure,
+        lapTime: finishedLapTime,
+        trajectory: finishedTrajectory,
+        maxSpeed: finishedMaxSpeedKmh,
+        avgSpeed: avgSpeedKmh,
+        fuelRemaining: Math.round(car.fuelKg * 10) / 10,
+        fuelUsed,
+        yellow,
+      };
+    } else {
+      // First time crossing the start/finish line from grid slot: start flying lap!
+      car.lapTime = overshoot;
+      car.lapStartFuel = car.fuelKg;
+      car.flyingLap = true;
+      car.lapWetMin = car.lapWetMax = car.wetness;
+      car.currentLapSplits = [null, null, null, null];
+      car.lastCheckpointDelta = null;
+      car.currentLapTrajectory = [];
+      car.maxSpeedInLap = 0;
+      car.distanceCoveredInLap = 0;
+    }
+  }
+  return null;
+}
+

@@ -1,9 +1,10 @@
 // Pit stops: the strategy (wear, conditions, the dry-race tyre rule, closed last laps), the pit
-// lane (time lost, the car off the track, rejoining only into a clear track), no refuelling and
-// the race fuel planned for the distance.
+// lane (beside the track, the speed limit, the team boxes, the time from the entry to the exit
+// line, timing in the lane, the same at any step rate, rejoining only into a clear track), the
+// service time (crew, damage, slow stops, double stacking), no refuelling and the race fuel.
 import { build } from 'vite';
 import assert from 'node:assert/strict';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, rm, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -11,7 +12,9 @@ const dir = await mkdtemp(join(tmpdir(), 'f1-pits-'));
 try {
   await build({ configFile: false, logLevel: 'silent', build: { outDir: dir, emptyOutDir: true, minify: false, lib: { entry: {
     car: resolve('src/physics/Car.ts'), pits: resolve('src/physics/PitStrategy.ts'), presets: resolve('src/track/Presets.ts'),
-    population: resolve('src/ai/Population.ts'), session: resolve('src/race/RaceSession.ts'), weather: resolve('src/physics/Weather.ts') },
+    population: resolve('src/ai/Population.ts'), session: resolve('src/race/RaceSession.ts'), weather: resolve('src/physics/Weather.ts'),
+    track: resolve('src/track/Track.ts'), spline: resolve('src/math/Spline.ts'), vector: resolve('src/math/Vector2.ts'), random: resolve('src/math/Random.ts'),
+    lane: resolve('src/track/PitLane.ts') },
     formats: ['es'], fileName: (_, name) => name + '.mjs' } } });
   const load = name => import(pathToFileURL(join(dir, name + '.mjs')));
   const { Car } = await load('car');
@@ -20,6 +23,11 @@ try {
   const { Population } = await load('population');
   const { RaceSession } = await load('session');
   const { Weather } = await load('weather');
+  const { Track } = await load('track');
+  const { Spline, pointGapFor } = await load('spline');
+  const { Vector2 } = await load('vector');
+  const { seedRandom } = await load('random');
+  const { PIT_SPEED_LIMIT } = await load('lane');
   let seed = 777;
   Math.random = () => { seed = (Math.imul(1664525, seed) + 1013904223) >>> 0; return seed / 4294967296; };
   const DT = 1 / 60;
@@ -53,46 +61,127 @@ try {
   assert.equal(ask({ wear: 0.2, distance: 30, laps: 20 }), false, "the player's strategy is the player's");
   car.isManual = false;
 
-  // 2. The stop: pit-lane loss plus the tyre change, no fuel, fresh tyres, back at the pit-lane limit.
-  assert.equal(pits.pitStopDuration(track), pits.PIT_LANE_LOSS + pits.TYRE_CHANGE_TIME);
-  const lane = Presets.createGrandPrixTrack(14); lane.pitLaneLoss = 16;
-  assert.equal(pits.pitStopDuration(lane), 18.5, 'a circuit may set its own pit-lane loss');
-  const stopper = new Car(track.startPosition, track.startAngle, null, '#fff', 'stopper', 60, 25);
-  stopper.reset(track.startPosition, track.startAngle, true, 1);
-  stopper.fuelKg = 7.5; stopper.tyreCompound = 'medium'; stopper.usedCompounds = new Set(['medium']);
-  stopper.tyreWearFront = stopper.tyreWearRear = 0.8; stopper.damage = 0.4;
-  pits.enterPits(stopper, track);
-  assert.ok(stopper.isPitting && stopper.pitStopsCount === 1 && !stopper.wantsToPit);
-  let t = 0;
+  // 2. The lane: beside the track on GP and Albert Park, clear of every other stretch of track.
+  const { tracks: circuits } = JSON.parse(await readFile(resolve('tracks/index.json'), 'utf8'));
+  const melData = JSON.parse(await readFile(resolve('tracks', circuits.find(c => c.file.startsWith('au-1953')).file), 'utf8'));
+  const melbourne = new Track(Spline.generateClosedTrack(melData.rawPoints.map(p => new Vector2(p.x, p.y)), melData.trackWidth, true, pointGapFor(melData.pointSpacing)), melData.trackWidth);
+  for (const [name, t] of [['GP', track], ['Albert Park', melbourne]]) {
+    const lane = t.pitLane;
+    assert.ok(lane && lane.entry < lane.limiterStart && lane.limiterStart < lane.boxes[0] && lane.boxes.at(-1) < lane.limiterEnd && lane.limiterEnd < lane.exit, `${name}: entry, limiter, boxes, exit in order`);
+    for (let d = lane.limiterStart; d <= lane.limiterEnd; d += 5) {
+      const p = lane.point(d, lane.side * lane.laneOffset), here = t.sampleSurface(p);
+      const apart = Math.abs(lane.distanceOf(here.index) - d);
+      assert.ok(Math.abs(here.lateral) > t.width / 2 + 3 && apart < 30, `${name}: lane ${d} m off the asphalt, beside its own straight`);
+    }
+  }
+
+  // 3. A stop: in at the entry line, the limit, the team box, the service, out at the exit line.
   const idle = { steer: 0, throttle: 0, brake: 0 };
-  while (stopper.isPitting && t < 60) { stopper.updatePhysics(idle, DT, track); t += DT; }
-  assert.ok(Math.abs(t - pits.pitStopDuration(track)) < 2 * DT, `stop lasted ${t.toFixed(2)} s`);
-  assert.equal(stopper.fuelKg, 7.5, 'no refuelling at a stop');
+  const lane = track.pitLane;
+  const runStop = (dt, damage = 0.4, team = 2) => {
+    seedRandom(11);
+    const at = lane.point(lane.entry + 2, 0), heading = track.sampleSurface(at).tangent.heading();
+    const c = new Car(at, heading, null, '#fff', 'stopper', 60, 25);
+    c.reset(at, heading, true, (track.gateIndexOf(lane.index(lane.entry + 2)) + 1) % track.checkpoints.length);
+    c.teamIndex = team; c.fuelKg = 7.5; c.tyreCompound = 'medium'; c.usedCompounds = new Set(['medium']);
+    c.tyreWearFront = c.tyreWearRear = 0.8; c.damage = damage; c.wantsToPit = true;
+    c.vel = Vector2.fromAngle(heading).mul(70); c.speed = 70;
+    let t = 0, fastest = 0, offTrack = true, stoppedAt = null, event = null, gatesBefore = c.currentCheckpointIdx;
+    c.updatePhysics(idle, dt, track); t += dt;
+    assert.ok(c.isPitting && c.pitStopsCount === 1 && !c.wantsToPit, 'the car turns in at the entry line');
+    const fuelIn = c.fuelKg;
+    while (t < 90 && !event) {
+      c.updatePhysics(idle, dt, track); t += dt;
+      if (c.isPitting && c.pitDistance > lane.limiterStart && c.pitDistance < lane.limiterEnd) fastest = Math.max(fastest, c.speed);
+      if (c.isPitting && c.pitDistance > lane.limiterStart + 5 && c.pitDistance < lane.limiterEnd - 5) offTrack &&= Math.abs(track.sampleSurface(c.pos).lateral) > track.width / 2;
+      if (c.pitPhase === 'service' && stoppedAt === null) stoppedAt = c.pitDistance;
+      event = c.pitStopEvent;
+    }
+    return { c, t, fastest, offTrack, stoppedAt, event, gatesBefore, fuelIn };
+  };
+  const stop = runStop(DT);
+  const { c: stopper, event } = stop;
+  assert.ok(event && !stopper.isPitting, 'the stop ends at the exit line');
+  assert.ok(stop.fastest <= PIT_SPEED_LIMIT + 1e-9, `80 km/h between the limiter lines (${(stop.fastest * 3.6).toFixed(1)} km/h)`);
+  assert.ok(stop.offTrack, 'the lane runs off the track, beside it');
+  assert.ok(Math.abs(stop.stoppedAt - lane.boxes[2]) < 0.6, 'the car stops at its team box');
+  assert.ok(Math.abs(event.laneTime - stop.t) < 0.1, `lane time ${event.laneTime.toFixed(2)} s runs from the entry line to the exit line (${stop.t.toFixed(2)} s)`);
+  assert.ok(event.note.includes('wing') && event.serviceTime > 2.0 + 6 - 0.31 && event.serviceTime < 2.0 + 9 + 0.31 + (event.note.includes('slow') ? 8 : 0), `a new nose for damage 0.4 (${event.serviceTime.toFixed(2)} s, ${event.note})`);
+  assert.ok(event.laneTime > event.serviceTime + 10, 'the lane itself costs time at the limit');
+  assert.equal(stopper.fuelKg, stop.fuelIn, 'no refuelling at a stop');
   assert.equal(stopper.tyreCompound, 'hard');
   assert.ok(stopper.usedCompounds.has('hard') && stopper.usedCompounds.has('medium'));
   assert.ok(stopper.tyreWearFront === 0 && stopper.damage === 0);
-  assert.ok(Math.abs(stopper.speed - pits.PIT_EXIT_SPEED) < 1e-9 && stopper.lapCompromised, 'rejoins at the pit-lane limit; the out-lap is no reference');
-  assert.ok(Math.abs(stopper.lapTime - t) < 1e-6 && Math.abs(stopper.totalRaceTime - t) < 1e-6, 'the stop is in the lap and race time');
+  assert.ok(stopper.speed >= pits.PIT_EXIT_SPEED - 1e-9 && stopper.lapCompromised, 'rejoins at speed; the out-lap is no reference');
+  assert.ok(Math.abs(stopper.totalRaceTime - stop.t) < 1e-6, 'the stop is in the race time');
+  assert.ok(stopper.currentCheckpointIdx !== stop.gatesBefore, 'the gates beside the lane are timed');
+  assert.equal(stopper.pitShowTimer, pits.PIT_SHOW_TIME, 'the stop stays above the car');
+  for (let i = 0; i < Math.round(pits.PIT_SHOW_TIME / DT) - 1; i++) stopper.updatePhysics(idle, DT, track);
+  assert.ok(stopper.pitShowTimer > 0 && stopper.lastPitLaneTime === event.laneTime, 'still shown just before 5 s');
+  stopper.updatePhysics(idle, DT, track); stopper.updatePhysics(idle, DT, track);
+  assert.equal(stopper.pitShowTimer, 0, 'gone after 5 s');
+  for (const dt of [1 / 30, 1 / 120]) {
+    const other = runStop(dt, 0);
+    const base = runStop(DT, 0);
+    assert.ok(Math.abs(other.event.laneTime - base.event.laneTime) < 2 * dt, `lane time at ${Math.round(1 / dt)} Hz ${other.event.laneTime.toFixed(3)} s vs ${base.event.laneTime.toFixed(3)} s`);
+  }
 
-  // 3. The exit: a car alongside or one arriving fast from behind holds the rejoin.
-  const waiting = new Car(track.startPosition, track.startAngle, null, '#fff', 'waiting', 60, 25);
-  waiting.reset(track.startPosition, track.startAngle, true, 1);
-  pits.enterPits(waiting, track);
-  waiting.pitTimer = 0;
-  const tangent = track.sampleSurface(waiting.pos).tangent;
-  const other = new Car(waiting.pos.add(tangent.mul(-40)), track.startAngle, null, '#000', 'other', 60, 25);
-  other.reset(waiting.pos.add(tangent.mul(-40)), tangent.heading(), true, 1);
+  // 4. Service time: the crews differ, damage costs a repair or a new nose, some stops go wrong.
+  seedRandom(5);
+  const crew = new Car(track.startPosition, track.startAngle, null, '#fff', 'crew', 60, 25);
+  const draws = (team, damage, n) => { crew.teamIndex = team; crew.damage = damage; return Array.from({ length: n }, () => pits.serviceTime(crew)); };
+  const mean = list => list.reduce((a, s) => a + s.time, 0) / list.length;
+  const clean = draws(2, 0, 2000);
+  const slowShare = clean.filter(s => s.note.includes('slow')).length / clean.length;
+  assert.ok(slowShare > 0.02 && slowShare < 0.06, `slow stops ${(slowShare * 100).toFixed(1)}%`);
+  const tidy = clean.filter(s => !s.note);
+  assert.ok(tidy.every(s => s.time >= 1.7 - 1e-9 && s.time <= 2.3 + 1e-9), 'the fastest crew: 2.0 ± 0.3 s');
+  assert.ok(mean(draws(6, 0, 500).filter(s => !s.note)) - mean(tidy) > 0.6, 'the slowest crew takes about 0.8 s longer');
+  assert.ok(draws(2, 0.05, 200).every(s => !s.note.includes('repair') && !s.note.includes('wing')), 'light damage is fixed within the wheel change');
+  assert.ok(draws(2, 0.15, 200).filter(s => !s.note.includes('slow')).every(s => s.note === 'repair' && s.time > 1.7 + 1 && s.time < 2.3 + 3), 'moderate damage: a quick repair');
+  assert.ok(draws(2, 0.6, 200).filter(s => !s.note.includes('slow')).every(s => s.note === 'wing' && s.time > 1.7 + 6 && s.time < 2.3 + 9), 'a broken wing: a new nose');
+
+  // 5. Double stack: the second car of a team waits behind its team-mate's box.
+  {
+    seedRandom(3);
+    const make = (offset, name) => {
+      const at = lane.point(lane.entry + 2 - offset, 0), heading = track.sampleSurface(at).tangent.heading();
+      const c = new Car(at, heading, null, '#fff', name, 60, 25);
+      c.reset(at, heading, true, (track.gateIndexOf(lane.index(lane.entry + 2 - offset)) + 1) % track.checkpoints.length);
+      c.teamIndex = 4; c.wantsToPit = true; c.vel = Vector2.fromAngle(heading).mul(60); c.speed = 60;
+      return c;
+    };
+    const first = make(0, 'first'), second = make(40, 'second');
+    const both = [first, second];
+    let queued = false, overlap = false, firstOut = Infinity, secondService = Infinity;
+    for (let i = 0; i < 60 * 90 && (first.pitStopsCount === 0 || second.pitStopsCount === 0 || first.isPitting || second.isPitting); i++) {
+      for (const c of both) c.updatePhysics(idle, DT, track, both);
+      queued ||= second.pitPhase === 'queue';
+      if (first.isPitting && second.isPitting && first.pitDistance - second.pitDistance < 7.9) overlap = true;
+      if (first.pitPhase === 'out' && firstOut === Infinity) firstOut = i;
+      if (second.pitPhase === 'service' && secondService === Infinity) secondService = i;
+    }
+    assert.ok(queued && !overlap, 'the team-mate queues behind, never inside the car ahead');
+    assert.ok(secondService >= firstOut, 'its service starts once the first car has left the box');
+  }
+
+  // 6. The exit: a car alongside or one arriving fast from behind holds the rejoin.
+  const waiting = runStop(DT, 0).c;
+  waiting.isPitting = true; waiting.pitPhase = 'out'; waiting.pitDistance = lane.exit - 3; waiting.speed = 0; waiting.vel.set(0, 0);
+  const exitAt = lane.point(lane.exit, lane.side * lane.rejoinOffset), tangent = track.sampleSurface(exitAt).tangent;
+  const other = new Car(exitAt.add(tangent.mul(-40)), tangent.heading(), null, '#000', 'other', 60, 25);
+  other.reset(exitAt.add(tangent.mul(-40)), tangent.heading(), true, 1);
   other.vel = tangent.mul(80); other.speed = 80;
-  waiting.updatePhysics(idle, DT, track, [waiting, other]);
+  for (let i = 0; i < 60; i++) waiting.updatePhysics(idle, DT, track, [waiting, other]);
   assert.ok(waiting.isPitting, 'a car 40 m behind at 288 km/h would arrive within 1.5 s: wait');
-  other.pos = waiting.pos.add(tangent.mul(5)); other.speed = 20;
-  waiting.updatePhysics(idle, DT, track, [waiting, other]);
+  other.pos = exitAt.add(tangent.mul(5)); other.speed = 20;
+  for (let i = 0; i < 60; i++) waiting.updatePhysics(idle, DT, track, [waiting, other]);
   assert.ok(waiting.isPitting, 'a car at the exit: wait');
-  other.pos = waiting.pos.add(tangent.mul(-150));
-  waiting.updatePhysics(idle, DT, track, [waiting, other]);
+  other.pos = exitAt.add(tangent.mul(-300));
+  for (let i = 0; i < 120 && waiting.isPitting; i++) waiting.updatePhysics(idle, DT, track, [waiting, other]);
   assert.ok(!waiting.isPitting, 'clear track: rejoin');
 
-  // 4. Race fuel: the distance at the field's consumption, no more than the tank, and the distance
+  // 7. Race fuel: the distance at the field's consumption, no more than the tank, and the distance
   //    cut to what the tank covers. Nobody gains fuel during the race.
   const population = Population.create(track);
   const weather = new Weather('sunny', 3);
@@ -109,7 +198,7 @@ try {
   assert.equal(session.totalLaps, reachable, 'a distance the tank cannot cover is shortened');
   assert.ok(population.cars.every(c => c.fuelKg <= Car.MAX_FUEL_CAPACITY && c.raceDistanceLaps === reachable));
 
-  // 5. A real race start with stops: worn tyres bring cars in at the line, they leave the track,
+  // 8. A real race start with stops: worn tyres bring cars in at the pit entry, they drive the lane,
   //    come back on another compound, and no car's fuel ever rises.
   population.fuelPerLap = 1.2;
   session.start({ totalLaps: 10, weatherSeed: 3 });
@@ -136,7 +225,8 @@ try {
   const stopped = worn.filter(c => c.isAlive || c.pitStopsCount > 0);
   assert.ok(stopped.length > 0 && stopped.every(c => c.pitStopsCount >= 1 && seenPitting.has(c)), 'worn cars stopped');
   assert.ok([...rejoined].every(c => c.usedCompounds.size >= 2 && c.tyreWearFront < 0.85), 'back on fresh tyres of another compound');
-  console.log(`Pit stop regressions passed (strategy, ${pits.pitStopDuration(track)} s stop, exit clearance, no refuelling, race fuel ${expected.toFixed(1)} kg for 50 laps, ${rejoined.size} cars back from the pits).`);
+  assert.ok(rejoined.size === 0 || (session.fastestPitStop && session.fastestPitStop.laneTime > 10), 'the race keeps its quickest stop');
+  console.log(`Pit stop regressions passed (strategy, lane on GP and Albert Park, ${event.laneTime.toFixed(1)} s stop with a new nose, 30/60/120 Hz, crews, slow stops ${(slowShare * 100).toFixed(1)}%, double stack, exit clearance, no refuelling, race fuel ${expected.toFixed(1)} kg for 50 laps, ${rejoined.size} cars back from the pits).`);
 } finally {
   await rm(dir, { recursive: true, force: true });
 }

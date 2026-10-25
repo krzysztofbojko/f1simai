@@ -169,6 +169,12 @@ export class Population {
   ];
   public static readonly MAX_CARS = Population.F1_TEAMS.length;
 
+  /** Team of the car in slot `i`: the first entry of its team in F1_TEAMS (its pit crew and box). */
+  static teamIndexOf(i: number): number {
+    const teams = Population.F1_TEAMS, name = teams[i % teams.length].teamName;
+    return teams.findIndex(t => t.teamName === name);
+  }
+
   /** `settings` apply before the cars are built: the field starts with them, never with the defaults. */
   constructor(size: number = Population.MAX_CARS, track: Track, rayCount: number = 25, topology: TopologySpecifier = 'Standard', settings: PopulationSettings = {}) {
     this.populationSize = Math.min(Population.MAX_CARS, Math.max(1, size));
@@ -256,6 +262,7 @@ export class Population {
         this.startingFuelKg,
         this.rayCount
       );
+      car.teamIndex = Population.teamIndexOf(i);
       car.lineSearchSeed = i;
       car.lineSearch = new LineSearch(i);
       car.lineSearchByPressure.set(0, car.lineSearch);
@@ -846,6 +853,7 @@ export class Population {
         this.startingFuelKg,
         this.rayCount
       );
+      newCar.teamIndex = Population.teamIndexOf(i);
       newCar.lineSearchSeed = this.cars[i]?.lineSearchSeed ?? i;
       if (this.cars[i]) newCar.pace = this.cars[i].pace;
       newCar.lineSearch = this.cars[i]?.lineSearch ?? new LineSearch(i);

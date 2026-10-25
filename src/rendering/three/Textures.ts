@@ -214,18 +214,6 @@ export class Textures {
     return upgrade(texture(c, true, false), 'rim.webp');
   }
 
-  /** Pit box marker painted on the asphalt. */
-  static pitBox(): THREE.CanvasTexture {
-    const [c, ctx] = canvas(128, 128);
-    ctx.fillStyle = 'rgba(255,215,0,0.28)';
-    ctx.beginPath(); ctx.arc(64, 64, 58, 0, Math.PI * 2); ctx.fill();
-    ctx.strokeStyle = '#ffd700'; ctx.lineWidth = 7; ctx.stroke();
-    ctx.fillStyle = '#ffd700'; ctx.font = 'bold 72px sans-serif';
-    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    ctx.fillText('P', 64, 68);
-    return texture(c, true, false);
-  }
-
   /** Cut-out billboard (trees, grandstand): no procedural stand-in, so it starts as one transparent pixel. */
   static billboard(file: string): THREE.CanvasTexture {
     const [c] = canvas(1, 1);

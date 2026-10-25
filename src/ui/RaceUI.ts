@@ -117,6 +117,22 @@ export class RaceUI {
       const topCar = this.session.standings?.[0];
       raceLeaderEl.textContent = topCar ? topCar.driverName.split(' ')[0] : '-';
     }
+    const fastestPitEl = document.getElementById('race-fastest-pit');
+    if (fastestPitEl) {
+      const pit = this.session.fastestPit;
+      const text = pit ? `${pit.driverName.split(' (')[0]} · ${pit.laneTime.toFixed(1).replace('.', ',')} s (postój ${pit.serviceTime.toFixed(1).replace('.', ',')} s) · okr. ${pit.lap}` : '—';
+      if (fastestPitEl.dataset.text !== text) {
+        fastestPitEl.dataset.text = text;
+        fastestPitEl.textContent = '';
+        if (pit) {
+          const dot = document.createElement('span');
+          dot.className = 'pit-dot';
+          dot.style.background = pit.carColor;
+          fastestPitEl.append(dot);
+        }
+        fastestPitEl.append(text);
+      }
+    }
     const racePitStatusEl = document.getElementById('race-pit-status');
     const pitPlayerBtn = document.getElementById('btn-pit-player');
     const playerControlledCar = (this.host.isPlayerDriving ? (this.host.population.cars.find(c => c.isManual) || this.host.playerCar) : null);
@@ -239,7 +255,7 @@ export class RaceUI {
         if (isRace && this.session.standings.find(s => s.carColor === entry.carColor)?.finished) {
           currentTimeStr = '🏁 META';
         } else if (car && car.isPitting) {
-          currentTimeStr = `PIT (${car.pitTimer.toFixed(1)}s)`;
+          currentTimeStr = `PIT ${car.pitLaneTime.toFixed(1)} s`;
         } else if (car && !car.isAlive) {
           if (this.session.raceState !== 'IDLE') {
             currentTimeStr = '<span class="time-dnf">DNF</span>';

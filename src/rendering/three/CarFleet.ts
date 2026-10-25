@@ -176,8 +176,7 @@ export class CarFleet {
 
     for (const view of views) {
       const car = view.car;
-      // A car in the pit lane is off the track until it rejoins.
-      if (car.wreckRemoved || car.isPitting || n >= CAPACITY) continue;
+      if (car.wreckRemoved || n >= CAPACITY) continue;
       const scale = car.length / MODEL_LENGTH;
       this.q.setFromAxisAngle(this.v.set(0, 1, 0), -car.heading);
       ground.compose(this.v.set(car.pos.x, 0, car.pos.y), this.q, this.s.set(scale, scale, scale));

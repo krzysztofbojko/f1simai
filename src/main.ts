@@ -1130,6 +1130,8 @@ class App {
       car.raceLapsCompleted = 0;
       car.totalRaceTime = 0;
       car.isPitting = false;
+      car.pitPhase = '';
+      car.pitShowTimer = 0;
       car.wantsToPit = false;
     }
     if (this.playerCar) {

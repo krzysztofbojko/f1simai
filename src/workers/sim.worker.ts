@@ -8,7 +8,7 @@ import { clampStressShare } from '../physics/SimConfig';
 import { DRAWN_POINT_GAP, Spline } from '../math/Spline';
 import { Vector2 } from '../math/Vector2';
 import { TopologySpecifier } from '../ai/NeuralNetwork';
-import { RaceSession, type RaceState, type RaceStanding, type QualifyingSnapshot } from '../race/RaceSession';
+import { RaceSession, type RaceState, type RaceStanding, type QualifyingSnapshot, type FastestPitStop } from '../race/RaceSession';
 import { isCompound } from '../physics/Tyres';
 import { toCarView, type CarView } from './CarView';
 import { Weather, isWeatherScenario, type WeatherScenario, type WeatherState } from '../physics/Weather';
@@ -93,6 +93,8 @@ export interface SimSnapshot {
   /** The winner has taken the chequered flag; the others finish at their next crossing of the line. */
   raceChequered: boolean;
   raceStandings: RaceStanding[];
+  /** Quickest pit stop of the race so far. */
+  raceFastestPit: FastestPitStop | null;
   /** Weather now: sun, rain, temperatures, water on the track and the wind. */
   weather: WeatherState;
   weatherScenario: WeatherScenario;
@@ -316,6 +318,7 @@ function createSnapshot(): SimSnapshot {
     raceChequered: session.chequered,
     // Training shows the team standings; the race classification exists from qualifying on.
     raceStandings: session.state === 'IDLE' ? [] : session.standings(),
+    raceFastestPit: session.fastestPitStop ? { ...session.fastestPitStop } : null,
     weather: { ...weather.state },
     weatherScenario: weather.scenario,
     qualifying: session.qualifyingSnapshot(),
@@ -688,6 +691,8 @@ self.onmessage = (e: MessageEvent) => {
         car.raceLapsCompleted = 0;
         car.totalRaceTime = 0;
         car.isPitting = false;
+        car.pitPhase = '';
+        car.pitShowTimer = 0;
         car.wantsToPit = false;
       }
       if (playerCar) {

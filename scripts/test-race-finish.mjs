@@ -93,7 +93,8 @@ try {
 
   // 4. A real last lap: the whole field drives to the flag; everyone still running crosses the line.
   toLightsOut(10);
-  for (const car of population.cars) car.raceLapsCompleted = 9;
+  // The two-compound rule already met: a mandatory stop on this lap would end in the pit lane at the timeout.
+  for (const car of population.cars) { car.raceLapsCompleted = 9; car.usedCompounds.add('medium').add('hard'); }
   let steps = 0;
   while (session.state === 'RACING' && steps < 60 * 400) { step(); steps++; }
   assert.equal(session.state, 'FINISHED', 'the race ends');
@@ -104,7 +105,7 @@ try {
   assert.equal(field.find(car => car.driverName === session.winner).totalRaceTime, flagTime, 'P1 has the smallest race time');
   for (const car of field) {
     if (car.isFinishedRace) assert.ok(car.totalRaceTime >= flagTime, 'nobody finishes before the winner');
-    else assert.ok(!car.isAlive, 'every car still running has taken the flag');
+    else assert.ok(!car.isAlive, `every car still running has taken the flag: ${car.driverName}`);
   }
   const finishers = final.filter(s => s.finished);
   for (let i = 1; i < finishers.length; i++) {

@@ -18,6 +18,15 @@ export interface QualifyingSnapshot {
   standings: QualifyingStanding[];
 }
 
+/** The quickest pit stop of a race: entry line to exit line. */
+export interface FastestPitStop {
+  driverName: string;
+  carColor: string;
+  laneTime: number;
+  serviceTime: number;
+  lap: number;
+}
+
 export interface RaceStanding {
   rank: number;
   driverName: string;
@@ -106,6 +115,8 @@ export class RaceSession {
   playerCompound: TyreCompound = 'medium';
   /** Fastest valid time of each of the four sectors in this session. */
   sessionBestSectors: (number | null)[] = [null, null, null, null];
+  /** Quickest stop of the current race (null before the first one). */
+  fastestPitStop: FastestPitStop | null = null;
 
   private startTimer = 0;
   private lastDt = 1 / 60;
@@ -164,6 +175,7 @@ export class RaceSession {
     this.planRaceFuel();
     this.resetRaceFinish();
     this.resetSectors();
+    this.fastestPitStop = null;
     population.isRaceMode = true;
     weather.reset(weather.scenario, options.weatherSeed);
     population.setConditions(weather.conditions);
@@ -209,6 +221,8 @@ export class RaceSession {
       car.totalRaceTime = 0;
       car.isAlive = true;
       car.isPitting = false;
+      car.pitPhase = '';
+      car.pitShowTimer = 0;
       car.wantsToPit = false;
     });
   }
@@ -237,6 +251,8 @@ export class RaceSession {
       car.raceLapsCompleted = 0;
       car.totalRaceTime = 0;
       car.isPitting = false;
+      car.pitPhase = '';
+      car.pitShowTimer = 0;
       car.wantsToPit = false;
     }
     const player = this.ctx.playerCar;
@@ -272,7 +288,10 @@ export class RaceSession {
 
   /** Called after every physics step; true when the session has just ended and stepping should stop. */
   afterStep(): boolean {
-    for (const car of this.cars()) this.recordSector(car);
+    for (const car of this.cars()) {
+      this.recordSector(car);
+      this.recordPitStop(car);
+    }
     if (this.state === 'QUALIFYING') this.retireStoppedQualifiers();
     if (this.state !== 'RACING') return false;
     this.takeLineCrossings();
@@ -361,6 +380,16 @@ export class RaceSession {
     if (car.lastCheckpointDelta?.gateIndex === g) car.lastCheckpointDelta.isPurple = purple;
   }
 
+  /** A stop `car` just completed (it crossed the pit exit line): the race's quickest so far is kept. */
+  recordPitStop(car: Car): void {
+    const event = car.pitStopEvent;
+    if (!event) return;
+    car.pitStopEvent = null;
+    if (this.state !== 'RACING') return;
+    if (this.fastestPitStop && this.fastestPitStop.laneTime <= event.laneTime) return;
+    this.fastestPitStop = { driverName: car.driverName, carColor: car.color, laneTime: event.laneTime, serviceTime: event.serviceTime, lap: event.lap };
+  }
+
   /** Race classification (frozen once the race is over). */
   standings(): RaceStanding[] {
     if (this.state === 'FINISHED') return this.frozenStandings ??= this.calculateStandings();
@@ -421,6 +450,8 @@ export class RaceSession {
     car.wreckRemoved = true;
     car.isFinishedRace = true;
     car.isPitting = false;
+    car.pitPhase = '';
+    car.pitShowTimer = 0;
     car.wantsToPit = false;
     car.vel.set(0, 0);
     car.speed = 0;
