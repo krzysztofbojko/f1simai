@@ -80,6 +80,27 @@ try {
   const calm = drift(0), gusty = drift(15);
   assert.ok(Math.abs(calm.lateral) < 0.01 && Math.abs(calm.heading) < 1e-6, 'still air: the car runs straight');
   assert.ok(Math.abs(gusty.heading) > 0.002 || Math.abs(gusty.lateral) > 0.05, `a crosswind moves the car: ${gusty.lateral.toFixed(3)} m, ${gusty.heading.toFixed(4)} rad`);
+  // The airflow yaw angle comes from the relative air velocity in still air too: a car sliding
+  // sideways loses its downforce, and a vanishing wind changes nothing.
+  const sidewaysAero = windX => {
+    Car.config.weather = { ...neutralWeather(), windSpeed: Math.abs(windX), windX, windY: 0 };
+    const c = new Car(new Vector2(0, 0), 0, new NeuralNetwork([driverInputCount(25), 4, 3]), '#fff', 'slide', 60, 25);
+    c.lapPowerFactor = c.lapGripFactor = c.lapDragFactor = 1;
+    c.vel = new Vector2(0, 60); c.speed = 60;
+    let total = 0;
+    const step = c.stepSuspension.bind(c);
+    c.stepSuspension = (dt, front, rear, ...rest) => { total = front + rear; return step(dt, front, rear, ...rest); };
+    c.updatePhysics({ throttle: 0, brake: 0, steer: 0 }, 1 / 60, stub);
+    return total;
+  };
+  const slideStill = sidewaysAero(0), slideBreath = sidewaysAero(1e-12);
+  assert.ok(Math.abs(slideStill - slideBreath) < 1e-6 * slideBreath, `downforce is continuous at zero wind: ${slideStill.toFixed(2)} vs ${slideBreath.toFixed(2)} N`);
+  const ahead = (() => { Car.config.weather = neutralWeather(); const c = new Car(new Vector2(0, 0), 0, new NeuralNetwork([driverInputCount(25), 4, 3]), '#fff', 'ahead', 60, 25);
+    c.lapPowerFactor = c.lapGripFactor = c.lapDragFactor = 1; c.vel = new Vector2(60, 0); c.speed = 60; let total = 0;
+    const step = c.stepSuspension.bind(c); c.stepSuspension = (dt, front, rear, ...rest) => { total = front + rear; return step(dt, front, rear, ...rest); };
+    c.updatePhysics({ throttle: 0, brake: 0, steer: 0 }, 1 / 60, stub); return total; })();
+  assert.ok(slideStill < ahead * 0.5, `a sideways car loses downforce in still air: ${slideStill.toFixed(0)} N vs ${ahead.toFixed(0)} N straight`);
+  Car.config.weather = neutralWeather();
 
   // 6. A baking track runs the tyres hotter and wears them faster.
   const stint = weather => {

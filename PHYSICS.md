@@ -336,6 +336,21 @@ Wcześniej auto zjeżdżało do boksu na linii mety, znikało z toru i stało ni
 
 Test ostatniego okrążenia w `test-race-finish` ma zaliczone dwie mieszanki: obowiązkowy zjazd na samym ostatnim okrążeniu kończył się teraz w alei, gdy wyścig zamykał limit czasu. Skrót stanu `bench:step` się zmienia.
 
+## Poprawki z audytu fizyki (25.10.2026)
+
+Audyt: `raport/2026-10-25/RAPORT.md`. Kalibracja: `npm run diag:nn -- 600`, ziarna 1–6, trening, 10 aut na GP; DNF na ziarno, średni rekord zespołów.
+
+- **Ciągłość docisku przy zerowym wietrze.** Utrata docisku od kąta napływu powietrza (`CROSSWIND_DOWNFORCE_LOSS · sin²`) działała tylko przy niezerowym wietrze, więc w bezwietrznej pogodzie auto jadące bokiem miało pełny docisk, a wiatr 10⁻¹² m/s zabierał mu 60%. Kąt napływu liczy się teraz zawsze z prędkości względem powietrza; w bezwietrznej pogodzie to kąt znoszenia nadwozia. W normalnej jeździe (kilka stopni) strata jest poniżej 1%.
+- **Balans na limicie.** Obie osie miały tę samą przyczepność na jednostkę obciążenia, a rozkład 46/54 dokładnie równoważył ramiona osi, więc auto było na limicie neutralne. Każdy transfer obciążenia do przodu (odpuszczenie gazu, hamowanie silnikiem) robił z niego auto nadsterowne: przy nasyceniu obu osi moment przodu przewyższał moment tyłu i nic nie zatrzymywało obrotu. Przy stałym nadmiernym skręcie przy 70 m/s auto obracało się do β ≈ 85° także bez gazu. Test „nadmierny skręt nie obraca auta” sprawdzał β dopiero po 5 s, gdy auto już stało, więc przechodził przypadkiem; teraz sprawdza największe β w całym przejeździe, także po odpuszczeniu gazu. `FRONT_GRIP_BIAS` 1,0 → 0,9: siła boczna przodu sięga 90% jego koła tarcia (elipsa), więc przód nasyca się pierwszy i auto na limicie jest podsterowne. Siła boczna przodu w użyciu jest zapisywana jako udział tej elipsy, więc rezerwa stabilności, budżet hamowania i blokada kół widzą nasycony przód jako nasycony (bez tego przód nigdy się nie blokował). Największe β przy 70 m/s: skręt 0,3 z gazem 1,06 → 0,29 rad, skręt 0,15 bez gazu 1,51 → 0,44 rad. Szczytowe przyspieszenie boczne bez poślizgu przy 70 m/s spada z ok. 3,6 do 3,2 g; wcześniejsza wartość obejmowała stan tuż przed obrotem.
+
+| Etap | DNF auto–auto | DNF banda | DNF stuck | Średni rekord | Krok (`bench:step`) |
+|---|---|---|---|---|---|
+| Przed poprawkami | 2,0 | 1,5 | 3,2 | 58,35 s | 679 µs |
+| Ciągłość docisku | 2,0 | 2,3 | 5,0 | 58,67 s | |
+| + balans 0,9 | 1,0 | 0,5 | 2,2 | 56,22 s | 650 µs |
+
+Sama ciągłość docisku zwiększała liczbę wypadnięć: obrócone auto nie dostawało już darmowego docisku i nie wracało na tor. Z podsterownym balansem auto rzadziej się obraca, więc wypadków jest mniej, a okrążenia są szybsze. Skrót stanu `bench:step` się zmienia.
+
 ## Ochrona przed wartościami nieskończonymi (19.10.2026)
 
 Po całkowaniu, a przed przesunięciem auta, `updatePhysics` sprawdza stan dynamiczny: pozycję, prędkość, kurs, prędkość kątową, heave/pitch/roll z prędkościami, temperatury opon, ERS i paliwo. Wartość NaN lub ∞ zostałaby w stanie auta na zawsze, a pozycja NaN psuje też zapytania toru. Taki krok jest więc odrzucany. Pozycja zostaje ostatnią skończoną, zawieszenie wraca do statyki, złe wartości są resetowane, a auto kończy jazdę jak po uderzeniu w bandę (w treningu respawn po usunięciu wraku). Pierwsze takie zdarzenie trafia do `console.warn`. Test w `test-suspension`.

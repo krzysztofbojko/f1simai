@@ -161,7 +161,7 @@ export class Car {
    */
   public static readonly STEERING_LAG: number = 0.09; // s
   /** The front axle saturates slightly before the rear: a stable, understeer-biased balance at the limit. */
-  public static readonly FRONT_GRIP_BIAS: number = 1.0;
+  public static readonly FRONT_GRIP_BIAS: number = 0.9;
   /** Fraction of the lateral force in use that drive/brake may not take from the friction circle. */
   public static readonly STABILITY_RESERVE: number = 1.1;
   public static readonly YAW_FEEDBACK: number = 0.1;
@@ -1456,14 +1456,14 @@ export class Car {
     const lateralSpeed = this.vel.dot(rightDir);
     const speedMag = this.vel.mag();
     // Airflow the car meets: its own motion against the wind. Downforce and drag grow with the
-    // airspeed; downforce fades as the wind turns the flow off the car's axis. Still air: airSpeed = speedMag.
+    // airspeed; downforce fades as the flow turns off the car's axis, whether a crosswind or the
+    // car's own slide turns it (still air: airSpeed = speedMag, the yaw angle is the slip angle).
     const weather = Car.config.weather;
-    const windy = weather.windX !== 0 || weather.windY !== 0;
-    const windLat = windy ? weather.windX * rightDir.x + weather.windY * rightDir.y : 0;
-    const airFwd = windy ? forwardSpeed - (weather.windX * forwardDir.x + weather.windY * forwardDir.y) : forwardSpeed;
+    const windLat = weather.windX * rightDir.x + weather.windY * rightDir.y;
+    const airFwd = forwardSpeed - (weather.windX * forwardDir.x + weather.windY * forwardDir.y);
     const airLat = lateralSpeed - windLat;
-    const airSpeed = windy ? Math.hypot(airFwd, airLat) : speedMag;
-    const crosswindLoss = windy && airSpeed > 1e-6 ? Car.CROSSWIND_DOWNFORCE_LOSS * (airLat / airSpeed) ** 2 : 0;
+    const airSpeed = Math.hypot(airFwd, airLat);
+    const crosswindLoss = airSpeed > 1e-6 ? Car.CROSSWIND_DOWNFORCE_LOSS * (airLat / airSpeed) ** 2 : 0;
 
     // 3. Gravity and Aerodynamics Normal Load (Fz)
     const gravityForce = currentMass * Car.GRAVITY; // Gravity F = m * g
@@ -1672,7 +1672,9 @@ export class Car {
       frontSlip = dynFront; rearSlip = dynRear;
       slipRatio = Math.max(frontSlip, rearSlip);
     }
-    if (dynamicWeight > 0) { this.frontLateralInUse = Math.abs(dynamicFrontForce); this.rearLateralInUse = Math.abs(dynamicRearForce); }
+    // The front's lateral grip is FRONT_GRIP_BIAS of its friction circle (an ellipse): its force in
+    // use is kept as the share of that ellipse, so the drive, brake and lock budgets see a saturated front as saturated.
+    if (dynamicWeight > 0) { this.frontLateralInUse = Math.abs(dynamicFrontForce) / Car.FRONT_GRIP_BIAS; this.rearLateralInUse = Math.abs(dynamicRearForce); }
     else { const share = frontLoad / Math.max(1, frontLoad + rearLoad); this.frontLateralInUse = Math.abs(lateralForce) * share; this.rearLateralInUse = Math.abs(lateralForce) * (1 - share); }
     // Longitudinal creep heats the driven / braked axles too.
     frontSlipPower += Car.TYRE_LONG_HEAT * Math.abs(frontFx) * speedMag;

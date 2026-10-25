@@ -79,13 +79,18 @@ try {
   assert.ok(solo.teamRecords[0].lapsCount >= 1, 'network-driven car must complete a lap');
   assert.ok(solo.cars[0].brain.layerSizes.at(-1) === 3);
 
-  // 4. Dynamic single-track model: over-limit cornering with power does not spin the car.
-  for (const [speed, steer] of [[30, 0.3], [50, 0.15], [70, 0.3]]) {
+  // 4. Dynamic single-track model: over-limit cornering, with power or lifting off, does not spin
+  //    the car at any point of the run (the limit balance is understeer).
+  for (const [speed, steer, throttle] of [[30, 0.3, 1], [50, 0.15, 1], [70, 0.3, 1], [70, 0.15, 0], [70, 0.08, 0]]) {
     const c = new Car(new Vector2(0, 0), 0); c.vel = new Vector2(speed, 0); c.speed = speed;
     c.lapPowerFactor = c.lapGripFactor = c.lapDragFactor = 1;
-    for (let i = 0; i < 300; i++) { c.framesSinceLastCheckpoint = 0; c.updatePhysics({ throttle: 1, brake: 0, steer }, 1 / 60, stub); }
-    const beta = Math.atan2(c.vel.dot(Vector2.fromAngle(c.heading).normal()), c.vel.dot(Vector2.fromAngle(c.heading)));
-    assert.ok(Math.abs(beta) < 0.6, `car spun at ${speed} m/s, steer ${steer}: beta ${beta}`);
+    let beta = 0;
+    for (let i = 0; i < 300; i++) {
+      c.framesSinceLastCheckpoint = 0; c.updatePhysics({ throttle, brake: 0, steer }, 1 / 60, stub);
+      const b = Math.atan2(c.vel.dot(Vector2.fromAngle(c.heading).normal()), c.vel.dot(Vector2.fromAngle(c.heading)));
+      if (Math.abs(b) > Math.abs(beta)) beta = b;
+    }
+    assert.ok(Math.abs(beta) < 0.6, `car spun at ${speed} m/s, steer ${steer}, throttle ${throttle}: peak beta ${beta}`);
     assert.ok(Math.abs(c.lateralG) < 6 && Number.isFinite(c.pos.x));
   }
   // Unsaturated cornering matches the kinematic yaw rate within a few percent.
