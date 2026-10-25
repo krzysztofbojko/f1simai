@@ -82,7 +82,17 @@ try {
   // The first pass from the grid is not a timed lap: no sector before the line.
   const first = runs[0].sectors[0];
   assert.equal(first.gateIndex, 0, 'first sector is timed only after the line');
-  console.log(`Timing regressions passed (crossing interpolation, phase-independent laps ±1 ms over 5 phases, sectors, race time at the line): ${expected.toFixed(3)} s`);
+
+  // 3. A stopped car is retired as stuck after the same time at 30, 60 and 120 Hz.
+  const plane = { checkpoints: [], timingGates: [], width: 76, isOutOfBounds: () => false };
+  for (const hz of [30, 60, 120]) {
+    const stopped = new Car(new Vector2(0, 0), 0);
+    let steps = 0;
+    while (stopped.isAlive && steps < 200 * hz) { stopped.updatePhysics({ throttle: 0, brake: 0, steer: 0 }, 1 / hz, plane); steps++; }
+    assert.equal(stopped.eliminationReason, 'stuck');
+    assert.ok(Math.abs(steps / hz - Car.STUCK_TIMEOUT) <= 1.5 / hz, `stuck after ${(steps / hz).toFixed(3)} s at ${hz} Hz`);
+  }
+  console.log(`Timing regressions passed (crossing interpolation, phase-independent laps ±1 ms over 5 phases, sectors, race time at the line, stuck timeout at 30/60/120 Hz): ${expected.toFixed(3)} s`);
 } finally {
   await rm(dir, { recursive: true, force: true });
 }

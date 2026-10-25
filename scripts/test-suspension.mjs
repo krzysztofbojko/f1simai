@@ -145,7 +145,7 @@ try {
       const ctrl = phase === 'straight' ? { throttle: 0.6, brake: 0, steer: 0 }
         : phase === 'corner' ? { throttle: 0.45, brake: 0, steer: 0.04 }
         : (t % 4) < 1 ? { throttle: 0, brake: 0.8, steer: 0 } : { throttle: 1, brake: 0, steer: 0 };
-      car.framesSinceLastCheckpoint = 0; // no checkpoints on the open plane
+      car.timeSinceCheckpoint = 0; // no checkpoints on the open plane
       car.updatePhysics(ctrl, dt, tyrePlane);
     }
     assert.ok(car.isAlive, `tyre run ${phase} at dt ${dt.toFixed(4)} stays alive: ${car.eliminationReason}`);

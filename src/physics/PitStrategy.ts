@@ -204,7 +204,7 @@ export function servicePitStop(car: Car, dt: number, track: Track, traffic: read
   car.longitudinalG = 0;
   car.lapTime += dt;
   if (!car.isFinishedRace) car.totalRaceTime += dt;
-  car.framesSinceLastCheckpoint = 0; // Prevent timeout while in the pit lane
+  car.timeSinceCheckpoint = 0; // Prevent timeout while in the pit lane
   car.settleChassis();
   if (!lane) { finishService(car); rejoin(car, track, null); return null; }
   car.pitLaneTime += dt;

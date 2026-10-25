@@ -44,13 +44,13 @@ try {
     crashed.eliminate('barrier', 1);
     let steps = 0;
     for (; steps < (WRECK_CLEAR_SECONDS - 0.1) / dt; steps++) {
-      approach.framesSinceLastCheckpoint = 0;
+      approach.timeSinceCheckpoint = 0;
       training.update(dt, circuit);
       assert.equal(crashed.isAlive, false, `training respawned the wreck after ${(steps * dt).toFixed(2)} s`);
     }
     assert.equal(crashed.wreckRemoved, false, 'the wreck left before the marshals arrived');
     assert.equal(approach.yellowFlag, true, 'a training wreck must show a local yellow');
-    for (let k = 0; k < 0.4 / dt; k++) { approach.framesSinceLastCheckpoint = 0; training.update(dt, circuit); }
+    for (let k = 0; k < 0.4 / dt; k++) { approach.timeSinceCheckpoint = 0; training.update(dt, circuit); }
     assert.equal(crashed.isAlive, true, 'the car respawns once the wreck is cleared');
     assert.equal(approach.yellowFlag, false);
     assert.equal(training.allDeadMaxTime > WRECK_CLEAR_SECONDS, true, 'an all-dead cycle must not start before the wrecks clear');

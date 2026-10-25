@@ -194,7 +194,7 @@ try {
     const at=gp.checkpoints[(expected+ahead)%gp.checkpoints.length];
     const c=new Car(at.center.add(at.tangent.mul(2)),at.tangent.heading(),NeuralNetwork.createTrainedDriverNetwork(25));
     c.mistakesEnabled=false; c.vel=at.tangent.mul(15); c.speed=15;
-    c.currentCheckpointIdx=expected; c.framesSinceLastCheckpoint=598; c.fitness=5000;
+    c.currentCheckpointIdx=expected; c.timeSinceCheckpoint=9.97; c.fitness=5000;
     for(let i=0;i<5;i++) c.updatePhysics(idle,1/60,gp);
     return c;
   };

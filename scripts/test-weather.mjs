@@ -65,7 +65,7 @@ try {
   const topSpeed = along => {
     setWind(along, 0);
     car.reset(gp.startPosition, gp.startAngle, true, 1);
-    for (let i = 0; i < 60 * 40; i++) { car.updatePhysics({ throttle: 1, brake: 0, steer: 0 }, 1 / 60, stub); car.framesSinceLastCheckpoint = 0; }
+    for (let i = 0; i < 60 * 40; i++) { car.updatePhysics({ throttle: 1, brake: 0, steer: 0 }, 1 / 60, stub); car.timeSinceCheckpoint = 0; }
     return car.vel.mag();
   };
   const still = topSpeed(0), head = topSpeed(-8), tail = topSpeed(8);
@@ -74,7 +74,7 @@ try {
     setWind(0, across);
     car.reset(gp.startPosition, gp.startAngle, true, 1);
     car.vel = Vector2.fromAngle(car.heading).mul(60); car.speed = 60;
-    for (let i = 0; i < 60 * 2; i++) { car.updatePhysics({ throttle: 0.6, brake: 0, steer: 0 }, 1 / 60, stub); car.framesSinceLastCheckpoint = 0; }
+    for (let i = 0; i < 60 * 2; i++) { car.updatePhysics({ throttle: 0.6, brake: 0, steer: 0 }, 1 / 60, stub); car.timeSinceCheckpoint = 0; }
     return { lateral: car.pos.sub(gp.startPosition).dot(Vector2.fromAngle(gp.startAngle).normal()), heading: car.heading - gp.startAngle };
   };
   const calm = drift(0), gusty = drift(15);
@@ -107,7 +107,7 @@ try {
     Car.config.weather = weather;
     car.isRaceMode = true; car.reset(gp.startPosition, gp.startAngle, true, 1);
     car.vel = Vector2.fromAngle(car.heading).mul(45); car.speed = 45;
-    for (let i = 0; i < 60 * 40; i++) { car.updatePhysics({ throttle: 0.4, brake: 0, steer: 0.03 }, 1 / 60, stub); car.framesSinceLastCheckpoint = 0; }
+    for (let i = 0; i < 60 * 40; i++) { car.updatePhysics({ throttle: 0.4, brake: 0, steer: 0.03 }, 1 / 60, stub); car.timeSinceCheckpoint = 0; }
     return { temp: car.tyreTempFront, wear: car.tyreWearFront };
   };
   const mild = stint(neutralWeather()), baked = stint({ ...neutralWeather(), airTemp: 34, trackTemp: 55 });
@@ -124,7 +124,7 @@ try {
     Car.config.weather = { ...neutralWeather(), airTemp };
     car.reset(gp.startPosition, gp.startAngle, true, 1);
     car.lapPowerFactor = car.lapGripFactor = car.lapDragFactor = 1;
-    for (let i = 0; i < 60 * 40; i++) { car.updatePhysics({ throttle: 1, brake: 0, steer: 0 }, 1 / 60, stub); car.framesSinceLastCheckpoint = 0; }
+    for (let i = 0; i < 60 * 40; i++) { car.updatePhysics({ throttle: 1, brake: 0, steer: 0 }, 1 / 60, stub); car.timeSinceCheckpoint = 0; }
     return car.vel.mag();
   };
   const vCold = vmax(5), vHot = vmax(35);
@@ -173,7 +173,7 @@ try {
   const stop = (discs, race = false) => {
     const c = brakeCar(83, discs, 1 / 60, race);
     let peak = 0, locked = false;
-    while (c.speed > 20) { c.updatePhysics({ throttle: 0, brake: 1, steer: 0 }, 1 / 60, plane); c.framesSinceLastCheckpoint = 0; peak = Math.max(peak, c.brakeTempFront); locked ||= c.wheelLockFront || c.wheelLockRear; }
+    while (c.speed > 20) { c.updatePhysics({ throttle: 0, brake: 1, steer: 0 }, 1 / 60, plane); c.timeSinceCheckpoint = 0; peak = Math.max(peak, c.brakeTempFront); locked ||= c.wheelLockFront || c.wheelLockRear; }
     return { distance: c.pos.x, peak, locked, rear: c.brakeTempRear };
   };
   const warm = stop(Car.BRAKE_TEMP_START), cold = stop(25), raceStop = stop(Car.BRAKE_TEMP_START, true);
@@ -183,19 +183,19 @@ try {
   assert.ok(cold.distance > warm.distance + 4, `cold discs stop later: ${cold.distance.toFixed(1)} m vs ${warm.distance.toFixed(1)} m`);
   assert.deepEqual(raceStop, warm, 'the same stop in training and in a race');
   // Cooling at speed, independent of the step.
-  const cool = dt => { const c = brakeCar(70, 900); for (let t = 0; t < 10 - 1e-9; t += dt) { c.vel = new Vector2(70, 0); c.speed = 70; c.updatePhysics({ throttle: 0.5, brake: 0, steer: 0 }, dt, plane); c.framesSinceLastCheckpoint = 0; } return c.brakeTempFront; };
+  const cool = dt => { const c = brakeCar(70, 900); for (let t = 0; t < 10 - 1e-9; t += dt) { c.vel = new Vector2(70, 0); c.speed = 70; c.updatePhysics({ throttle: 0.5, brake: 0, steer: 0 }, dt, plane); c.timeSinceCheckpoint = 0; } return c.brakeTempFront; };
   const cooled = [1 / 30, 1 / 60, 1 / 120].map(cool);
   assert.ok(cooled[1] < 400 && Math.max(...cooled) - Math.min(...cooled) < 2, `10 s at 250 km/h cools 900 °C discs to ${cooled.map(t => t.toFixed(1)).join(' / ')} °C at 30/60/120 Hz`);
   // Full pedal in a corner asks the fronts for more than their friction circle leaves: they lock,
   // lose most of their cornering force and take a flat spot; a light pedal on a straight frees them.
   const corner = pedal => {
     const c = brakeCar(60, 600);
-    for (let i = 0; i < 60; i++) { c.updatePhysics({ throttle: 0.3, brake: 0, steer: 0.05 }, 1 / 60, plane); c.framesSinceLastCheckpoint = 0; }
+    for (let i = 0; i < 60; i++) { c.updatePhysics({ throttle: 0.3, brake: 0, steer: 0.05 }, 1 / 60, plane); c.timeSinceCheckpoint = 0; }
     const wear = c.tyreWearFront;
     let locked = 0, lateral = 0;
-    for (let i = 0; i < 30; i++) { c.updatePhysics({ throttle: 0, brake: pedal, steer: 0.05 }, 1 / 60, plane); c.framesSinceLastCheckpoint = 0; if (c.wheelLockFront) { locked++; lateral += c.frontLateralInUse / c.totalMass / Car.GRAVITY; } }
+    for (let i = 0; i < 30; i++) { c.updatePhysics({ throttle: 0, brake: pedal, steer: 0.05 }, 1 / 60, plane); c.timeSinceCheckpoint = 0; if (c.wheelLockFront) { locked++; lateral += c.frontLateralInUse / c.totalMass / Car.GRAVITY; } }
     const flatSpot = c.tyreWearFront - wear;
-    for (let i = 0; i < 3; i++) { c.updatePhysics({ throttle: 0, brake: 0.1, steer: 0 }, 1 / 60, plane); c.framesSinceLastCheckpoint = 0; }
+    for (let i = 0; i < 3; i++) { c.updatePhysics({ throttle: 0, brake: 0.1, steer: 0 }, 1 / 60, plane); c.timeSinceCheckpoint = 0; }
     return { locked, lateral: locked ? lateral / locked : 0, flatSpot, freed: !c.wheelLockFront };
   };
   const stab = corner(1), trail = corner(0.3);

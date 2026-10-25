@@ -86,7 +86,7 @@ try {
     c.lapPowerFactor = c.lapGripFactor = c.lapDragFactor = 1;
     let beta = 0;
     for (let i = 0; i < 300; i++) {
-      c.framesSinceLastCheckpoint = 0; c.updatePhysics({ throttle, brake: 0, steer }, 1 / 60, stub);
+      c.timeSinceCheckpoint = 0; c.updatePhysics({ throttle, brake: 0, steer }, 1 / 60, stub);
       const b = Math.atan2(c.vel.dot(Vector2.fromAngle(c.heading).normal()), c.vel.dot(Vector2.fromAngle(c.heading)));
       if (Math.abs(b) > Math.abs(beta)) beta = b;
     }
@@ -95,18 +95,18 @@ try {
   }
   // Unsaturated cornering matches the kinematic yaw rate within a few percent.
   { const c = new Car(new Vector2(0, 0), 0); c.vel = new Vector2(20, 0); c.speed = 20; c.lapPowerFactor = c.lapGripFactor = c.lapDragFactor = 1;
-    for (let i = 0; i < 120; i++) { c.framesSinceLastCheckpoint = 0; c.updatePhysics({ throttle: 0, brake: 0, steer: 0.15 }, 1 / 60, stub); }
+    for (let i = 0; i < 120; i++) { c.timeSinceCheckpoint = 0; c.updatePhysics({ throttle: 0, brake: 0, steer: 0.15 }, 1 / 60, stub); }
     const kin = c.speed / 3.6 * Math.tan(0.15 * 0.4);
     assert.ok(Math.abs(c.angularVelocity - kin) / kin < 0.12, `yaw ${c.angularVelocity} vs ${kin}`);
     assert.equal(c.isSkidding, false); }
   // Heavy steering at speed saturates the front axle: understeer, not oversteer.
   { const c = new Car(new Vector2(0, 0), 0); c.vel = new Vector2(60, 0); c.speed = 60; c.lapPowerFactor = c.lapGripFactor = c.lapDragFactor = 1;
-    for (let i = 0; i < 40; i++) { c.framesSinceLastCheckpoint = 0; c.updatePhysics({ throttle: 0, brake: 0, steer: 0.5 }, 1 / 60, stub); }
+    for (let i = 0; i < 40; i++) { c.timeSinceCheckpoint = 0; c.updatePhysics({ throttle: 0, brake: 0, steer: 0.5 }, 1 / 60, stub); }
     assert.equal(c.isSkidding, true); }
   // Pedal actuators: brake pressure builds within ~0.2 s, independent of the step; a demand that
   // flickers every frame between brake and full throttle reaches the tyres as a smooth force.
   { const pressureAfter = dt => { const c = new Car(new Vector2(0, 0), 0); c.vel = new Vector2(60, 0); c.speed = 60;
-      for (let t = 0; t < Math.round(0.1 / dt); t++) { c.framesSinceLastCheckpoint = 0; c.updatePhysics({ throttle: 0, brake: 1, steer: 0 }, dt, stub); }
+      for (let t = 0; t < Math.round(0.1 / dt); t++) { c.timeSinceCheckpoint = 0; c.updatePhysics({ throttle: 0, brake: 1, steer: 0 }, dt, stub); }
       return c.brakePressure; };
     const p = [1 / 30, 1 / 60, 1 / 120].map(pressureAfter);
     assert.ok(p.every(x => Math.abs(x - p[1]) < 0.01), `brake pressure depends on the step: ${p}`);
@@ -114,7 +114,7 @@ try {
     const c = new Car(new Vector2(0, 0), 0); c.vel = new Vector2(70, 0); c.speed = 70; c.lapPowerFactor = c.lapGripFactor = c.lapDragFactor = 1;
     let last = null, maxStep = 0;
     for (let i = 0; i < 90; i++) {
-      c.framesSinceLastCheckpoint = 0;
+      c.timeSinceCheckpoint = 0;
       c.updatePhysics(i % 2 ? { throttle: 1, brake: 0, steer: 0 } : { throttle: 0, brake: 0.66, steer: 0 }, 1 / 60, stub);
       if (i > 30 && last !== null) maxStep = Math.max(maxStep, Math.abs(c.longitudinalG - last));
       last = c.longitudinalG;
@@ -142,7 +142,7 @@ try {
   // motion), settles without overshoot and gives the same angle at every step rate.
   { const wheelAfter = (dt, seconds) => { const c = new Car(new Vector2(0, 0), 0); c.vel = new Vector2(30, 0); c.speed = 30;
       const angles = [];
-      for (let t = 0; t < Math.round(seconds / dt); t++) { c.framesSinceLastCheckpoint = 0; c.updatePhysics({ throttle: 0, brake: 0, steer: 0.5 }, dt, stub); angles.push(c.wheelAngle); }
+      for (let t = 0; t < Math.round(seconds / dt); t++) { c.timeSinceCheckpoint = 0; c.updatePhysics({ throttle: 0, brake: 0, steer: 0.5 }, dt, stub); angles.push(c.wheelAngle); }
       return angles; };
     const target = 0.5 * new Car(new Vector2(0, 0), 0).maxSteerAngle;
     const at = [1 / 30, 1 / 60, 1 / 120].map(dt => wheelAfter(dt, 0.1).at(-1));
@@ -202,7 +202,7 @@ try {
   // 6. Barrier contact: graze costs little speed, a hit sheds a lot; no blanket per-step damping.
   const at = gp.checkpoints[40].index, road = gp.points[at], fence = gp.runoff[at].leftBarrier;
   const probe = (inward) => { const c = new Car(fence.sub(road.normal.mul(1.0)), road.tangent.heading()); c.vel = road.tangent.mul(40).add(road.normal.mul(inward)); c.speed = c.vel.mag();
-    const before = c.vel.dot(road.tangent); for (let i = 0; i < 6 && c.isAlive; i++) { c.framesSinceLastCheckpoint = 0; c.updatePhysics(idle, 1 / 60, gp); }
+    const before = c.vel.dot(road.tangent); for (let i = 0; i < 6 && c.isAlive; i++) { c.timeSinceCheckpoint = 0; c.updatePhysics(idle, 1 / 60, gp); }
     return { alive: c.isAlive, along: c.vel.dot(road.tangent) / before, c }; };
   const graze = probe(1.5), hit = probe(8);
   assert.ok(graze.alive && graze.along > 0.8, 'a graze keeps most speed: ' + graze.along);
@@ -329,7 +329,7 @@ try {
       c.ersEnergy = Car.ERS_CAPACITY * soc;
       const at = {}; let t = 0, energyAt100 = null;
       for (let i = 0; i < 60 * 12; i++) {
-        c.framesSinceLastCheckpoint = 0;
+        c.timeSinceCheckpoint = 0;
         c.updatePhysics({ throttle: 1, brake: 0, steer: 0 }, 1 / 60, flat);
         t += 1 / 60;
         for (const kmh of [100, 200, 300]) if (at[kmh] === undefined && c.speedKmh >= kmh) at[kmh] = t;
@@ -356,7 +356,7 @@ try {
   let recovered = 0;
   for (let cycle = 0; cycle < 120; cycle++) {
     ersCar.ersEnergy = 0; ersCar.vel = Vector2.fromAngle(ersCar.heading).mul(80); ersCar.speed = 80; ersCar.isAlive = true;
-    for (let i = 0; i < 30; i++) { ersCar.updatePhysics({ throttle: 0, brake: 1, steer: 0 }, 1 / 60, stub); ersCar.framesSinceLastCheckpoint = 0; }
+    for (let i = 0; i < 30; i++) { ersCar.updatePhysics({ throttle: 0, brake: 1, steer: 0 }, 1 / 60, stub); ersCar.timeSinceCheckpoint = 0; }
     recovered += ersCar.ersEnergy;
   }
   assert.ok(recovered <= Car.ERS_LAP_HARVEST + 1 && recovered > Car.ERS_LAP_HARVEST * 0.95, 'per-lap harvest limit: ' + recovered);
@@ -372,10 +372,10 @@ try {
   offCar.pos = offSample.center.add(offSample.tangent.normal().mul(gp.width / 2 + 2.5));
   offCar.vel = new Vector2(0, 0); offCar.speed = 0;
   const parked = { throttle: 0, brake: 1, steer: 0 };
-  for (let i = 0; i < 60 * 10; i++) { offCar.updatePhysics(parked, 1 / 60, gp); offCar.framesSinceLastCheckpoint = 0; }
+  for (let i = 0; i < 60 * 10; i++) { offCar.updatePhysics(parked, 1 / 60, gp); offCar.timeSinceCheckpoint = 0; }
   assert.ok(offCar.surface !== 'asphalt', 'test car is on the runoff: ' + offCar.surface);
   assert.ok(offCar.isAlive, 'ten seconds off track is still within the recovery window');
-  for (let i = 0; i < 60 * 3 && offCar.isAlive; i++) { offCar.updatePhysics(parked, 1 / 60, gp); offCar.framesSinceLastCheckpoint = 0; }
+  for (let i = 0; i < 60 * 3 && offCar.isAlive; i++) { offCar.updatePhysics(parked, 1 / 60, gp); offCar.timeSinceCheckpoint = 0; }
   assert.equal(offCar.eliminationReason, 'stuck', 'more than twelve seconds off track retires the car');
   // Tyres: bell-shaped thermal window, heating and wear, the same in training and the race.
   assert.ok(Math.abs(Car.tyreGrip(Car.TYRE_OPTIMUM, 0) - 1) < 1e-9, 'full grip at the optimum');
@@ -423,7 +423,7 @@ try {
   const gearCar = new Car(gp.startPosition, gp.startAngle, new NeuralNetwork([driverInputCount(25), 4, 3]), '#fff', 'gears', 60, 25);
   const gearsSeen = new Set(); let maxRpm = 0, cutSteps = 0, prevGear = 1;
   for (let i = 0; i < 60 * 45; i++) {
-    gearCar.framesSinceLastCheckpoint = 0; // no checkpoints on the stub track
+    gearCar.timeSinceCheckpoint = 0; // no checkpoints on the stub track
     gearCar.ersEnergy = Car.ERS_CAPACITY; // charged battery: top speed set by drag, MGU-K taper and gearing
     gearCar.updatePhysics({ throttle: 1, brake: 0, steer: 0 }, 1 / 60, stub);
     gearsSeen.add(gearCar.gear); maxRpm = Math.max(maxRpm, gearCar.engineRpm);

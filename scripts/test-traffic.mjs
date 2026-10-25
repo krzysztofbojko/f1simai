@@ -173,9 +173,9 @@ try {
    assert.ok(waiting.pos.x>215,'queue did not resume after marshal clearance');
  }
  // Waiting behind blocked traffic is not a driver-stagnation DNF.
- const queued=car(150,0),blocked=car(156,0);queued.brain=NeuralNetwork.createTrainedDriverNetwork(25);queued.currentCheckpointIdx=2;queued.framesSinceLastCheckpoint=599;
+ const queued=car(150,0),blocked=car(156,0);queued.brain=NeuralNetwork.createTrainedDriverNetwork(25);queued.currentCheckpointIdx=2;queued.timeSinceCheckpoint=9.98;
  for(let step=0;step<120;step++) queued.updatePhysics(avoidTraffic(queued,[queued,blocked],{throttle:1,brake:0,steer:0},circuit),1/60,circuit);
- assert.ok(queued.isAlive);assert.equal(queued.framesSinceLastCheckpoint,599);
+ assert.ok(queued.isAlive);assert.equal(queued.timeSinceCheckpoint,9.98);
  // A removed wreck has neither rendering nor physical collision presence.
  const removed=car(400,0);removed.isAlive=false;removed.wreckRemoved=true;
  const clear=car(380,0,50),clearMotion=captureMotion([clear,removed]);clear.pos.x=420;

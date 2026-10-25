@@ -53,7 +53,7 @@ try {
   // A growing cumulative fitness cannot replace the model belonging to a PB.
   {
     const { population, car, record, saved } = fixture();
-    noPhysics(car); car.fitness = 10000; car.framesSinceLastCheckpoint = 0;
+    noPhysics(car); car.fitness = 10000; car.timeSinceCheckpoint = 0;
     car.brain.layers[0].weights[0][0] = 12345;
     population.update(1 / 60, track);
     assert.equal(parameters(record.bestBrain), saved, 'checkpoint fitness overwrote the lap champion');

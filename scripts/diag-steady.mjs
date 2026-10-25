@@ -14,7 +14,7 @@ try {
     const c = new Car(new Vector2(0, 0), 0); c.vel = new Vector2(v, 0); c.speed = v; c.lapPowerFactor = c.lapGripFactor = c.lapDragFactor = 1;
     let log = '';
     for (let i = 0; i < 300; i++) {
-      c.framesSinceLastCheckpoint = 0;
+      c.timeSinceCheckpoint = 0;
       // hold speed roughly with throttle
       c.updatePhysics({ throttle: c.speed < v ? 1 : 0, brake: 0, steer }, 1 / 60, track);
       if (i === 30 || i === 299) log += ` t=${(i / 60).toFixed(1)} yaw=${c.angularVelocity.toFixed(3)} latG=${c.lateralG.toFixed(2)} beta=${Math.atan2(c.vel.dot(Vector2.fromAngle(c.heading).normal()), c.vel.dot(Vector2.fromAngle(c.heading))).toFixed(3)}`;

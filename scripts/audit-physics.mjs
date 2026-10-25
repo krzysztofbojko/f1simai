@@ -69,13 +69,13 @@ try {
   const stop400 = car(400 / 3.6);
   let elapsed = 0;
   while (stop400.speed > 0.001 && elapsed < 20) {
-    stop400.framesSinceLastCheckpoint = 0;
+    stop400.timeSinceCheckpoint = 0;
     stop400.updatePhysics({ ...idle, brake: 1 }, 1 / 60, track); elapsed += 1 / 60;
   }
   results.stop400 = { seconds: elapsed, meters: stop400.pos.x };
   const empty = car(10); empty.fuelKg = 0;
   for (let i = 0; i < 18000; i++) {
-    empty.framesSinceLastCheckpoint = 0;
+    empty.timeSinceCheckpoint = 0;
     empty.updatePhysics({ ...idle, throttle: 1 }, 1 / 60, track);
   }
   results.emptyTank = { speedKmh: empty.speedKmh, fuelKg: empty.fuelKg, alive: empty.isAlive };
@@ -229,9 +229,9 @@ try {
       assert.equal(safetySnapshot.cars[0].wreckRemoved,false);
       // Marshals clear the wrecks about 15 s of simulation time after the crash. The idle survivor
       // is kept in the race (no 10 s no-progress retirement), so the session keeps running.
-      for(let i=0;i<500;i++) { time+=20; tick(); survivor.framesSinceLastCheckpoint=0; }
+      for(let i=0;i<500;i++) { time+=20; tick(); survivor.timeSinceCheckpoint=0; }
       assert.equal(messages.filter(m=>m.type==='SNAPSHOT').at(-1).snapshot.cars[0].wreckRemoved,false,'wreck stays for 10 s');
-      for(let i=0;i<300;i++) { time+=20; tick(); survivor.framesSinceLastCheckpoint=0; }
+      for(let i=0;i<300;i++) { time+=20; tick(); survivor.timeSinceCheckpoint=0; }
       safetySnapshot=messages.filter(m=>m.type==='SNAPSHOT').at(-1).snapshot;
       assert.equal(safetySnapshot.cars[0].wreckRemoved,true);
       assert.equal(safetySnapshot.cars[1].wreckRemoved,true);

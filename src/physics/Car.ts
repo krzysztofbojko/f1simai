@@ -304,6 +304,11 @@ export class Car {
   public static readonly OFF_TRACK_RECOVERY_TIME = 12;
   /** Gates (about 18 m apart) a car rejoining the asphalt may have passed off the road; see checkTrackProgress. */
   public static readonly MAX_REJOIN_SKIPPED_GATES = 8;
+  /** Driving time without a gate before the car is retired as stuck (s); longer while it recovers control. */
+  public static readonly STUCK_TIMEOUT = 10;
+  public static readonly STUCK_RECOVERY_TIMEOUT = 30;
+  /** Driving time since the last gate before a car back on the asphalt may resume at the gate ahead (s). */
+  public static readonly REJOIN_MIN_TIME = 0.5;
   /**
    * Quasi-static ride-height aero: downforce compresses the axles, the floor works best at a
    * particular height and chokes when it gets too close to the road. Ride height follows with a lag
@@ -899,7 +904,7 @@ export class Car {
   public currentLap: number = 0;
   public currentCheckpointIdx: number = 0;
   public checkpointsCleared: number = 0;
-  public framesSinceLastCheckpoint: number = 0;
+  public timeSinceCheckpoint: number = 0; // s of driving (not waiting in traffic) since the last gate
   public isSkidding: boolean = false;
   /** Tyres well past their peak (or a real slide): only this cuts the throttle; working slip at the limit does not. */
   public isSliding: boolean = false;
@@ -1060,7 +1065,7 @@ export class Car {
     this.currentLap = 0;
     this.currentCheckpointIdx = startCheckpointIdx;
     this.checkpointsCleared = 0;
-    this.framesSinceLastCheckpoint = 0;
+    this.timeSinceCheckpoint = 0;
     this.lateralG = 0;
     this.longitudinalG = 0;
     this.pitchAngle = 0;
@@ -1420,7 +1425,7 @@ export class Car {
     if (!this.isFinishedRace) {
       this.totalRaceTime += dt;
     }
-    if (!this.trafficWaiting) this.framesSinceLastCheckpoint++;
+    if (!this.trafficWaiting) this.timeSinceCheckpoint += dt;
 
     if (this.fitness > this.peakFitness) {
       this.peakFitness = this.fitness;

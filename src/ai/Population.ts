@@ -593,7 +593,7 @@ export class Population {
             // Snapshot brain only upon significant progress (+300 pts), checkpoint clearing, lap completion, or initial brain
             const lastSnap = this.lastSnapshotFitness[i] ?? 0;
             const isSignificantProgress = (car.fitness - lastSnap) >= 300;
-            const isCheckpoint = car.framesSinceLastCheckpoint === 0;
+            const isCheckpoint = car.timeSinceCheckpoint === 0;
             if (record.bestLapTime === null && !car.lapCompromised && car.brain && (isSignificantProgress || isCheckpoint || !record.bestBrain)) {
               record.bestBrain = car.brain.clone();
               this.lastSnapshotFitness[i] = car.fitness;

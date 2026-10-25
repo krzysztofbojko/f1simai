@@ -54,7 +54,7 @@ export function checkTrackProgress(car: Car, track: Track): LapFinishEvent | nul
   }
 
   // A car that cannot rejoin the asphalt within OFF_TRACK_RECOVERY_TIME is retired instead of idling for half a minute.
-  if (car.framesSinceLastCheckpoint > (car.recoveryTimer > 0 ? 1800 : 600) || (!car.isManual && car.offTrackTime > Car.OFF_TRACK_RECOVERY_TIME)) {
+  if (car.timeSinceCheckpoint > (car.recoveryTimer > 0 ? Car.STUCK_RECOVERY_TIMEOUT : Car.STUCK_TIMEOUT) || (!car.isManual && car.offTrackTime > Car.OFF_TRACK_RECOVERY_TIME)) {
     car.eliminationReason = 'stuck';
     car.isAlive = false;
     car.effectiveThrottle = 0;
@@ -100,7 +100,7 @@ export function checkTrackProgress(car: Car, track: Track): LapFinishEvent | nul
   // A car that rejoins the asphalt beyond gates it passed off the road resumes at the gate ahead.
   // The skipped gates earn nothing and spoil the lap; without this the car could never clear
   // them and would be retired as stuck while driving, leaving a wreck on the racing line.
-  if (car.framesSinceLastCheckpoint > 30 && car.withinTrackLimits && isMovingForwardAlongTrack && !crossedGate && !isNearCp) {
+  if (car.timeSinceCheckpoint > Car.REJOIN_MIN_TIME && car.withinTrackLimits && isMovingForwardAlongTrack && !crossedGate && !isNearCp) {
     const missed = (track.gateIndexOf(track.sampleSurface(car.pos).index) - clearedCpIdx + cpCount) % cpCount + 1;
     // On the inside of a hairpin the nearest centreline segment is already the next one before
     // the car reaches the gate: one gate counts as missed only once the car is beyond its line.
@@ -108,7 +108,7 @@ export function checkTrackProgress(car: Car, track: Track): LapFinishEvent | nul
     // Never past the start/finish gate (index 0), which counts the lap.
     if (beyondGate && missed <= Car.MAX_REJOIN_SKIPPED_GATES && clearedCpIdx !== 0 && clearedCpIdx + missed <= cpCount) {
       car.currentCheckpointIdx = (clearedCpIdx + missed) % cpCount;
-      car.framesSinceLastCheckpoint = 0;
+      car.timeSinceCheckpoint = 0;
       car.lapCompromised = true;
       car.lapExcursion = true;
       return null;
@@ -138,7 +138,7 @@ export function passGate(car: Car, track: Track, gateT: number | null): LapFinis
 
   scoreGate(car, track, nextCp, clearedCpIdx);
 
-  car.framesSinceLastCheckpoint = 0;
+  car.timeSinceCheckpoint = 0;
   car.currentCheckpointIdx = (clearedCpIdx + 1) % cpCount;
   car.lineNet?.passPoint(clearedCpIdx, cpCount, car.lapTime);
 

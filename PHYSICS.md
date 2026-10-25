@@ -349,6 +349,8 @@ Audyt: `raport/2026-10-25/RAPORT.md`. Kalibracja: `npm run diag:nn -- 600`, ziar
 | Ciągłość docisku | 2,0 | 2,3 | 5,0 | 58,67 s | |
 | + balans 0,9 | 1,0 | 0,5 | 2,2 | 56,22 s | 650 µs |
 
+- **Liczniki w sekundach.** Czas bez zaliczonej bramki (`timeSinceCheckpoint`) rośnie o `dt`, a nie o 1 na krok. Eliminacja „stuck” następuje po `STUCK_TIMEOUT` = 10 s jazdy (30 s przy odzyskiwaniu kontroli), a powrót do bramki przed autem po wyjeździe poza tor jest możliwy po `REJOIN_MIN_TIME` = 0,5 s. Wcześniej przy 30/60/120 Hz eliminacja przychodziła po 20/10/5 s (`test-timing` sprawdza teraz wszystkie trzy). Przy 60 Hz zachowanie się nie zmienia, poza zaokrągleniem na granicy progu.
+
 Sama ciągłość docisku zwiększała liczbę wypadnięć: obrócone auto nie dostawało już darmowego docisku i nie wracało na tor. Z podsterownym balansem auto rzadziej się obraca, więc wypadków jest mniej, a okrążenia są szybsze. Skrót stanu `bench:step` się zmienia.
 
 ## Ochrona przed wartościami nieskończonymi (19.10.2026)
