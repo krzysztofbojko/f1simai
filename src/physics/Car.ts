@@ -1546,11 +1546,16 @@ export class Car {
     // Hybrid power: MGU-K torque fill on a wide-open throttle, harvesting under braking and lift-and-coast.
     let ersPower = 0;
     this.ersDeploying = false;
-    const harvestRoom = () => Math.max(0, Car.ERS_LAP_HARVEST - this.ersHarvestedLap);
-    const storeEnergy = (joules: number) => {
-      const stored = Math.min(joules, harvestRoom(), Car.ERS_CAPACITY - this.ersEnergy);
-      this.ersEnergy += Math.max(0, stored);
-      this.ersHarvestedLap += Math.max(0, stored);
+    // Energy the battery can still take (J): the lap's harvest allowance and its free capacity.
+    const storable = () => Math.max(0, Math.min(Car.ERS_LAP_HARVEST - this.ersHarvestedLap, Car.ERS_CAPACITY - this.ersEnergy));
+    // The MGU-K turns up to `power` W of mechanical work into charge; returns the power it actually takes,
+    // which the caller removes from the drive or the motion, so harvesting never creates energy.
+    const harvest = (power: number) => {
+      const taken = Math.max(0, Math.min(power, storable() / (Car.ERS_REGEN_EFFICIENCY * dt)));
+      const stored = taken * Car.ERS_REGEN_EFFICIENCY * dt;
+      this.ersEnergy += stored;
+      this.ersHarvestedLap += stored;
+      return taken;
     };
     if (actualThrottle > 0.65 && forwardSpeed > 0) {
       const soc = this.ersEnergy / Car.ERS_CAPACITY;
@@ -1565,14 +1570,12 @@ export class Car {
         ersPower = joules / dt;
         this.ersEnergy -= joules;
         this.ersDeploying = ersPower > 0;
-      } else if (forwardSpeed > 30 && harvestRoom() > 0) {
+      } else if (forwardSpeed > 30) {
         // Super clipping: part of the ICE output recharges the battery instead of driving the wheels.
-        ersPower = -Car.ERS_CLIP_POWER;
-        storeEnergy(Car.ERS_CLIP_POWER * Car.ERS_REGEN_EFFICIENCY * dt);
+        ersPower = -harvest(Math.min(Car.ERS_CLIP_POWER, Car.ICE_POWER * actualThrottle * icePower));
       }
-    } else if (actualThrottle >= 0.02 && forwardSpeed > 8 && harvestRoom() > 0) {
-      ersPower = -Car.ERS_PART_THROTTLE_CHARGE * actualThrottle;
-      storeEnergy(-ersPower * Car.ERS_REGEN_EFFICIENCY * dt);
+    } else if (actualThrottle >= 0.02 && forwardSpeed > 8) {
+      ersPower = -harvest(Math.min(Car.ERS_PART_THROTTLE_CHARGE * actualThrottle, Car.ICE_POWER * actualThrottle * icePower));
     }
     const harvesting = !this.ersDeploying && forwardSpeed > 8 && (control.brake > 0.05 || (actualThrottle < 0.02 && forwardSpeed > 30));
     const engineForce = (actualThrottle > 0.005 || ersPower > 0)
@@ -1592,18 +1595,21 @@ export class Car {
     [this.wheelLockRear, this.lockTimerRear] = Car.stepLock(this.wheelLockRear, this.lockTimerRear, rolling, torqueRear, gripAlong(rearLimit, this.rearLateralInUse, rollingRear), dt);
     const brakeFront = this.wheelLockFront ? roomFront * Car.LOCKED_GRIP : Math.min(roomFront, torqueFront);
     const brakeRear = this.wheelLockRear ? roomRear * Car.LOCKED_GRIP : Math.min(roomRear, torqueRear);
+    // Lift-and-coast: the MGU-K brakes the rear axle with the power it recovers, within the rear
+    // tyres' grip and what the battery can take.
+    const coastRegen = harvesting && control.brake <= 0.05
+      ? Math.min(Car.ERS_POWER * 0.3, storable() / (Car.ERS_REGEN_EFFICIENCY * dt)) / forwardSpeed : 0;
+    const regenRear = Math.min(coastRegen, Math.max(0, roomRear - brakeRear));
     const vStar = forwardSpeed + (driveForce + dragForward) / currentMass * dt;
-    const resistance = brakeFront + brakeRear + rollingFront + rollingRear;
+    const resistance = brakeFront + brakeRear + regenRear + rollingFront + rollingRear;
     const resistanceScale = resistance > 0 ? Math.min(1, currentMass * Math.abs(vStar) / (dt * resistance)) : 0;
     const resistanceSign = Math.sign(vStar);
     let regenBraking = 0;
-    if (harvesting) {
-      // Brake-by-wire blends regen first: the MGU-K recovers up to ERS_HARVEST_POWER, never more than the brakes dissipate.
-      const harvestPower = control.brake > 0.05
-        ? Math.min(Car.ERS_HARVEST_POWER, (brakeFront + brakeRear) * resistanceScale * forwardSpeed)
-        : Car.ERS_POWER * 0.3;
-      if (control.brake > 0.05) regenBraking = harvestPower;
-      storeEnergy(harvestPower * Car.ERS_REGEN_EFFICIENCY * dt);
+    if (regenRear > 0) harvest(regenRear * resistanceScale * forwardSpeed);
+    else if (harvesting && control.brake > 0.05 && !this.wheelLockRear) {
+      // Brake-by-wire blends regen first: the MGU-K on the rear axle recovers up to ERS_HARVEST_POWER,
+      // never more than the rear brakes dissipate.
+      regenBraking = harvest(Math.min(Car.ERS_HARVEST_POWER, brakeRear * resistanceScale * forwardSpeed));
     }
     // The discs take the braking work of a turning wheel (the rear minus what the MGU-K recovers);
     // a locked wheel's work goes into the tyre instead.
@@ -1613,7 +1619,7 @@ export class Car {
     if (this.wheelLockFront) this.tyreWearFront = Math.min(1, this.tyreWearFront + Car.LOCK_WEAR_RATE * dt);
     if (this.wheelLockRear) this.tyreWearRear = Math.min(1, this.tyreWearRear + Car.LOCK_WEAR_RATE * dt);
     const frontFx = -resistanceSign * (brakeFront + rollingFront) * resistanceScale;
-    const rearFx = Math.max(-rearLimit, Math.min(rearLimit, driveForce - resistanceSign * (brakeRear + rollingRear) * resistanceScale));
+    const rearFx = Math.max(-rearLimit, Math.min(rearLimit, driveForce - resistanceSign * (brakeRear + regenRear + rollingRear) * resistanceScale));
     const longitudinalForce = frontFx + rearFx + dragForward;
 
     // Remaining lateral force is computed from the same friction circle on each axle.

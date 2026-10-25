@@ -360,6 +360,21 @@ try {
   // Half a second at brake 0.8 from 60 m/s recovers well above the old 120 kW-limited ~44 kJ.
   assert.ok(ersCar.ersEnergy - 1e6 > 100000, 'strong braking harvests up to ERS_HARVEST_POWER: ' + (ersCar.ersEnergy - 1e6));
   assert.ok(ersCar.ersEnergy - 1e6 <= Car.ERS_HARVEST_POWER * Car.ERS_REGEN_EFFICIENCY * 0.5 + 1, 'harvest stays within the MGU-K limit');
+  // Energy balance: harvesting turns motion into charge, never creates it. With an empty tank and no
+  // pedals, kinetic plus battery energy only falls; lifting with harvest room slows the car more than
+  // lifting with a spent allowance; a full battery takes nothing and adds no drag.
+  { const coast = (allowance, energy, fuel = 50) => {
+      const c = new Car(new Vector2(0, 0), 0); c.lapPowerFactor = c.lapGripFactor = c.lapDragFactor = 1;
+      c.vel = new Vector2(60, 0); c.speed = 60; c.fuelKg = fuel; c.gear = 6; c.engineRpm = 9000;
+      c.ersEnergy = energy; c.ersHarvestedLap = Car.ERS_LAP_HARVEST - allowance;
+      const e0 = 0.5 * c.totalMass * c.speed ** 2 + c.ersEnergy;
+      for (let i = 0; i < 60; i++) { c.timeSinceCheckpoint = 0; c.updatePhysics(idle, 1 / 60, stub); }
+      return { speed: c.speed, gained: c.ersEnergy - energy, balance: 0.5 * c.totalMass * c.speed ** 2 + c.ersEnergy - e0 }; };
+    const harvesting = coast(Car.ERS_LAP_HARVEST, 1e6), spent = coast(0, 1e6), full = coast(Car.ERS_LAP_HARVEST, Car.ERS_CAPACITY), empty = coast(Car.ERS_LAP_HARVEST, 1e6, 0);
+    assert.ok(harvesting.gained > 50000 && spent.gained === 0 && full.gained === 0, `lift-and-coast harvest ${Math.round(harvesting.gained / 1000)} kJ`);
+    assert.ok(harvesting.speed < spent.speed - 0.5, `the MGU-K brakes the car it charges: ${harvesting.speed.toFixed(2)} vs ${spent.speed.toFixed(2)} m/s`);
+    assert.equal(full.speed, spent.speed, 'a full battery adds no drag');
+    assert.ok(empty.balance < 0 && harvesting.balance < 0, `kinetic + battery energy falls without fuel: ${Math.round(empty.balance)} J`); }
   // 2026 rules: no more than ERS_LAP_HARVEST recovered between two crossings of the line.
   ersCar.reset(gp.startPosition, gp.startAngle, true, 1);
   let recovered = 0;
@@ -372,8 +387,10 @@ try {
   // A flat battery stops deployment and super-clips on full throttle.
   ersCar.reset(gp.startPosition, gp.startAngle, true, 1); ersCar.ersEnergy = Car.ERS_CAPACITY * 0.05;
   ersCar.vel = Vector2.fromAngle(ersCar.heading).mul(70); ersCar.speed = 70;
-  ersCar.updatePhysics({ throttle: 1, brake: 0, steer: 0 }, 1 / 60, stub);
-  assert.ok(!ersCar.ersDeploying && ersCar.ersEnergy > Car.ERS_CAPACITY * 0.05, 'flat battery clips instead of deploying');
+  // Clipping takes ICE output, so it waits until the gearbox has shifted up from the reset (no power on the limiter or in a shift).
+  let deployed = false;
+  for (let i = 0; i < 120; i++) { ersCar.updatePhysics({ throttle: 1, brake: 0, steer: 0 }, 1 / 60, stub); ersCar.timeSinceCheckpoint = 0; deployed ||= ersCar.ersDeploying; }
+  assert.ok(!deployed && ersCar.ersEnergy > Car.ERS_CAPACITY * 0.05, 'flat battery clips instead of deploying');
   // Off-track: an AI car parked on the runoff keeps trying to rejoin for OFF_TRACK_RECOVERY_TIME, then retires.
   const offCar = new Car(gp.startPosition, gp.startAngle, new NeuralNetwork([driverInputCount(25), 4, 3]), '#fff', 'off', 60, 25);
   offCar.reset(gp.startPosition, gp.startAngle, true, 1);
