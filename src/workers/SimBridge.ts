@@ -1,7 +1,7 @@
 import { loadDriverPressure } from '../ai/DriverPressure';
-import type { SimSnapshot, ComputeProfile, ComputeProfileOptions, ComputeProfileConfig, TopologySpecifier } from './sim.worker';
+import type { SimSnapshot, ComputeProfile, ComputeProfileOptions, ComputeProfileConfig, TopologySpecifier, LearningReport } from './sim.worker';
 
-export type { ComputeProfile, ComputeProfileOptions, ComputeProfileConfig, TopologySpecifier };
+export type { ComputeProfile, ComputeProfileOptions, ComputeProfileConfig, TopologySpecifier, LearningReport };
 
 interface PendingRequest<T> {
   id: number;
@@ -22,6 +22,7 @@ export class SimBridge {
   private pendingAllModels: PendingRequest<any>[] = [];
   private pendingLoadAllModels: PendingRequest<boolean>[] = [];
   private pendingClearLearning: PendingRequest<boolean>[] = [];
+  private pendingLearningStats: PendingRequest<LearningReport>[] = [];
   private nextRequestId = 1;
   public onTrackError?: (message: string) => void;
   /** The worker could not start or has failed: the simulation cannot run in this page. */
@@ -72,7 +73,7 @@ export class SimBridge {
 
   private rejectPending(reason: unknown): void {
     const error = reason instanceof Error ? reason : new Error('SimWorker error');
-    const queues = [this.pendingBestBrain, this.pendingLoadBrain, this.pendingAllModels, this.pendingLoadAllModels, this.pendingClearLearning];
+    const queues = [this.pendingBestBrain, this.pendingLoadBrain, this.pendingAllModels, this.pendingLoadAllModels, this.pendingClearLearning, this.pendingLearningStats];
     for (const queue of queues) {
       while (queue.length) {
         const pending = queue.shift()!;
@@ -137,6 +138,10 @@ export class SimBridge {
 
           case 'LOAD_ALL_MODELS_ERROR':
             this.resolveNext(this.pendingLoadAllModels, false, data.requestId);
+            break;
+
+          case 'LEARNING_STATS_RESULT':
+            this.resolveNext(this.pendingLearningStats, data.report, data.requestId);
             break;
 
           case 'CLEAR_LEARNING_DONE':
@@ -291,6 +296,11 @@ export class SimBridge {
 
   public loadAllModels(models: any): Promise<boolean> {
     return this.request(this.pendingLoadAllModels, { type: 'LOAD_ALL_MODELS', models });
+  }
+
+  /** Learning diagnostics: generation history, trends, drivers and the champion network. */
+  public getLearningStats(): Promise<LearningReport> {
+    return this.request(this.pendingLearningStats, { type: 'GET_LEARNING_STATS' });
   }
 
   /** Clean slate: every driver forgets what it learned (networks, lines, pace, records, generations). */

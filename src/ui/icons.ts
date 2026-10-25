@@ -17,6 +17,7 @@ const PATHS = {
   target: '<circle cx="12" cy="12" r="8.5"/><circle cx="12" cy="12" r="3.5"/>',
   timer: '<circle cx="12" cy="13.5" r="7.5"/><path d="M12 10v3.5l2.5 2"/><path d="M9.5 2.5h5"/>',
   trophy: '<path d="M8 21h8M12 16.5V21"/><path d="M7 3.5h10V9a5 5 0 0 1-10 0z"/><path d="M17 5h3v1.5A3.5 3.5 0 0 1 16.5 10M7 5H4v1.5A3.5 3.5 0 0 0 7.5 10"/>',
+  chart: '<path d="M4 4v16h16"/><path d="M7.5 15l4-5 3 3L20 7"/>',
   bolt: '<path d="M13 2.5L4.5 14H11l-1 7.5L19.5 10H13z"/>',
 } as const;
 

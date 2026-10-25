@@ -19,6 +19,7 @@ import type { SimSnapshot } from './workers/sim.worker';
 import { SnapshotSync, type SyncTarget } from './ui/SnapshotSync';
 import { RaceUI, type RaceUIHost } from './ui/RaceUI';
 import { InputController } from './ui/InputController';
+import { LearningPanel } from './ui/LearningPanel';
 import { formatLapTime } from './ui/format';
 import realTrackIndex from '../tracks/index.json';
 
@@ -97,6 +98,7 @@ class App {
   private readonly sync = new SnapshotSync();
   private readonly raceUI: RaceUI;
   private readonly input: InputController;
+  private learningPanel!: LearningPanel;
   /** The page state the snapshots update and the race screens read. */
   private readonly page: SyncTarget & RaceUIHost;
 
@@ -136,6 +138,7 @@ class App {
 
     this.bridge = new SimBridge();
     this.setupBridgeSync();
+    this.setupLearningPanel();
 
     this.setupWindowEvents();
     this.setupUIEvents();
@@ -145,6 +148,24 @@ class App {
 
     // Start simulation loop
     requestAnimationFrame(this.loop.bind(this));
+  }
+
+  /** Learning diagnostics window: button or L opens it; the simulation keeps running. */
+  private setupLearningPanel(): void {
+    this.learningPanel = new LearningPanel(() => this.bridge.getLearningStats(), color => {
+      // Follow the driver; while the player drives, the driven car stays selected.
+      if (this.isPlayerDriving) return;
+      const car = this.population.cars.find(c => c.color === color);
+      if (!car) return;
+      this.selectedCar = car;
+      this.bridge.setActiveCarColor(color);
+    });
+    document.getElementById('btn-learning-stats')?.addEventListener('click', () => this.learningPanel.toggle());
+    window.addEventListener('keydown', e => {
+      if (e.key.toLowerCase() !== 'l' || e.ctrlKey || e.metaKey || e.altKey || e.repeat || this.isPlayerDriving) return;
+      if ((e.target as HTMLElement | null)?.closest('input, select, textarea, [contenteditable]')) return;
+      this.learningPanel.toggle();
+    });
   }
 
   private static readonly AUTOSAVE_KEY = 'f1_autosave_models';

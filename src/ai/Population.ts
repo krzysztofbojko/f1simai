@@ -10,6 +10,7 @@ import { NeuralNetwork, TopologySpecifier } from './NeuralNetwork';
 import { Track } from '../track/Track';
 import type { TrackConditions } from '../physics/Weather';
 import { FUEL_PER_METRE, trainingFuelKg } from '../race/RaceFuel';
+import { LearningStats } from './LearningStats';
 
 export interface F1TeamDef {
   teamName: string;
@@ -101,6 +102,10 @@ export class Population {
   public top5Laps: LapLeaderboardEntry[] = [];
   public leaderCheckpointSpeeds: number[] = [];
   public learningHistory: { time: number; bestLap: number; avgLap: number; teamColor: string }[] = [];
+  /** Learning diagnostics per generation (bookkeeping only, see LearningStats.ts). */
+  public learningStats = new LearningStats();
+  /** Alive flags at the start of `update` (reused buffer): a car dead at its end crashed in that step. */
+  private aliveBefore: boolean[] = [];
 
   // Evolution parameters
   public mutationRate: number = 0.02;
@@ -213,6 +218,7 @@ export class Population {
   private initPopulation(track: Track): void {
     this.cars = [];
     this.teamRecords = [];
+    this.learningStats = new LearningStats();
     const baseBrain = NeuralNetwork.createTrainedDriverNetwork(this.rayCount, this.topology, track);
 
     for (let i = 0; i < this.populationSize; i++) {
@@ -301,6 +307,7 @@ export class Population {
     car.replayStepTimer = 0;
     record.stagnationCounter = 0;
     record.currentMutationRate = Math.min(Population.MAX_SHAKE_RATE, rate * 1.5);
+    this.learningStats.noteTrial('start');
   }
 
   recordLap(lapEvent: LapFinishEvent, car: Car, isPlayer: boolean = false, track?: Track): void {
@@ -315,7 +322,9 @@ export class Population {
       const lineNet = car.lineNetByPressure.get(lapPressure);
       if (lineNet?.finish(lapEvent.lapTime, !lapEvent.compromised)) this.shareLine(car, lineNet, lapPressure);
     }
+    const stats = isPlayer ? null : this.learningStats;
     if (lapEvent.compromised) {
+      stats?.noteLap(lapEvent.lapTime, 'compromised');
       const record = this.teamRecords.find(r => r.color === car.color);
       if (record) { record.lapsCount++; record.lastLapTime = lapEvent.lapTime; }
       return; // Race timing counts it; contaminated performance never evaluates a brain.
@@ -338,6 +347,7 @@ export class Population {
       }
     }
 
+    stats?.noteLap(lapEvent.lapTime, lapEvent.yellow ? 'yellow' : 'clean');
     const t = this.teamRecords.find(r => r.color === car.color);
     if (t) {
       t.lapsCount++;
@@ -355,6 +365,8 @@ export class Population {
         // Point 3: Simulated Annealing Cooldown on personal best lap
         t.stagnationCounter = 0;
         t.currentMutationRate = Math.max(0.025, t.currentMutationRate * 0.85);
+        stats?.notePersonalBest();
+        if (car.explorationTrial) stats?.noteTrial('won');
         car.explorationTrial = false;
         // The first lap in new conditions only resets the reference time; the proven brain stays.
         if (car.brain && !(newConditions && t.bestBrain)) {
@@ -367,6 +379,8 @@ export class Population {
       } else if ((t.bestLapPressure ?? 0) === lapPressure && t.bestBrain && (car.explorationTrial || lapEvent.lapTime > t.bestLapTime + 2.5)) {
         // PERFORMANCE GUARD: a failed exploration trial or a degraded brain goes back to the proven championship brain.
         if (!car.explorationTrial) t.stagnationCounter++;
+        if (car.explorationTrial) stats?.noteTrial('lost');
+        else stats?.noteRevert();
         car.explorationTrial = false;
         car.brain = t.bestBrain.clone();
         car.safeBrainBackup = t.bestBrain.clone();
@@ -455,7 +469,7 @@ export class Population {
    * The session champion: the team with the fastest lap if its brain is kept, else (before any
    * lap) the team with the highest fitness above zero. Ties go to the first team. One pass, no sort.
    */
-  private championRecord(): TeamRecord | null {
+  championRecord(): TeamRecord | null {
     let fastest: TeamRecord | null = null;
     for (const t of this.teamRecords) {
       if (t.bestLapTime !== null && (fastest === null || t.bestLapTime < fastest.bestLapTime!)) fastest = t;
@@ -475,6 +489,9 @@ export class Population {
     const motion = captureMotion(traffic);
     computeWake(traffic, track);
     const laps: { car: Car; event: LapFinishEvent }[] = [];
+    const aliveBefore = this.aliveBefore;
+    aliveBefore.length = this.cars.length;
+    for (let i = 0; i < this.cars.length; i++) aliveBefore[i] = this.cars[i].isAlive;
     let maxFitness = -Infinity;
     let leader: Car | null = null;
 
@@ -678,6 +695,10 @@ export class Population {
     }
 
     if (motion) resolveTraffic(this.cars, motion);
+    for (let i = 0; i < this.cars.length; i++) {
+      const car = this.cars[i];
+      if (aliveBefore[i] && !car.isAlive && !car.isManual) this.learningStats.noteCrash(car);
+    }
     for (const {car, event} of laps) {
       this.recordLap({...event, compromised: event.compromised || car.lapCompromised}, car, car.isManual, track);
       this.onLapCompleted?.(car, event);
@@ -773,6 +794,8 @@ export class Population {
     if (currentMaxFitness > this.bestFitness) {
       this.bestFitness = currentMaxFitness;
     }
+
+    this.learningStats.closeGeneration(this);
 
     const newCars: Car[] = [];
     const inputCount = driverInputCount(this.rayCount);
@@ -902,6 +925,7 @@ export class Population {
 
   resetAll(track: Track): void {
     this.fuelPerLap = null;
+    this.learningStats = new LearningStats();
     const baseBrain = NeuralNetwork.createTrainedDriverNetwork(this.rayCount, this.topology, track);
     for (let i = 0; i < this.cars.length; i++) {
       const slot = track.getGridSlot(i);
@@ -989,6 +1013,7 @@ export class Population {
 
   resetBestTimes(): void {
     this.globalBestLap = null;
+    this.learningStats = new LearningStats();
     this.top5Laps = [];
     this.learningHistory = [];
     this.bestRacingLine = [];

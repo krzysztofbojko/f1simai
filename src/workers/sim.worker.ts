@@ -13,6 +13,7 @@ import { isCompound } from '../physics/Tyres';
 import { toCarView, type CarView } from './CarView';
 import { Weather, isWeatherScenario, type WeatherScenario, type WeatherState } from '../physics/Weather';
 import { applyDriverModel, exportDriver, mergeBetterDrivers, serializeTrack } from '../ai/Islands';
+import type { LearningStatsView } from '../ai/LearningStats';
 
 export type { TopologySpecifier, RaceState, RaceStanding, QualifyingSnapshot };
 export type { CarView as SerializedCar, SerializedRay } from './CarView';
@@ -102,6 +103,13 @@ export interface SimSnapshot {
   isHeadless?: boolean;
   topology?: TopologySpecifier;
   islands?: IslandStatus;
+}
+
+/** The learning diagnostics panel's data, requested about once a second while it is open. */
+export interface LearningReport extends LearningStatsView {
+  simTime: number;
+  sessionState: RaceState;
+  islands: IslandStatus;
 }
 
 export interface IslandStatus {
@@ -204,7 +212,9 @@ function onIslandMessage(worker: Worker, message: any): void {
   if (message?.type !== 'MODELS' || message.version !== islandVersion) return;
   if (message.busyMs > 0) islandRates.set(worker, message.steps / (message.busyMs / 1000));
   if (session.state !== 'IDLE') return;
-  islandsAdopted += mergeBetterDrivers(population, message.drivers);
+  const adopted = mergeBetterDrivers(population, message.drivers);
+  islandsAdopted += adopted;
+  population.learningStats.noteAdoptions(adopted);
   worker.postMessage({ type: 'MODELS', version: islandVersion, drivers: exportAllDrivers() });
 }
 
@@ -810,6 +820,12 @@ self.onmessage = (e: MessageEvent) => {
         generation: population.generation,
         requestId: data.requestId
       });
+      break;
+    }
+
+    case 'GET_LEARNING_STATS': {
+      const report: LearningReport = { ...population.learningStats.view(population), simTime, sessionState: session.state, islands: islandStatus() };
+      self.postMessage({ type: 'LEARNING_STATS_RESULT', requestId: data.requestId, report });
       break;
     }
 

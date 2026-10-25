@@ -1804,3 +1804,136 @@ input[type="checkbox"] {
   border: 2px solid rgba(0, 210, 190, 0.7);
   border-top: none;
 }
+
+/* Learning diagnostics: a floating window that never blocks the simulation */
+.learning-panel {
+  position: fixed;
+  z-index: 140;
+  display: flex;
+  flex-direction: column;
+  min-width: 360px;
+  min-height: 280px;
+  background: #0d1117;
+  border: 1px solid rgba(0, 210, 190, 0.45);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-raised);
+  resize: both;
+  overflow: hidden;
+  font-size: 13px;
+}
+.lp-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px 8px 14px;
+  border-bottom: 1px solid var(--border-soft);
+  cursor: move;
+  touch-action: none;
+}
+.lp-header h2 { font-size: 15px; font-weight: 900; letter-spacing: 0.04em; text-transform: uppercase; }
+.lp-close { margin-left: auto; }
+.lp-close .icon { width: 14px; height: 14px; }
+.lp-tabs { display: flex; gap: 2px; padding: 6px 10px 0; border-bottom: 1px solid var(--border-soft); }
+.lp-tabs button {
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--text-muted);
+  font: 700 13px var(--font-racing);
+  padding: 6px 12px;
+  cursor: pointer;
+}
+.lp-tabs button:hover { color: var(--text-main); }
+.lp-tabs button.active { color: var(--text-main); border-bottom-color: var(--f1-cyan); }
+.lp-body { flex: 1; overflow: auto; padding: 12px 14px 16px; display: flex; flex-direction: column; gap: 12px; }
+.lp-empty, .lp-note { color: var(--text-muted); font-size: 12px; text-wrap: pretty; }
+.lp-verdicts { display: flex; flex-direction: column; gap: 6px; }
+.lp-verdict {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  border-left: 3px solid var(--lp-level);
+  background: color-mix(in srgb, var(--lp-level) 9%, transparent);
+}
+.lp-verdict.good { --lp-level: var(--f1-green); }
+.lp-verdict.warn { --lp-level: var(--f1-papaya); }
+.lp-verdict.bad { --lp-level: var(--f1-red-text); }
+.lp-verdict.info { --lp-level: var(--f1-cyan); }
+.lp-verdict-mark {
+  flex: none;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: var(--lp-level);
+  color: #0d1117;
+  font: 700 11px var(--font-mono);
+}
+.lp-verdict strong { font-size: 13px; }
+.lp-verdict p { color: var(--text-soft); font-size: 12px; margin-top: 2px; text-wrap: pretty; }
+.lp-tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; }
+.lp-tile {
+  background: #13171f;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-sm);
+  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.lp-tile-label { color: var(--text-muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; }
+.lp-tile strong { font: 700 16px var(--font-mono); display: flex; align-items: center; gap: 6px; }
+.lp-tile-note { color: var(--text-muted); font: 11px var(--font-mono); }
+.lp-subhead { font-size: 12px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-soft); }
+.lp-subhead span { color: var(--text-muted); font-weight: 400; text-transform: none; letter-spacing: 0; margin-left: 6px; }
+.lp-facts { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 4px 16px; }
+.lp-facts div { display: flex; justify-content: space-between; gap: 8px; border-bottom: 1px solid var(--divider); padding: 3px 0; }
+.lp-facts dt { color: var(--text-muted); font-size: 12px; }
+.lp-facts dd { font: 12px var(--font-mono); text-align: right; }
+.lp-charts { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 12px; }
+.lp-chart { background: #13171f; border: 1px solid var(--border-soft); border-radius: var(--radius-sm); padding: 8px 10px; }
+.lp-chart figcaption { font-size: 12px; font-weight: 700; color: var(--text-soft); }
+.lp-legend { display: flex; flex-wrap: wrap; gap: 4px 12px; margin-top: 4px; color: var(--text-muted); font-size: 11px; }
+.lp-legend > span { display: inline-flex; align-items: center; gap: 5px; }
+.lp-key { display: inline-block; width: 12px; height: 2px; border-radius: 1px; flex: none; }
+.lp-canvas-wrap { position: relative; margin-top: 6px; }
+.lp-canvas-wrap canvas { display: block; width: 100%; height: 150px; }
+.lp-tooltip {
+  position: absolute;
+  pointer-events: none;
+  background: #090b0e;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  padding: 6px 8px;
+  font: 11px var(--font-mono);
+  white-space: nowrap;
+  z-index: 2;
+}
+.lp-tooltip-head { color: var(--text-muted); margin-bottom: 3px; }
+.lp-tooltip-row { display: flex; align-items: center; gap: 6px; }
+.lp-tooltip-row strong { color: var(--text-main); }
+.lp-tooltip-row span:last-child { color: var(--text-muted); }
+.lp-table-wrap { overflow: auto; }
+.lp-table { width: 100%; border-collapse: collapse; font: 12px var(--font-mono); }
+.lp-table th { text-align: left; color: var(--text-muted); font: 700 11px var(--font-racing); text-transform: uppercase; padding: 4px 6px; border-bottom: 1px solid var(--border-color); white-space: nowrap; }
+.lp-table th button { background: none; border: none; color: inherit; font: inherit; text-transform: inherit; cursor: pointer; padding: 0; }
+.lp-table th button.sorted, .lp-table th button:hover { color: var(--text-main); }
+.lp-table td { padding: 4px 6px; border-bottom: 1px solid var(--divider); white-space: nowrap; }
+.lp-table tbody tr[data-color] { cursor: pointer; }
+.lp-table tbody tr[data-color]:hover { background: var(--bg-control); }
+.lp-table tr.dead td { color: var(--text-muted); }
+.lp-driver { font-family: var(--font-racing); display: flex; align-items: center; gap: 6px; }
+.lp-badge { font: 700 10px var(--font-mono); padding: 1px 5px; border-radius: 3px; text-transform: uppercase; }
+.lp-badge.gold { color: var(--f1-gold); background: rgba(255, 215, 0, 0.14); }
+.lp-badge.cyan { color: var(--f1-cyan); background: rgba(0, 210, 190, 0.12); }
+.lp-bar { display: inline-block; width: 90px; height: 6px; background: var(--bg-control); border-radius: 3px; vertical-align: middle; margin-right: 6px; overflow: hidden; }
+.lp-bar > span { display: block; height: 100%; border-radius: 3px; }
+.lp-bar > .cyan { background: var(--f1-cyan); }
+.lp-bar > .gold { background: var(--f1-gold); }
+.lp-bar > .papaya { background: var(--f1-papaya); }
+@media (max-width: 520px) {
+  .learning-panel { min-width: 0; resize: none; }
+}

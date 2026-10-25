@@ -25,6 +25,22 @@ export interface CarControl {
   steer: number;    // -1 (full left) to 1 (full right)
 }
 
+/** Steps on which the guardian overrode the network, by cause (see `getAIControl`). */
+export interface InterventionCounts {
+  /** Steering clamped to the corridor around the valid path. */
+  steer: number;
+  /** Hard safety envelope or a car rotating away from the road: the expert drives. */
+  guard: number;
+  /** Far beyond the braking plan: emergency braking. */
+  brake: number;
+  /** Launch / crawl assist. */
+  launch: number;
+  /** Throttle capped near a wall. */
+  clearance: number;
+}
+
+export const emptyInterventions = (): InterventionCounts => ({ steer: 0, guard: 0, brake: 0, launch: 0, clearance: 0 });
+
 export interface CheckpointDelta {
   gateIndex: number;    // 0, 1, 2, 3 for CP1, CP2, CP3, CP4
   gateName: string;     // "CP 1", "CP 2", "CP 3", "CP 4"
@@ -762,6 +778,11 @@ export class Car {
   public lapsUntilStyleShift: number = 3;
   public replayBuffer: { inputs: number[]; targets: [number, number, number]; reward: number }[] = [];
   public replayStepTimer: number = 0;
+  /** Learning diagnostics only (LearningStats.ts collects and clears them): never read by the driving. */
+  public aiSteps = 0;
+  public aiInterventions = 0;
+  public interventionCauses: InterventionCounts = emptyInterventions();
+  public onlineTrainSteps = 0;
 
   public surface: SurfaceType = 'asphalt';
   public surfaceFractions = { asphalt: 1, grass: 0, gravel: 0 };
@@ -1211,7 +1232,8 @@ export class Car {
     // acceleration: wide at low speed, a few degrees at most on a straight at 300 km/h.
     const steerLimit = Math.min(0.3, Math.atan(Car.BRAIN_STEER_G * Car.GRAVITY * this.wheelbase / Math.max(1, this.speed * this.speed)) / this.maxSteerAngle);
     const clampedSteer = Math.max(plan.idealSteer - steerLimit, Math.min(plan.idealSteer + steerLimit, steer));
-    if (clampedSteer !== steer) { steer = clampedSteer; intervened = true; }
+    const causes = this.interventionCauses;
+    if (clampedSteer !== steer) { steer = clampedSteer; intervened = true; causes.steer++; }
     // Pedals are mutually exclusive as on a drive-by-wire car.
     if (brake > 0.02) throttle = 0;
     else brake = 0;
@@ -1220,16 +1242,18 @@ export class Car {
     const headingError = roadHeading === undefined ? 0 : Math.atan2(Math.sin(this.heading - roadHeading), Math.cos(this.heading - roadHeading));
     const unstable = this.speed > 12 && Math.abs(headingError) > 0.22 && headingError * this.angularVelocity > 0;
     if (plan.guarded || unstable) {
-      steer = expert.steer; throttle = expert.throttle; brake = expert.brake; intervened = true;
+      steer = expert.steer; throttle = expert.throttle; brake = expert.brake; intervened = true; causes.guard++;
     } else if (plan.overspeedDelta > 0.2 && brake < expert.brake * 0.8) {
       // Far beyond the planned braking envelope: emergency braking.
-      throttle = 0; brake = expert.brake; intervened = true;
+      throttle = 0; brake = expert.brake; intervened = true; causes.brake++;
     } else if (this.speed < 8 && expert.throttle > 0.15 && throttle < expert.throttle * 0.8) {
       // Launch / crawl assist: a stalled car must never wait for the network to move it.
-      throttle = expert.throttle; brake = 0; intervened = true;
+      throttle = expert.throttle; brake = 0; intervened = true; causes.launch++;
     } else if (plan.minCenterClearance < Car.CLEAR_CAP && throttle > 0.3) {
-      throttle = 0.3; intervened = true;
+      throttle = 0.3; intervened = true; causes.clearance++;
     }
+    this.aiSteps++;
+    if (intervened) this.aiInterventions++;
     if (this.isSliding) throttle = Math.min(throttle, 0.55);
     const control: CarControl = { steer, throttle, brake };
     this.currentControl = control;
@@ -1248,6 +1272,7 @@ export class Car {
         for (const sample of this.replayBuffer.slice(-3)) {
           this.brain.train(sample.inputs, encodeDriverTargets(sample.targets), 0.004);
         }
+        this.onlineTrainSteps++;
       }
     }
 
