@@ -350,6 +350,7 @@ Audyt: `raport/2026-10-25/RAPORT.md`. Kalibracja: `npm run diag:nn -- 600`, ziar
 | + balans 0,9 | 1,0 | 0,5 | 2,2 | 56,22 s | 650 µs |
 
 - **Liczniki w sekundach.** Czas bez zaliczonej bramki (`timeSinceCheckpoint`) rośnie o `dt`, a nie o 1 na krok. Eliminacja „stuck” następuje po `STUCK_TIMEOUT` = 10 s jazdy (30 s przy odzyskiwaniu kontroli), a powrót do bramki przed autem po wyjeździe poza tor jest możliwy po `REJOIN_MIN_TIME` = 0,5 s. Wcześniej przy 30/60/120 Hz eliminacja przychodziła po 20/10/5 s (`test-timing` sprawdza teraz wszystkie trzy). Przy 60 Hz zachowanie się nie zmienia, poza zaokrągleniem na granicy progu.
+- **Ślady opon bez losowania.** Ślad powstawał z prawdopodobieństwem 0,28 na krok i zużywał `random()` symulacji, więc efekt wizualny przesuwał strumień losowań dla AI i zależał od częstotliwości kroku. Teraz ślad powstaje co `SKID_MARK_SPACING` = 2 m przebytej w poślizgu drogi (przy 60 Hz i ok. 30 m/s gęstość podobna jak wcześniej). Poślizg nie pobiera z `random()` (`test-neural-driving`). Skrót stanu `bench:step` się zmienia, bo zmienia się zużycie `random()`.
 
 Sama ciągłość docisku zwiększała liczbę wypadnięć: obrócone auto nie dostawało już darmowego docisku i nie wracało na tor. Z podsterownym balansem auto rzadziej się obraca, więc wypadków jest mniej, a okrążenia są szybsze. Skrót stanu `bench:step` się zmienia.
 

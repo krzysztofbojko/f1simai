@@ -309,6 +309,8 @@ export class Car {
   public static readonly STUCK_RECOVERY_TIMEOUT = 30;
   /** Driving time since the last gate before a car back on the asphalt may resume at the gate ahead (s). */
   public static readonly REJOIN_MIN_TIME = 0.5;
+  /** Road distance between skid marks while sliding (m). */
+  public static readonly SKID_MARK_SPACING = 2;
   /**
    * Quasi-static ride-height aero: downforce compresses the axles, the floor works best at a
    * particular height and chokes when it gets too close to the road. Ride height follows with a lag
@@ -909,6 +911,8 @@ export class Car {
   /** Tyres well past their peak (or a real slide): only this cuts the throttle; working slip at the limit does not. */
   public isSliding: boolean = false;
   public skidMarks: Vector2[] = [];
+  /** Distance slid since the last skid mark (m); starts full so a slide marks the road at once. */
+  private skidDistance = Car.SKID_MARK_SPACING;
 
   // Brain & Livery
   public brain: NeuralNetwork | null = null;
@@ -1078,6 +1082,7 @@ export class Car {
     this.isSkidding = false;
     this.isSliding = false;
     this.skidMarks = [];
+    this.skidDistance = Car.SKID_MARK_SPACING;
     this.currentLapTrajectory = [];
     this.currentLapSplits = [null, null, null, null];
     this.lastCheckpointDelta = null;
@@ -1696,10 +1701,15 @@ export class Car {
     this.understeerSlip = frontSlip >= rearSlip ? slipRatio : 0;
     this.oversteerSlip = this.understeerSlip > 0 ? 0 : slipRatio;
 
-    if (this.isSkidding && random() < 0.28) {
-      this.skidMarks.push(this.pos.clone());
-      if (this.skidMarks.length > 60) this.skidMarks.shift();
-    }
+    // Skid marks by distance slid: the same marks at any step rate, and no draw from the simulation's random stream.
+    if (this.isSkidding) {
+      this.skidDistance += speedMag * dt;
+      if (this.skidDistance >= Car.SKID_MARK_SPACING) {
+        this.skidDistance %= Car.SKID_MARK_SPACING;
+        this.skidMarks.push(this.pos.clone());
+        if (this.skidMarks.length > 60) this.skidMarks.shift();
+      }
+    } else this.skidDistance = Car.SKID_MARK_SPACING;
 
     // Integrate global velocity exactly once from the resultant force. Rotating
     // the body does not rotate momentum or introduce an extra lateral impulse.

@@ -93,6 +93,15 @@ try {
     assert.ok(Math.abs(beta) < 0.6, `car spun at ${speed} m/s, steer ${steer}, throttle ${throttle}: peak beta ${beta}`);
     assert.ok(Math.abs(c.lateralG) < 6 && Number.isFinite(c.pos.x));
   }
+  // Skid marks follow the distance slid: the same marks at 30, 60 and 120 Hz, and no draw from the random stream.
+  { const marks = [30, 60, 120].map(hz => { const c = new Car(new Vector2(0, 0), 0); c.vel = new Vector2(0, 40); c.speed = 40;
+      c.lapPowerFactor = c.lapGripFactor = c.lapDragFactor = 1;
+      const draw = Math.random; let draws = 0; Math.random = () => { draws++; return draw(); };
+      for (let i = 0; i < hz; i++) { c.timeSinceCheckpoint = 0; c.updatePhysics(idle, 1 / hz, stub); }
+      Math.random = draw;
+      assert.equal(draws, 0, `a slide at ${hz} Hz draws from the random stream`);
+      return c.skidMarks.length; });
+    assert.ok(marks[0] > 5 && Math.max(...marks) - Math.min(...marks) <= 2, `skid marks per second of sliding at 30/60/120 Hz: ${marks.join(' / ')}`); }
   // Unsaturated cornering matches the kinematic yaw rate within a few percent.
   { const c = new Car(new Vector2(0, 0), 0); c.vel = new Vector2(20, 0); c.speed = 20; c.lapPowerFactor = c.lapGripFactor = c.lapDragFactor = 1;
     for (let i = 0; i < 120; i++) { c.timeSinceCheckpoint = 0; c.updatePhysics({ throttle: 0, brake: 0, steer: 0.15 }, 1 / 60, stub); }
