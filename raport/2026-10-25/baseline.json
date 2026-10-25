@@ -1,0 +1,87 @@
+{
+  "brakeAtRest": {
+    "speed": 0,
+    "distance": 0
+  },
+  "brake100": {
+    "decelerationG": 0.509679402908003,
+    "inferredTireBrakeToMuFz": 0.2051715366406212,
+    "displayedG": -0.509679402908003
+  },
+  "brake400": {
+    "decelerationG": 1.7023515767082917,
+    "inferredTireBrakeToMuFz": 0.11933533970665418,
+    "displayedG": -1.7023515767082917
+  },
+  "zeroGrip9.9": {
+    "yawRate": 0,
+    "heading": 0,
+    "displayedLateralG": 0
+  },
+  "zeroGrip10.1": {
+    "yawRate": 0,
+    "heading": 0,
+    "displayedLateralG": 0
+  },
+  "sidewaysZeroGrip": {
+    "vx": 0,
+    "vy": 49.97173772578521,
+    "speed": 49.97173772578521
+  },
+  "slideTurn-2": {
+    "availableG": 2.2084686564097704,
+    "measuredInitialFrameLateralG": 1.2966589467721517,
+    "displayedG": 1.2966589467721517,
+    "inferredTireLateralG": 1.292501147238034
+  },
+  "slideTurn2": {
+    "availableG": 2.2084686564097704,
+    "measuredInitialFrameLateralG": -1.271361149916111,
+    "displayedG": -1.271361149916111,
+    "inferredTireLateralG": -1.2672033503819935
+  },
+  "turn-0.1": {
+    "yawRate": -0.005736198501649662,
+    "lateralG": -0.02346137744347718,
+    "roll": -0.002271979191115699
+  },
+  "release-0.1": {
+    "yawRate": -0.017729464154703167
+  },
+  "turn0.1": {
+    "yawRate": 0.005736198501649662,
+    "lateralG": 0.02346137744347718,
+    "roll": 0.002271979191115699
+  },
+  "release0.1": {
+    "yawRate": 0.017729464154703167
+  },
+  "stop400": {
+    "seconds": 4.083333333333324,
+    "meters": 175.39871671867255
+  },
+  "emptyTank": {
+    "speedKmh": 0,
+    "fuelKg": 0,
+    "alive": false
+  },
+  "pit": {
+    "fuelKg": 10,
+    "lapTime": 0.016666666666666666,
+    "totalRaceTime": 0.016666666666666666,
+    "pitting": false
+  },
+  "scale14": {
+    "width": 1.9,
+    "length": 5.5,
+    "effectiveTrackWidth": 14
+  },
+  "aero400": {
+    "downforceN": 23441.358024691363
+  },
+  "trainingGP": {
+    "globalBestLap": 53.046835103229554,
+    "alive": 10,
+    "generation": 4
+  }
+}

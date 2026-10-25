@@ -1,0 +1,88 @@
+{
+  "coast": {
+    "enabled": {
+      "speed": 55.523374578625145,
+      "x": 57.590824191338434,
+      "batteryGain": 92400
+    },
+    "budgetExhausted": {
+      "speed": 55.523374578625145,
+      "x": 57.590824191338434,
+      "batteryGain": 0
+    }
+  },
+  "sidewaysAero": {
+    "zeroWind": {
+      "front": 2863.9219688260496,
+      "rear": 3361.9953547088403,
+      "total": 6225.91732353489
+    },
+    "negligibleWind": {
+      "front": 622.5917323534891,
+      "rear": 1867.7751970604672,
+      "total": 2490.3669294139563
+    }
+  },
+  "steering": {
+    "straight": {
+      "vx": 59.91281752286072,
+      "vy": 0,
+      "frontLateral": 0,
+      "omittedLongitudinalProjection": 0,
+      "delta": 0
+    },
+    "turned": {
+      "vx": 59.91281752286072,
+      "vy": 0.17414413069152235,
+      "frontLateral": 9435.128896380204,
+      "omittedLongitudinalProjection": -2334.28824504122,
+      "delta": 0.25
+    }
+  },
+  "dt": [
+    {
+      "hz": 30,
+      "randomCalls": 30,
+      "speed": 33.62098709780036,
+      "heading": 0
+    },
+    {
+      "hz": 60,
+      "randomCalls": 60,
+      "speed": 33.70764145585997,
+      "heading": 0
+    },
+    {
+      "hz": 120,
+      "randomCalls": 120,
+      "speed": 33.75096412340172,
+      "heading": 0
+    }
+  ],
+  "stuckTimeout": [
+    {
+      "hz": 30,
+      "steps": 601,
+      "seconds": 20.033333333333335,
+      "reason": "stuck"
+    },
+    {
+      "hz": 60,
+      "steps": 601,
+      "seconds": 10.016666666666667,
+      "reason": "stuck"
+    },
+    {
+      "hz": 120,
+      "steps": 601,
+      "seconds": 5.008333333333334,
+      "reason": "stuck"
+    }
+  ],
+  "emptyFuelCoast": {
+    "seconds": 0.1,
+    "kineticLoss": 6117.707086129987,
+    "batteryGain": 9240,
+    "totalEnergyGain": 3122.292913870013
+  }
+}

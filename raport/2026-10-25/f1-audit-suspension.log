@@ -1,0 +1,11 @@
+
+> f1-ai-simulator@1.0.0 test:suspension
+> node scripts/test-suspension.mjs
+
+Car Bolid AI: non-finite physics state, car retired
+Suspension: statics, steady compression, dive/squat, damping, step independence, roll transfer, plank contact, off-road bumps, porpoising, full-car dive, tyre step independence and NaN recovery passed.
+npm notice
+npm notice New major version of npm available! 11.9.0 -> 12.2.1
+npm notice Changelog: https://github.com/npm/cli/releases/tag/v12.2.1
+npm notice To update run: npm install -g npm@12.2.1
+npm notice
