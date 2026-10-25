@@ -250,6 +250,10 @@ export function planDrive(car: Car, track: Track, leaderSpeeds?: number[]): Driv
     const onset = Math.min(1, (brakingNeed - Car.BRAKE_ONSET) / (1 - Car.BRAKE_ONSET));
     // Weaker discs need more pedal for the same deceleration.
     brake = Math.min(1, Math.max(0, requiredDecel * onset - dragDecel) / Math.max(1, tyreDecel * brakeEfficiency));
+    // Trail braking: the tyre already turning the car keeps only the rest of its friction circle
+    // for braking, so the pedal is eased to what the front axle can take without locking.
+    const lateralShare = Math.min(1, Math.abs(car.lateralG) * Car.GRAVITY / Math.max(1, tyreDecel));
+    brake = Math.min(brake, Car.TRAIL_BRAKE_PEDAL * Math.sqrt(1 - lateralShare * lateralShare) / Math.max(0.5, brakeEfficiency));
   } else if (overspeedDelta > -pressure.coastMargin && holdSpeed < Infinity) {
     // Inside the corner that limits the speed: hold it with partial throttle (drag compensation
     // plus a proportional term) instead of coasting down and re-accelerating through the arc.

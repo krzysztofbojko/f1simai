@@ -220,7 +220,7 @@ Wcześniej moc oddawania rosła liniowo ze stanem baterii od 10% do 90%, a MGU-K
 - Mnożnik przyczepności osi: dzwon temperaturowy (optimum 100 °C, zimno do 0,80, przegrzanie do 0,75) razy zużycie (do −25% przy W=1). Wchodzi do limitów osi i do planowanej przyczepności (kierowca zwalnia na zimnych/zużytych oponach).
 - Model opon działa zawsze, tak samo w treningu i w wyścigu (bez przełącznika „koców”). Auto startuje z 85 °C; pit stop daje nowy komplet. Zużycie > 70% wywołuje zjazd do boksu (patrz „AI, paliwo i postój”).
 - Kalibracja (`npm run diag:nn`): temperatury ok. 80–115 °C, tempo wyścigowe ok. 3–5% wolniejsze od treningowego.
-- Rekalibracja 24.10.2026 (`TYRE_HEAT_SCALE` 1 → 0,75): po szybszym planiście zakrętów z 21.10 opony wyszły z okna. Samotny ekspert na GP miał 126 °C przy `pace` 1,0 i 135 °C przy 1,15 (przyczepność ok. 0,85–0,89). Ostrzejsza jazda tylko grzała opony mocniej, więc `PaceSearch` nie dawał zysku (58,24 → 57,82 s), a „push” w zakręcie (do 125 °C) prawie nigdy się nie włączał. Po zmianie (`diag:nn -- 600`, ziarna 1–3): temperatury w treningu p10/p50/p90 ok. 85/97/111 °C (wcześniej 95/113/126), średni najlepszy czas 60,06 → 58,13 s. `node scripts/diag-corners.mjs` (ekspert, 6 ziaren): 58,24 → 55,88 s przy `pace` 1,0 i 55,19 s przy 1,15. Wyższy sufit `PaceSearch` (1,25) i większy budżet hamowania (`PLAN_BRAKE_GRIP` > 0,55) sprawdzono w tym samym skrypcie: dawały więcej wypadnięć i blokowania kół, więc zostały bez zmian.
+- Rekalibracja 24.10.2026 (`TYRE_HEAT_SCALE` 1 → 0,75): po szybszym planiście zakrętów z 21.10 opony wyszły z okna. Samotny ekspert na GP miał 126 °C przy `pace` 1,0 i 135 °C przy 1,15 (przyczepność ok. 0,85–0,89). Ostrzejsza jazda tylko grzała opony mocniej, więc `PaceSearch` nie dawał zysku (58,24 → 57,82 s), a „push” w zakręcie (do 125 °C) prawie nigdy się nie włączał. Po zmianie (`diag:nn -- 600`, ziarna 1–3): temperatury w treningu p10/p50/p90 ok. 85/97/111 °C (wcześniej 95/113/126), średni najlepszy czas 60,06 → 58,13 s. `node scripts/diag-corners.mjs` (ekspert, 6 ziaren): 58,24 → 55,88 s przy `pace` 1,0 i 55,19 s przy 1,15. Wyższy sufit `PaceSearch` (1,25) i większy budżet hamowania (`PLAN_BRAKE_GRIP` > 0,55) sprawdzono w tym samym skrypcie: dawały więcej wypadnięć i blokowania kół, więc zostały bez zmian. Od 25.10.2026 `PLAN_BRAKE_GRIP` wynosi 0,55, a pedał w zakręcie ogranicza koło tarcia (patrz „Budżety planisty i hamowanie w zakręcie”).
 - Pogoda (`Weather.ts`): powietrze i nawierzchnia z bieżącej pogody zastępują stałe 25 / 38 °C (`TYRE_AMBIENT` / `TYRE_TRACK` to wartości pogody odniesienia). Chłodzenie: `2·(15 + 3,2·v^0,8)·(T − T_pow) + 60·(T − T_toru)`, razy `(1 + 0,9·W)` na mokrym.
 - Niezależność od kroku (`test-suspension`): prosta, stały zakręt oraz cykl hamowanie/przyspieszanie, każdy po 20 s przy 30/60/120 Hz. Różnice temperatury < 1,5 °C, zużycia < 5% (zmierzone: 0,9 °C i 2,3% w zakręcie).
 
@@ -279,6 +279,29 @@ Pomiar `scripts/diag-slow-laps.mjs 1200 <ziarno>` (tor GP, 20 aut, ziarna 1–5,
 Wrak, który stoi dalej niż 5 m za krawędzią asfaltu (`YELLOW_EDGE_MARGIN` w `RaceTraffic.ts`), nadal jest fizyczną przeszkodą przez 15 s, ale nie tworzy lokalnej żółtej strefy. Tak kończy się większość utknięć (ponad 12 s poza asfaltem): mediana 15–27 m za krawędzią. Wraki po zderzeniu aut stoją zwykle na asfalcie, a po uderzeniu w bandę ok. 0,7 m za krawędzią, więc nadal dają żółtą flagę. Zasada działa tak samo w treningu, kwalifikacjach i wyścigu.
 
 Pomiar `scripts/diag-slow-laps.mjs 1200 <ziarno>` (tor GP, 20 aut, ziarna 1–5, średnio przed → po): okrążenia pod żółtą flagą 48,5% → 43,1%, wraki na 100 okrążeń 19,0 → 18,9, mediana wszystkich okrążeń 64,5 → 64,2 s, p90 73,2 → 74,2 s, mediana czystych okrążeń 61,1 → 60,9 s, średni rekord zespołu 59,57 → 59,18 s, najlepszy czas 54,77 → 54,72 s. `npm run bench:step`: 632 µs/krok (skrót stanu się zmienia).
+
+## Budżety planisty i hamowanie w zakręcie (25.10.2026)
+
+Na Albert Park samotny ekspert jechał 1:53, a wytrenowana stawka ponad 2 minuty (rekord F1 ok. 1:20). Geometria toru się zgadza (5278 m, szer. 13 m). Planista zakładał jednak dużo mniej przyczepności, niż auto ma: `PLAN_CORNER_GRIP` 0,55 i `PLAN_BRAKE_GRIP` 0,40. Konfiguracja bolidu 2026 (docisk, moc, masa) zostaje bez zmian.
+
+- `PLAN_CORNER_GRIP` 0,55 → 0,65, `PLAN_BRAKE_GRIP` 0,40 → 0,55.
+- Hamowanie w zakręcie (`DrivePlanner`): opona, która już skręca auto, ma na hamowanie tylko resztę koła tarcia. Pedał eksperta ograniczony jest do `TRAIL_BRAKE_PEDAL · √(1 − u²) / skuteczność hamulców`, gdzie `u` to przyspieszenie boczne podzielone przez opóźnienie dostępne z opon, a `TRAIL_BRAKE_PEDAL` = 0,8 (udział przedniej osi przy granicy blokady). Bez tego większy budżet hamowania blokował koła (przy 0,65/0,55: 1,4 s blokady na 5 torach → 0,2 s).
+- Siatka budżetów (samotny ekspert, `seedRandom(1)`, 3 okrążenia, suma najlepszych okrążeń na Albert Park, Monzy, Monako, Red Bull Ringu i Silverstone): 533 s przy 0,55/0,40, 470 s przy 0,65/0,55, ok. 465 s przy wyższych wartościach. Tam poślizgi i blokady gwałtownie rosną, więc wybrano 0,65/0,55.
+
+| Tor (ekspert, najlepsze okrążenie) | przed | po |
+|---|---|---|
+| Albert Park | 113,2 s | 99,0 s |
+| Monza | 107,1 s | 95,9 s |
+| Monako | 102,8 s | 85,3 s |
+| Red Bull Ring | 86,8 s | 78,3 s |
+| Silverstone | 123,0 s | 111,5 s |
+| GP (szer. 14 m) | 52,57 s | 51,78 s |
+
+- Wytrenowana stawka, GP (`node scripts/bench-laptime.mjs 600 145,456,789`): najlepsze okrążenie 54,54 → 52,68 s, mediana rekordów 58,12 → 57,55 s, czas poza asfaltem 3,7% → 3,8%.
+- Wytrenowana stawka, Albert Park (900 s treningu, 20 aut): najlepsze okrążenie 116,6 → 104,6 s, mediana wszystkich okrążeń 134,4 → 116,5 s, mediana czystych okrążeń 127,6 → 112,7 s, rekordy zespołów 121,8–142,0 → 106,2–121,0 s.
+- Kalibracja opon (zalecenie z tej samej analizy) nie dała zysku. Mniejsze grzanie przodu (`TYRE_FRONT_HEAT`) albo całości (`TYRE_HEAT_SCALE`) spowalnia prawdziwe tory, bo ich opony i tak pracują poniżej optimum. Szersze okno temperatury nic tam nie zmienia. Model opon został więc bez zmian.
+- Pozostała różnica do ok. 1:20 na Albert Park wynika z modelu auta: nasycenia siły bocznej (tanh), przyczepności ok. 2 g na płycie poślizgowej i wrażliwości opon na obciążenie. Druga przyczyna to luka między siecią a ekspertem.
+- `scripts/test-pressure.mjs`: przy wyższych budżetach sieć częściej wypada na drugim okrążeniu. Test jeździ teraz do pierwszego czystego okrążenia, które ustala rekord (najwyżej 5 okrążeń). Skrót stanu `bench:step` się zmienia.
 
 ## Ochrona przed wartościami nieskończonymi (19.10.2026)
 

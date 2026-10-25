@@ -77,7 +77,8 @@ try {
  const learner=training.cars[0];learner.mistakesEnabled=false;
  training.setDriverPressure(-5);
  const newLine=learner.lineSearch;
- for(let frame=0;frame<60*240 && learner.raceLapsCompleted<2;frame++) {
+ // After the blocked first lap, laps continue until a clean one sets the record (an excursion does not).
+ for(let frame=0;frame<60*600 && (learner.raceLapsCompleted<2 || (training.teamRecords[0].bestLapTime===null && learner.raceLapsCompleted<5));frame++) {
    training.update(1/60,track);
    if(learner.raceLapsCompleted===0) assert.equal(training.teamRecords[0].bestLapTime,null);
    if(learner.raceLapsCompleted===1) {
@@ -86,7 +87,7 @@ try {
      assert.equal(newLine.times.flat().length,0);
    }
  }
- assert.equal(learner.raceLapsCompleted,2);
+ assert.ok(learner.raceLapsCompleted>=2);
  assert.ok(training.teamRecords[0].bestLapTime>0);
  assert.equal(training.teamRecords[0].bestLapPressure,-5);
  assert.equal(newLine.times.flat().length,1);

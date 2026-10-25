@@ -200,9 +200,11 @@ export class Car {
    * expert plans to use in corners and under braking. Downforce is counted at the planned speed,
    * derated for ride height and set-up losses.
    */
-  public static PLAN_CORNER_GRIP = 0.55;
-  public static PLAN_BRAKE_GRIP = 0.40;
+  public static PLAN_CORNER_GRIP = 0.65;
+  public static PLAN_BRAKE_GRIP = 0.55;
   public static PLAN_AERO_SHARE = 0.90;
+  /** Highest pedal the expert holds with no cornering force: the front axle's share of the brake torque at its limit. */
+  public static TRAIL_BRAKE_PEDAL = 0.8;
   /**
    * Live push: while the tyres have grip to spare (low utilisation, no slide, cool enough, room to
    * the outside edge) the corner the car is in may be taken up to this share faster than planned.
