@@ -14,6 +14,8 @@ try {
  const {Population} = await import(pathToFileURL(join(dir,'population.mjs')));
  const {Track} = await import(pathToFileURL(join(dir,'track.mjs')));
  const {NeuralNetwork} = await import(pathToFileURL(join(dir,'network.mjs')));
+ // Seeded, so a run replays: cars and the trained network draw from Math.random.
+ let testSeed=Number(process.env.TRAFFIC_SEED??7);Math.random=()=>{testSeed=(Math.imul(testSeed,1664525)+1013904223)>>>0;return testSeed/4294967296;};
  const car=(x,y,v=0)=>{const c=new Car(new Vector2(x,y),0);c.vel=new Vector2(v,0);c.speed=v;c.isRaceMode=true;return c;};
  // A rear-end collision at 100 m/s cannot tunnel through the other body.
  let a=car(0,0,100),b=car(20,0,0),m=captureMotion([a,b]);a.pos=new Vector2(40,0);
