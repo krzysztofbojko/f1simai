@@ -181,7 +181,9 @@ try {
  const clear=car(380,0,50),clearMotion=captureMotion([clear,removed]);clear.pos.x=420;
  resolveTraffic([clear,removed],clearMotion);assert.ok(clear.isAlive);assert.equal(clear.recoveryTimer,0);
  // Independent SAT check of the rendered rectangles throughout real training.
+ // Cars in the pits or with a removed wreck are not drawn (CarFleet) and have no collision body.
  const overlap=(first,second)=>{
+   if([first,second].some(c=>c.isPitting||c.wreckRemoved)) return false;
    const axes=[Vector2.fromAngle(first.heading),Vector2.fromAngle(first.heading).normal(),Vector2.fromAngle(second.heading),Vector2.fromAngle(second.heading).normal()];
    const delta=second.pos.sub(first.pos);
    return axes.every(axis=>{

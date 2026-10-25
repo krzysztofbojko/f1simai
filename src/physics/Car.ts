@@ -135,8 +135,10 @@ export class Car {
   // Spatial Scale: 1 px = 1 meter (50 px grid = 50 meters)
   public static readonly METERS_PER_PIXEL: number = 1.0;
   public static readonly GRAVITY: number = 9.81; // m/s^2
-  /** Closing speed (m/s) at which a single contact wrecks a car; smaller hits accumulate as damage ∝ v². */
+  /** Closing speed (m/s) at which a single contact wrecks a car; smaller hits add damage ∝ v². */
   public static readonly CRASH_CLOSING_SPEED: number = 12;
+  /** Contacts slower than this (m/s) leave no damage: a touch of tyres or endplates. */
+  public static readonly CONTACT_DAMAGE_MIN_SPEED: number = 3;
   /**
    * Steering actuator (driver's hands and rack): total lag of the road wheels behind the command,
    * split into two equal first-order stages so the wheels never jump into motion.
@@ -831,7 +833,7 @@ export class Car {
   public mistakes = new DriverMistakes();
   public mistakesEnabled = true;
   public tireUtilization = 0;
-  /** Accumulated impact damage 0..1; at 1 the car is out. Reduces downforce and adds drag until repaired in the pits. */
+  /** Accumulated impact damage 0..1. Reduces downforce and adds drag until repaired in the pits. */
   public damage = 0;
   public isAlive: boolean = true;
   public isRaceMode: boolean = false;
@@ -1661,9 +1663,9 @@ export class Car {
         // Off-centre impact twists the car: lateral offset of the body relative to the wall.
         const lever = Math.sign(this.vel.cross(hit.normal) || 1);
         this.angularVelocity = this.angularVelocity * 0.5 + lever * Math.min(1.2, this.barrierImpactSpeed * 0.06);
-        this.damage += (this.barrierImpactSpeed / Car.CRASH_CLOSING_SPEED) ** 2;
+        this.addImpactDamage(this.barrierImpactSpeed);
       }
-      if (this.barrierImpactSpeed >= Car.CRASH_CLOSING_SPEED || this.damage >= 1) {
+      if (this.barrierImpactSpeed >= Car.CRASH_CLOSING_SPEED) {
         this.eliminate('barrier', 0.45, true);
         return null;
       }
@@ -1783,6 +1785,12 @@ export class Car {
     if (!Number.isFinite(this.ersEnergy)) this.ersEnergy = 0;
     if (!Number.isFinite(this.fuelKg)) this.fuelKg = 0;
     this.eliminate('barrier', 0.45);
+  }
+
+  /** Damage of one contact. It saturates at 1 (most of the aero lost) and never wrecks the car by itself. */
+  addImpactDamage(closing: number): void {
+    if (closing < Car.CONTACT_DAMAGE_MIN_SPEED) return;
+    this.damage = Math.min(1, this.damage + (closing / Car.CRASH_CLOSING_SPEED) ** 2);
   }
 
   eliminate(reason: 'barrier', penalty: number, keepMomentum = false): void {

@@ -23,6 +23,8 @@ export const TYRE_CHANGE_TIME = 2.5;
 export const PIT_WEAR_LIMIT = 0.7;
 /** No stop for worn tyres with this many laps or fewer to go. */
 export const PIT_CLOSED_LAPS = 2;
+/** Impact damage (0..1) at which the AI stops for a new nose and wing. */
+export const PIT_DAMAGE_LIMIT = 0.5;
 /** Speed limit of the pit lane: the car rejoins at it, m/s. */
 export const PIT_EXIT_SPEED = 80 / 3.6;
 /** Room (m) the rejoining car needs alongside and ahead of it on the track. */
@@ -50,14 +52,15 @@ export function compoundRuleMet(car: Car): boolean {
   return slicks >= 2;
 }
 
-/** AI pit request: tyres wrong for the conditions or worn out, or the mandatory stop of a dry race. */
+/** AI pit request: tyres wrong for the conditions or worn out, a damaged car, or the mandatory stop of a dry race. */
 export function updatePitRequest(car: Car): void {
   if (car.isPitting || car.wantsToPit || car.isFinishedRace) return;
   const toGo = lapsToGo(car);
   const wrongTyres = !car.isManual && wrongForConditions(car.tyreCompound, car.wetness);
   const worn = Math.max(car.tyreWearFront, car.tyreWearRear) > PIT_WEAR_LIMIT && toGo > PIT_CLOSED_LAPS;
+  const damaged = !car.isManual && car.damage >= PIT_DAMAGE_LIMIT && toGo > PIT_CLOSED_LAPS;
   const mandatory = !car.isManual && car.raceDistanceLaps > 0 && !compoundRuleMet(car) && toGo <= Math.ceil(car.raceDistanceLaps / 2);
-  if (wrongTyres || worn || mandatory) car.wantsToPit = true;
+  if (wrongTyres || worn || damaged || mandatory) car.wantsToPit = true;
 }
 
 /** Compound fitted at the next stop: the player's request, else the strategy for the conditions. */

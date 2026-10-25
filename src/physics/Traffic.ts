@@ -195,8 +195,8 @@ export function resolveTraffic(cars: Car[], motion: Map<Car, Motion>, onlyCar?: 
       car.replayBuffer = [];
       car.battlePush.remaining = 0;
       car.battleOpponent = '';
-      if (closing > 0 && car.isAlive) car.damage += (closing / Car.CRASH_CLOSING_SPEED) ** 2;
-      if ((closing >= Car.CRASH_CLOSING_SPEED || car.damage >= 1) && car.isAlive) {
+      if (car.isAlive) car.addImpactDamage(closing);
+      if (closing >= Car.CRASH_CLOSING_SPEED && car.isAlive) {
         // The wreck keeps the momentum left after the impulse and slides to rest.
         car.isAlive = false;
         car.eliminationReason = 'car';

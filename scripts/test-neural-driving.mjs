@@ -167,11 +167,18 @@ try {
     assert.ok(maxAccel < (hz === 60 ? 4000 : 6000), `road wheels snap at ${maxAccel.toFixed(0)} deg/s² (${hz} Hz)`);
   }
 
-  // 5. Impacts: damage accumulates, gentle contact does not wreck, hard contact does and the wreck keeps sliding.
+  // 5. Impacts: damage accumulates up to 1, gentle contact does not wreck, hard contact does and the wreck keeps sliding.
   const body = (x, vx) => { const c = new Car(new Vector2(x, 0), 0); c.vel = new Vector2(vx, 0); c.speed = Math.abs(vx); c.isRaceMode = true; return c; };
   let a = body(0, 20), b = body(20, 12), m = captureMotion([a, b]); a.pos.x = 15; b.pos.x = 20.5;
   resolveTraffic([a, b], m);
   assert.ok(a.isAlive && b.isAlive && a.damage > 0 && a.damage < 1, 'an 8 m/s contact damages but does not wreck');
+  // A touch under CONTACT_DAMAGE_MIN_SPEED leaves no damage; repeated medium hits saturate damage without a wreck.
+  a = body(0, 14); b = body(20, 12); m = captureMotion([a, b]); a.pos.x = 15; b.pos.x = 20.5;
+  resolveTraffic([a, b], m);
+  assert.ok(a.isAlive && a.damage === 0 && b.damage === 0, 'a 2 m/s touch must not damage');
+  const worn = body(0, 0);
+  for (let k = 0; k < 6; k++) worn.addImpactDamage(8);
+  assert.ok(worn.isAlive && worn.damage === 1, 'accumulated damage saturates at 1 and never wrecks the car');
   // Damage reduces downforce => lower cornering limit.
   const hurt = new Car(new Vector2(0, 0), 0); hurt.damage = 0.8;
   const fresh = new Car(new Vector2(0, 0), 0);
