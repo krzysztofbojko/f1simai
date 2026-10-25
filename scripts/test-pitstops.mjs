@@ -86,7 +86,7 @@ try {
     c.teamIndex = team; c.fuelKg = 7.5; c.tyreCompound = 'medium'; c.usedCompounds = new Set(['medium']);
     c.tyreWearFront = c.tyreWearRear = 0.8; c.damage = damage; c.wantsToPit = true;
     c.vel = Vector2.fromAngle(heading).mul(70); c.speed = 70;
-    let t = 0, fastest = 0, offTrack = true, stoppedAt = null, event = null, gatesBefore = c.currentCheckpointIdx;
+    let t = 0, fastest = 0, offTrack = true, stoppedAt = null, inBoxBy = 0, event = null, gatesBefore = c.currentCheckpointIdx;
     c.updatePhysics(idle, dt, track); t += dt;
     assert.ok(c.isPitting && c.pitStopsCount === 1 && !c.wantsToPit, 'the car turns in at the entry line');
     const fuelIn = c.fuelKg;
@@ -94,10 +94,14 @@ try {
       c.updatePhysics(idle, dt, track); t += dt;
       if (c.isPitting && c.pitDistance > lane.limiterStart && c.pitDistance < lane.limiterEnd) fastest = Math.max(fastest, c.speed);
       if (c.isPitting && c.pitDistance > lane.limiterStart + 5 && c.pitDistance < lane.limiterEnd - 5) offTrack &&= Math.abs(track.sampleSurface(c.pos).lateral) > track.width / 2;
-      if (c.pitPhase === 'service' && stoppedAt === null) stoppedAt = c.pitDistance;
+      if (c.pitPhase === 'service' && stoppedAt === null) {
+        stoppedAt = c.pitDistance;
+        const fast = lane.point(c.pitDistance, lane.side * lane.laneOffset);
+        inBoxBy = c.pos.dist(fast);
+      }
       event = c.pitStopEvent;
     }
-    return { c, t, fastest, offTrack, stoppedAt, event, gatesBefore, fuelIn };
+    return { c, t, fastest, offTrack, stoppedAt, inBoxBy, event, gatesBefore, fuelIn };
   };
   const stop = runStop(DT);
   const { c: stopper, event } = stop;
@@ -105,6 +109,7 @@ try {
   assert.ok(stop.fastest <= PIT_SPEED_LIMIT + 1e-9, `80 km/h between the limiter lines (${(stop.fastest * 3.6).toFixed(1)} km/h)`);
   assert.ok(stop.offTrack, 'the lane runs off the track, beside it');
   assert.ok(Math.abs(stop.stoppedAt - lane.boxes[2]) < 0.6, 'the car stops at its team box');
+  assert.ok(Math.abs(stop.inBoxBy - (lane.boxOffset - lane.laneOffset)) < 0.05, `the box is in the working lane, beside the fast lane (${stop.inBoxBy.toFixed(2)} m)`);
   assert.ok(Math.abs(event.laneTime - stop.t) < 0.1, `lane time ${event.laneTime.toFixed(2)} s runs from the entry line to the exit line (${stop.t.toFixed(2)} s)`);
   assert.ok(event.note.includes('wing') && event.serviceTime > 2.0 + 6 - 0.31 && event.serviceTime < 2.0 + 9 + 0.31 + (event.note.includes('slow') ? 8 : 0), `a new nose for damage 0.4 (${event.serviceTime.toFixed(2)} s, ${event.note})`);
   assert.ok(event.laneTime > event.serviceTime + 10, 'the lane itself costs time at the limit');
@@ -141,28 +146,45 @@ try {
   assert.ok(draws(2, 0.15, 200).filter(s => !s.note.includes('slow')).every(s => s.note === 'repair' && s.time > 1.7 + 1 && s.time < 2.3 + 3), 'moderate damage: a quick repair');
   assert.ok(draws(2, 0.6, 200).filter(s => !s.note.includes('slow')).every(s => s.note === 'wing' && s.time > 1.7 + 6 && s.time < 2.3 + 9), 'a broken wing: a new nose');
 
-  // 5. Double stack: the second car of a team waits behind its team-mate's box.
+  // 5. Double stack: the second car of a team waits in the working lane behind its team-mate's box.
+  //    A car of another team drives past both in the fast lane without slowing.
   {
     seedRandom(3);
-    const make = (offset, name) => {
+    const make = (offset, name, team) => {
       const at = lane.point(lane.entry + 2 - offset, 0), heading = track.sampleSurface(at).tangent.heading();
       const c = new Car(at, heading, null, '#fff', name, 60, 25);
       c.reset(at, heading, true, (track.gateIndexOf(lane.index(lane.entry + 2 - offset)) + 1) % track.checkpoints.length);
-      c.teamIndex = 4; c.wantsToPit = true; c.vel = Vector2.fromAngle(heading).mul(60); c.speed = 60;
+      c.teamIndex = team; c.wantsToPit = true; c.vel = Vector2.fromAngle(heading).mul(60); c.speed = 60;
       return c;
     };
-    const first = make(0, 'first'), second = make(40, 'second');
-    const both = [first, second];
-    let queued = false, overlap = false, firstOut = Infinity, secondService = Infinity;
-    for (let i = 0; i < 60 * 90 && (first.pitStopsCount === 0 || second.pitStopsCount === 0 || first.isPitting || second.isPitting); i++) {
-      for (const c of both) c.updatePhysics(idle, DT, track, both);
+    const first = make(0, 'first', 4), second = make(40, 'second', 4), passer = make(0, 'passer', 9);
+    passer.wantsToPit = false; passer.isAlive = false;
+    const all = [first, second, passer];
+    const box = lane.boxOf(4), side = (c) => lane.offset(c.pitDistance, c.pitEntryOffset, lane.boxOf(c.teamIndex));
+    let queued = false, overlap = false, firstOut = Infinity, secondService = Infinity, passerSlowest = Infinity, passedService = false;
+    for (let i = 0; i < 60 * 120 && all.some(c => c.pitStopsCount === 0 || c.isPitting); i++) {
+      // The passer comes down the fast lane at the limit while one car of the team is serviced and the other waits.
+      if (first.pitPhase === 'service' && second.pitPhase === 'queue' && !passer.isAlive) {
+        passer.isAlive = true; passer.isPitting = true; passer.pitPhase = 'lane'; passer.pitStopsCount = 1;
+        passer.pitDistance = box - 60; passer.pitEntryOffset = 0; passer.speed = PIT_SPEED_LIMIT;
+      }
+      for (const c of all) if (c.isAlive) c.updatePhysics(idle, DT, track, all);
       queued ||= second.pitPhase === 'queue';
-      if (first.isPitting && second.isPitting && first.pitDistance - second.pitDistance < 7.9) overlap = true;
+      for (const [a, b] of [[first, second], [first, passer], [second, passer]]) {
+        if (a.isPitting && b.isPitting && Math.abs(a.pitDistance - b.pitDistance) < 5.6 && Math.abs(side(a) - side(b)) < 2.0) overlap = true;
+      }
       if (first.pitPhase === 'out' && firstOut === Infinity) firstOut = i;
       if (second.pitPhase === 'service' && secondService === Infinity) secondService = i;
+      if (passer.isPitting && passer.pitDistance < lane.boxOf(9) - 30) {
+        passerSlowest = Math.min(passerSlowest, passer.speed);
+        if (Math.abs(passer.pitDistance - box) < 3 && (first.pitPhase === 'service' || second.pitPhase === 'service' || second.pitPhase === 'queue')) passedService = true;
+      }
     }
-    assert.ok(queued && !overlap, 'the team-mate queues behind, never inside the car ahead');
-    assert.ok(secondService >= firstOut, 'its service starts once the first car has left the box');
+    assert.ok(queued && !overlap, 'the team-mate queues behind, no car ever inside another');
+    assert.ok(Math.abs(second.lastPitServiceTime) > 0 && secondService >= firstOut, 'its service starts once the first car has left the box');
+    assert.ok(passedService, 'the passer reached the box while a car of the other team stood there');
+    assert.ok(passerSlowest > 0.95 * PIT_SPEED_LIMIT, `a car in the box does not block the fast lane (slowest ${(passerSlowest * 3.6).toFixed(1)} km/h)`);
+    assert.ok(Math.abs(lane.inBox(box, box) - 1) < 1e-9 && lane.inBox(box - 30, box) === 0 && lane.inBox(box + 10, box) === 0, 'in the box at the box, in the fast lane before and after');
   }
 
   // 6. The exit: a car alongside or one arriving fast from behind holds the rejoin.

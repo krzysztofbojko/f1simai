@@ -39,7 +39,12 @@ export const PIT_SHOW_TIME = 5;
 /** Deceleration down to the limit on the entry road, to a stop at the box, and the pull-away, m/s². */
 const ENTRY_DECEL = 3 * 9.81, STOP_DECEL = 8, LANE_ACCEL = 6, EXIT_ACCEL = 8;
 /** Gap a car in the lane keeps to the one ahead, and where it waits behind its team-mate's box, m. */
-const LANE_GAP = 8, QUEUE_GAP = 7;
+const LANE_GAP = 8, QUEUE_GAP = 8;
+/**
+ * A car in the box is released when no car in the fast lane is this close behind it (or alongside), m:
+ * a car arriving at the limit stays a gap behind while the released one pulls away to the limit.
+ */
+const RELEASE_BEHIND = PIT_SPEED_LIMIT * PIT_SPEED_LIMIT / (2 * LANE_ACCEL) + LANE_GAP + 8, RELEASE_AHEAD = 8;
 
 /** Wheel change at the box per team (Population.F1_TEAMS order), s: the crews differ. */
 export const PIT_CREW_BASE = [2.3, 2.4, 2.0, 2.1, 2.5, 2.6, 2.8, 2.3, 2.7, 2.6];
@@ -144,19 +149,40 @@ export function maybeEnterPitLane(car: Car, track: Track): void {
   car.pitTimer = 0;
 }
 
-/** Where a car in the lane must stop next: its box, behind its team-mate there, behind the car ahead, or at the exit. */
+/** How far a pitting car is out of the fast lane into its box (0: in the fast lane, 1: in the box). */
+function inBox(car: Car, lane: PitLane): number {
+  return lane.inBox(car.pitDistance, lane.boxOf(car.teamIndex));
+}
+
+/**
+ * Where a car in the lane must stop next: its box, behind its team-mate there, behind the car ahead
+ * in the fast lane, or at the exit. A car standing in its box, or turning in or out of it, leaves
+ * the fast lane free; the car turning into its own box only follows the cars ahead into it.
+ */
 function stopPoint(car: Car, lane: PitLane, track: Track, traffic: readonly Car[]): number {
-  const box = lane.boxes[car.teamIndex >= 0 ? car.teamIndex % lane.boxes.length : Math.floor(lane.boxes.length / 2)];
+  const box = lane.boxOf(car.teamIndex);
   let stop = car.pitPhase === 'out' ? (pitExitClear(car, lane, track, traffic) ? Infinity : lane.exit - 0.5) : box;
+  const own = inBox(car, lane);
   for (const other of traffic) {
     if (other === car || !other.isPitting || other.pitDistance <= car.pitDistance) continue;
-    stop = Math.min(stop, other.pitDistance - LANE_GAP);
-    // Double stack: the team-mate is at the box or on the way to it.
+    // Double stack: the team-mate is at the box or on the way to it; wait in the box behind it.
     if (car.pitPhase !== 'out' && other.teamIndex === car.teamIndex && car.teamIndex >= 0 && other.pitPhase !== 'out' && other.pitDistance <= box + 0.5) {
       stop = Math.min(stop, box - QUEUE_GAP);
     }
+    // Both in the fast lane, or both in the working lane: keep the gap.
+    if ((inBox(other, lane) < 0.5) === (own < 0.5)) stop = Math.min(stop, other.pitDistance - LANE_GAP);
   }
   return stop;
+}
+
+/** A serviced car leaves its box when no car in the fast lane is about to pass it (an unsafe release). */
+function releaseClear(car: Car, lane: PitLane, traffic: readonly Car[]): boolean {
+  for (const other of traffic) {
+    if (other === car || !other.isPitting || inBox(other, lane) >= 0.5) continue;
+    const gap = other.pitDistance - car.pitDistance;
+    if (gap > -RELEASE_BEHIND && gap < RELEASE_AHEAD) return false;
+  }
+  return true;
 }
 
 /** Fastest speed at distance `d` in the lane: the limit between the limiter lines, a braking curve down to it before. */
@@ -185,7 +211,7 @@ export function servicePitStop(car: Car, dt: number, track: Track, traffic: read
 
   if (car.pitPhase === 'service') {
     car.pitTimer = Math.max(0, car.pitTimer - dt);
-    if (car.pitTimer > 0) { car.vel.set(0, 0); car.speed = car.speedKmh = 0; return null; }
+    if (car.pitTimer > 0 || !releaseClear(car, lane, traffic)) { car.vel.set(0, 0); car.speed = car.speedKmh = 0; return null; }
     finishService(car);
     car.pitPhase = 'out';
   }
@@ -212,7 +238,7 @@ export function servicePitStop(car: Car, dt: number, track: Track, traffic: read
   car.pitDistance = d;
 
   // Arrived at the box: the crew starts work.
-  const box = lane.boxes[car.teamIndex >= 0 ? car.teamIndex % lane.boxes.length : Math.floor(lane.boxes.length / 2)];
+  const box = lane.boxOf(car.teamIndex);
   if (car.pitPhase !== 'out' && speed === 0 && Math.abs(d - box) < 0.5) {
     const service = serviceTime(car);
     car.pitPhase = 'service';
@@ -222,7 +248,7 @@ export function servicePitStop(car: Car, dt: number, track: Track, traffic: read
   } else if (car.pitPhase === 'lane' && speed === 0) car.pitPhase = 'queue';
   else if (car.pitPhase === 'queue' && speed > 0) car.pitPhase = 'lane';
 
-  const pose = lane.pose(d, car.pitEntryOffset);
+  const pose = lane.pose(d, car.pitEntryOffset, box);
   car.prevPos.set(car.pos.x, car.pos.y);
   car.pos = pose.pos;
   car.heading = pose.heading;

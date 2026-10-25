@@ -3,7 +3,7 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { Track } from '../../track/Track';
 import { Textures } from './Textures';
 import { Point2, stripGeometry, offsetPolyline } from './Geometry';
-import { PIT_LANE_WIDTH } from '../../track/PitLane';
+import { PIT_BOX_DEPTH, PIT_LANE_WIDTH } from '../../track/PitLane';
 import { Population } from '../../ai/Population';
 
 /** Surface heights (m): each layer sits a few millimetres above the one it overlaps. */
@@ -362,13 +362,17 @@ export class TrackMesh {
     for (let d = lane.entry; d <= lane.exit; d += step) centre.push(lane.point(d, lane.offset(d, edge)));
     const [l, r] = offsetPolyline(centre, PIT_LANE_WIDTH / 2, false);
     this.add(stripGeometry(l, r, H.asphalt, false), this.asphalt);
-    // Garages: a strip of concrete along the far side of the lane, between the limiter lines.
-    const garage: Point2[] = [], garageOuter: Point2[] = [];
-    for (let d = lane.limiterStart; d <= lane.limiterEnd; d += step) {
-      garage.push(lane.point(d, lane.side * (lane.laneOffset + PIT_LANE_WIDTH / 2)));
-      garageOuter.push(lane.point(d, lane.side * (lane.laneOffset + PIT_LANE_WIDTH / 2 + 4)));
-    }
-    this.add(stripGeometry(garage, garageOuter, H.asphalt, false), this.gravel);
+    // Between the limiter lines: the working lane with the boxes beside the fast lane, a white line
+    // between them, and the garages (concrete) beyond.
+    const along = (offset: number) => {
+      const pts: Point2[] = [];
+      for (let d = lane.limiterStart; d <= lane.limiterEnd; d += step) pts.push(lane.point(d, lane.side * offset));
+      return pts;
+    };
+    const fastEdge = lane.laneOffset + PIT_LANE_WIDTH / 2, boxEdge = lane.boxOffset + PIT_BOX_DEPTH / 2;
+    this.add(stripGeometry(along(fastEdge - 0.1), along(boxEdge), H.asphalt, false), this.asphalt);
+    this.add(stripGeometry(along(boxEdge), along(boxEdge + 5), H.asphalt, false), this.gravel);
+    this.add(stripGeometry(along(fastEdge - 0.12), along(fastEdge + 0.12), H.kerb, false, false), this.paint);
 
     // Yellow dashes along the track side of the entry and exit roads.
     const inner = (from: number, to: number) => {
@@ -396,12 +400,12 @@ export class TrackMesh {
     across(lane.limiterStart, 0.3, '80 km/h', '#FFFFFF');
     across(lane.limiterEnd, 0.3, '80 km/h', '#FFFFFF');
 
-    // Team boxes: an outline in the team colour around each stopping point, the team on the garage.
+    // Team boxes in the working lane: an outline in the team colour around each stopping point, the team on the garage.
     const teams = Population.F1_TEAMS.slice(0, lane.boxes.length);
     lane.boxes.forEach((d, k) => {
       const color = teams[k]?.color ?? '#FFD700';
-      const lineAt = (along: number, side: number) => lane.point(d + along, lane.side * lane.laneOffset + side);
-      const half = PIT_LANE_WIDTH / 2 - 0.4, len = 3;
+      const lineAt = (ahead: number, side: number) => lane.point(d + ahead, lane.side * lane.boxOffset + side);
+      const half = PIT_BOX_DEPTH / 2 - 0.5, len = 3.4;
       const ring = [lineAt(-len, -half), lineAt(len, -half), lineAt(len, half), lineAt(-len, half)];
       const geometries: THREE.BufferGeometry[] = [];
       for (let e = 0; e < 4; e++) {
@@ -410,7 +414,7 @@ export class TrackMesh {
       }
       const mesh = this.add(mergeGeometries(geometries), decal(new THREE.MeshBasicMaterial({ color }), 4));
       mesh.userData.ownsMaterial = true;
-      const tag = lane.point(d, lane.side * (lane.laneOffset + PIT_LANE_WIDTH / 2 + 2));
+      const tag = lane.point(d, lane.side * (boxEdge + 2.5));
       this.staticLabels.push({ text: teams[k]?.teamName.split(' ')[0].toUpperCase() ?? `BOX ${k + 1}`, x: tag.x, y: tag.y, color, className: 'pit' });
     });
   }

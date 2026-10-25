@@ -3,8 +3,10 @@ import type { Track } from './Track';
 
 /** Speed limit of the pit lane, m/s (80 km/h). */
 export const PIT_SPEED_LIMIT = 80 / 3.6;
-/** Width of the pit lane, m. */
+/** Width of the fast lane, the through lane of the pit lane, m. */
 export const PIT_LANE_WIDTH = 5;
+/** Width of the working lane between the fast lane and the garages, where the cars stop, m. */
+export const PIT_BOX_DEPTH = 6;
 /** Concrete between the runoff barrier (the pit wall) and the lane, m. */
 export const PIT_WALL_GAP = 1;
 /** Entry road from the track edge to the limiter line: room to brake from about 320 km/h at 3 g, m. */
@@ -14,7 +16,14 @@ export const PIT_EXIT_ROAD = 60;
 /** Widest runoff the lane is set back by: beyond it the lane runs on the runoff, behind a wall of its own, m. */
 const MAX_SETBACK = 6;
 /** Distance between neighbouring team boxes, m (the boxes close up on a short lane). */
-export const PIT_BOX_SPACING = 12;
+export const PIT_BOX_SPACING = 18;
+/**
+ * A car turns from the fast lane into its box between these distances before the box, m: past the
+ * car in the box behind, and early enough to wait in the working lane behind its team-mate.
+ */
+const BOX_IN_FROM = 16, BOX_IN_TO = 9;
+/** And out of it, back to the fast lane, between these distances past the box, m. */
+const BOX_OUT_FROM = 1, BOX_OUT_TO = 8;
 /** Team boxes along the lane. */
 export const PIT_BOXES = 10;
 
@@ -29,8 +38,9 @@ const MAX_SHIFT = 500;
  * The pit lane beside the start/finish straight, on the side where nothing else runs. A car in it
  * is placed by distance `d` along the track from the start/finish line (negative before it), so
  * the lane follows the straight and its bends; laterally it runs from where the car left the track,
- * down the entry road to the lane behind the pit wall, past the team boxes and back up the exit
- * road to the track edge.
+ * down the entry road to the fast lane behind the pit wall, past the team boxes and back up the
+ * exit road to the track edge. The boxes lie in the working lane between the fast lane and the
+ * garages: a car turns into its box and out of it, so a car being serviced leaves the fast lane free.
  *
  * The pit entry line is crossed at `entry` and the exit line at `exit`; between them the car is in
  * the pits. The speed limit holds from `limiterStart` to `limiterEnd`.
@@ -40,6 +50,8 @@ export class PitLane {
   readonly side: number;
   /** Lateral offset of the lane centre from the track centreline, m (positive towards `side`). */
   readonly laneOffset: number;
+  /** Lateral offset of the working lane centre (the boxes), m (positive towards `side`). */
+  readonly boxOffset: number;
   /** Lateral offset at which a car rejoins: just inside the track edge on the pit side. */
   readonly rejoinOffset: number;
   readonly entry: number;
@@ -52,6 +64,7 @@ export class PitLane {
   private constructor(private readonly track: Track, side: number, laneOffset: number, before: number, after: number) {
     this.side = side;
     this.laneOffset = laneOffset;
+    this.boxOffset = laneOffset + PIT_LANE_WIDTH / 2 + PIT_BOX_DEPTH / 2;
     this.rejoinOffset = track.width / 2 - 2;
     this.entry = -before;
     this.limiterStart = this.entry + PIT_ENTRY_ROAD;
@@ -59,7 +72,7 @@ export class PitLane {
     this.limiterEnd = this.exit - PIT_EXIT_ROAD;
     // Boxes centred in the limited stretch, leaving room to stop from the limit and to pull away.
     const room = this.limiterEnd - this.limiterStart - 70;
-    const spacing = Math.max(6, Math.min(PIT_BOX_SPACING, room / (PIT_BOXES - 1)));
+    const spacing = Math.max(8, Math.min(PIT_BOX_SPACING, room / (PIT_BOXES - 1)));
     const middle = (this.limiterStart + 35 + this.limiterEnd - 35) / 2;
     this.boxes = Array.from({ length: PIT_BOXES }, (_, k) => middle + (k - (PIT_BOXES - 1) / 2) * spacing);
   }
@@ -100,7 +113,7 @@ export class PitLane {
     let bad = 0;
     for (let d = this.limiterStart; d <= this.limiterEnd; d += 5) {
       const own = track.pointAhead(0, d);
-      for (const offset of [this.laneOffset - PIT_LANE_WIDTH / 2, this.laneOffset + PIT_LANE_WIDTH / 2 + 2]) {
+      for (const offset of [this.laneOffset - PIT_LANE_WIDTH / 2, this.boxOffset + PIT_BOX_DEPTH / 2 + 2]) {
         const p = this.point(d, this.side * offset), sample = track.sampleSurface(p);
         const gap = Math.abs(((sample.index - own) % track.points.length + track.points.length) % track.points.length);
         const apart = Math.min(gap, track.points.length - gap) * track.spacing;
@@ -113,12 +126,27 @@ export class PitLane {
   /** Track point index `d` metres from the start/finish line. */
   index(d: number): number { return this.track.pointAhead(0, d); }
 
-  /** Lateral offset (m, towards `side` when positive) of a car that left the track at `entryOffset`. */
-  offset(d: number, entryOffset: number): number {
+  /**
+   * Lateral offset (m, towards `side` when positive) of a car that left the track at `entryOffset`
+   * and stops at the box `box` (NaN: it drives straight through the fast lane).
+   */
+  offset(d: number, entryOffset: number, box = NaN): number {
     const lane = this.side * this.laneOffset;
     if (d <= this.limiterStart) return entryOffset + (lane - entryOffset) * smooth((d - this.entry) / PIT_ENTRY_ROAD);
     if (d >= this.limiterEnd) return lane + (this.side * this.rejoinOffset - lane) * smooth((d - this.limiterEnd) / PIT_EXIT_ROAD);
-    return lane;
+    return lane + this.side * (this.boxOffset - this.laneOffset) * this.inBox(d, box);
+  }
+
+  /** How far (0: the fast lane, 1: the working lane) a car with the box `box` is into it at `d`. */
+  inBox(d: number, box: number): number {
+    if (!Number.isFinite(box)) return 0;
+    if (d <= box) return smooth((d - (box - BOX_IN_FROM)) / (BOX_IN_FROM - BOX_IN_TO));
+    return 1 - smooth((d - (box + BOX_OUT_FROM)) / (BOX_OUT_TO - BOX_OUT_FROM));
+  }
+
+  /** Box of team `teamIndex` (the middle one for a car without a team). */
+  boxOf(teamIndex: number): number {
+    return this.boxes[teamIndex >= 0 ? teamIndex % this.boxes.length : Math.floor(this.boxes.length / 2)];
   }
 
   /** World position `offset` metres from the centreline (positive along the track normal), `d` metres from the line. */
@@ -131,10 +159,10 @@ export class PitLane {
     return centre.add(normal.mul(offset));
   }
 
-  /** Position and heading of a car `d` metres from the line that left the track at `entryOffset`. */
-  pose(d: number, entryOffset: number): { pos: Vector2; heading: number } {
-    const pos = this.point(d, this.offset(d, entryOffset));
-    const ahead = this.point(d + 1, this.offset(d + 1, entryOffset));
+  /** Position and heading of a car `d` metres from the line that left the track at `entryOffset`, bound for `box`. */
+  pose(d: number, entryOffset: number, box = NaN): { pos: Vector2; heading: number } {
+    const pos = this.point(d, this.offset(d, entryOffset, box));
+    const ahead = this.point(d + 1, this.offset(d + 1, entryOffset, box));
     return { pos, heading: ahead.sub(pos).heading() };
   }
 
