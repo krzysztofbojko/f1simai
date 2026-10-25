@@ -161,7 +161,7 @@ export class Car {
    */
   public static readonly STEERING_LAG: number = 0.09; // s
   /** The front axle saturates slightly before the rear: a stable, understeer-biased balance at the limit. */
-  public static readonly FRONT_GRIP_BIAS: number = 0.9;
+  public static readonly FRONT_GRIP_BIAS: number = 0.89;
   /** Fraction of the lateral force in use that drive/brake may not take from the friction circle. */
   public static readonly STABILITY_RESERVE: number = 1.1;
   public static readonly YAW_FEEDBACK: number = 0.1;
@@ -1659,6 +1659,7 @@ export class Car {
     let frontSlip = slipRatio, rearSlip = slipRatio;
     let dynamicFrontForce = 0, dynamicRearForce = 0;
     let frontSlipPower = 0, rearSlipPower = 0;
+    let steeredFrontDrag = 0; // body-frame longitudinal part of the steered front tyre's forces, beyond frontFx
     this.angularVelocity = kinematicYaw;
     if (dynamicWeight > 0) {
       const toRear = this.wheelbase * 0.46, toFront = this.wheelbase - toRear; // CoG to axles
@@ -1672,14 +1673,19 @@ export class Car {
       };
       const frontForce = axleForce(alphaFront, frontLoad, frontLateral * Car.FRONT_GRIP_BIAS);
       const rearForce = axleForce(alphaRear, rearLoad, rearLateral);
+      // The front tyre's forces act in the steered wheel's frame: turned into the body frame, its
+      // cornering force also pulls the car back (-Fy·sinδ) and its braking force pushes it sideways.
+      const sinSteer = Math.sin(wheelAngle), cosSteer = Math.cos(wheelAngle);
+      const frontBodyLateral = frontForce * cosSteer + frontFx * sinSteer;
+      steeredFrontDrag = (frontFx * (cosSteer - 1) - frontForce * sinSteer) * dynamicWeight;
       const yawInertia = currentMass * Car.YAW_INERTIA_FACTOR;
       // The crosswind side force acts behind the centre of gravity and twists the car with each gust.
-      const yawAcceleration = (toFront * frontForce - toRear * rearForce - Car.SIDE_FORCE_LEVER * sideForce) / yawInertia;
+      const yawAcceleration = (toFront * frontBodyLateral - toRear * rearForce - Car.SIDE_FORCE_LEVER * sideForce) / yawInertia;
       dynamicFrontForce = frontForce; dynamicRearForce = rearForce;
       frontSlipPower = Car.TYRE_LAT_HEAT * Math.abs(frontForce * u * Math.tan(alphaFront));
       rearSlipPower = Car.TYRE_LAT_HEAT * Math.abs(rearForce * u * Math.tan(alphaRear));
       const dynamicYaw = Math.max(-3.5, Math.min(3.5, yawPrevious + yawAcceleration * dt));
-      const dynamicLateral = frontForce + rearForce;
+      const dynamicLateral = frontBodyLateral + rearForce;
       lateralForce = kinematicLateral * (1 - dynamicWeight) + dynamicLateral * dynamicWeight;
       this.angularVelocity = kinematicYaw * (1 - dynamicWeight) + dynamicYaw * dynamicWeight;
       const demand = (alpha: number, load: number, limit: number) => limit > 1 ? Math.max(0, 1 - limit / Math.max(1e-6, Car.CORNERING_STIFFNESS * load * Math.abs(alpha))) : 0;
@@ -1719,7 +1725,7 @@ export class Car {
 
     // Integrate global velocity exactly once from the resultant force. Rotating
     // the body does not rotate momentum or introduce an extra lateral impulse.
-    const acceleration = forwardDir.mul(longitudinalForce / currentMass)
+    const acceleration = forwardDir.mul((longitudinalForce + steeredFrontDrag) / currentMass)
       .add(rightDir.mul((lateralForce + dragLateral) / currentMass));
     const previousVelocity = this.vel.clone();
     this.vel.addMut(acceleration.mul(dt));
