@@ -1,6 +1,7 @@
 import { emptyInterventions, type Car, type InterventionCounts } from '../physics/Car';
 import type { NeuralNetwork } from './NeuralNetwork';
 import type { Population } from './Population';
+import { teamRating } from './TeamRating';
 import { PaceSearch } from './PaceSearch';
 import { PACE_FLOOR_BAND, type SupervisorAction, type SupervisorMode } from './TrainingSupervisor';
 
@@ -22,13 +23,16 @@ export interface GenerationStats {
   medianLap: number | null;
   /** Session record when the generation ended. */
   sessionBest: number | null;
+  /** Best team rating (median of its recent clean laps, see TeamRating.ts) when the generation ended. */
+  bestRating: number | null;
   cleanLaps: number;
   /** Laps under someone else's yellow flag (still evaluated). */
   yellowLaps: number;
   /** Laps that never evaluate a brain (traffic, pressure change, island hand-over). */
   compromisedLaps: number;
+  /** Brains that beat their team's rating and became its record brain. */
   personalBests: number;
-  /** Degraded brains sent back to the team's proven one. */
+  /** Brains sent back to the team's record brain (slower than the rating, or one broken lap). */
   reverts: number;
   trialsStarted: number;
   trialsWon: number;
@@ -56,9 +60,11 @@ export interface DriverStats {
   alive: boolean;
   champion: boolean;
   bestLap: number | null;
+  /** The team's rating (s); null before enough clean laps. */
+  rating: number | null;
   lastLap: number | null;
   laps: number;
-  /** Clean laps since the last personal best (the stagnation counter). */
+  /** Clean laps since the last accepted brain (the stagnation counter). */
   lapsSincePB: number;
   mutationRate: number;
   exploring: boolean;
@@ -70,7 +76,7 @@ export interface DriverStats {
 }
 
 /** A driver at the end of a generation, as the session log keeps it. */
-export type DriverLogRow = Pick<DriverStats, 'name' | 'color' | 'champion' | 'bestLap' | 'lastLap' | 'laps' | 'lapsSincePB'
+export type DriverLogRow = Pick<DriverStats, 'name' | 'color' | 'champion' | 'bestLap' | 'rating' | 'lastLap' | 'laps' | 'lapsSincePB'
   | 'mutationRate' | 'interventionRate' | 'crashes' | 'distanceToChampion' | 'paceMargin'>;
 
 /** One finished generation in the session log: its summary and where every driver stood. */
@@ -209,7 +215,7 @@ export function verdicts(history: readonly GenerationStats[], trend: LearningTre
   const selfReliant = trend.interventionSlope !== null && trend.interventionSlope < -0.005;
   if (trend.gensSinceRecord >= PLATEAU_GENERATIONS) {
     const median = trend.medianSlope !== null && trend.medianSlope < -0.05 ? ` Mediana dalej spada (${seconds(trend.medianSlope)}), więc stawka dogania rekord.` : '';
-    result.push({ level: 'warn', title: 'Plateau', detail: `${trend.gensSinceRecord} generacji bez rekordu sesji${rates}.${median} Można podnieść mutację, dodać wyspy albo zmienić topologię sieci.` });
+    result.push({ level: 'warn', title: 'Plateau', detail: `${trend.gensSinceRecord} generacji bez rekordu sesji${rates}.${median} Można dodać wyspy albo zmienić topologię sieci.` });
   } else if (trend.gensSinceRecord <= 2 || improving) {
     const slope = trend.medianSlope ?? trend.bestSlope;
     result.push({ level: 'good', title: 'Uczy się', detail: `${slope !== null ? `Mediana okrążenia ${seconds(slope)}` : 'Nowe rekordy'}${rates}. Rekord sesji ${trend.gensSinceRecord === 0 ? 'w tej generacji' : `${trend.gensSinceRecord} gen. temu`}.` });
@@ -230,7 +236,7 @@ export function verdicts(history: readonly GenerationStats[], trend: LearningTre
     result.push({ level: 'warn', title: 'Zapaść różnorodności', detail: 'Mózgi wszystkich zespołów są niemal identyczne z mistrzem: selekcja ma z czego wybierać tylko dzięki mutacji.' });
   }
   if (trend.trialSuccess !== null && trend.trials >= MIN_TRIALS && trend.trialSuccess < 0.05) {
-    result.push({ level: 'info', title: 'Eksploracja bez efektu', detail: `Tylko ${percent(trend.trialSuccess)} z ${trend.trials} prób eksploracyjnych dało rekord życiowy.` });
+    result.push({ level: 'info', title: 'Eksploracja bez efektu', detail: `Tylko ${percent(trend.trialSuccess)} z ${trend.trials} prób eksploracyjnych dało lepszy mózg.` });
   }
   return result;
 }
@@ -251,7 +257,7 @@ export class LearningStats {
   private lastRateByColor = new Map<string, number>();
 
   private static blank(generation: number): GenerationStats {
-    return { generation, simSeconds: 0, wallSeconds: 0, bestLap: null, medianLap: null, sessionBest: null,
+    return { generation, simSeconds: 0, wallSeconds: 0, bestLap: null, medianLap: null, sessionBest: null, bestRating: null,
       cleanLaps: 0, yellowLaps: 0, compromisedLaps: 0, personalBests: 0, reverts: 0,
       trialsStarted: 0, trialsWon: 0, trialsLost: 0, crashes: { barrier: 0, car: 0, stuck: 0, 'wrong-way': 0, other: 0 },
       interventionRate: null, causes: emptyInterventions(), onlineTrainSteps: 0, islandAdoptions: 0,
@@ -301,6 +307,7 @@ export class LearningStats {
       wallSeconds: (Date.now() - this.wallStart) / 1000,
       medianLap: median(this.cleanTimes),
       sessionBest: population.globalBestLap,
+      bestRating: records.reduce<number | null>((best, r) => { const v = teamRating(r); return v !== null && (best === null || v < best) ? v : best; }, null),
       interventionRate: steps ? interventions / steps : null,
       causes: { steer: scale(causes.steer), guard: scale(causes.guard), brake: scale(causes.brake), launch: scale(causes.launch), clearance: scale(causes.clearance) },
       onlineTrainSteps: train,
@@ -317,7 +324,7 @@ export class LearningStats {
     const summary = this.live(population);
     this.history.push(summary);
     this.fullHistory.push({ ...summary, crashes: { ...summary.crashes }, causes: { ...summary.causes },
-      drivers: this.drivers(population).map(d => ({ name: d.name, color: d.color, champion: d.champion, bestLap: d.bestLap,
+      drivers: this.drivers(population).map(d => ({ name: d.name, color: d.color, champion: d.champion, bestLap: d.bestLap, rating: d.rating,
         lastLap: d.lastLap, laps: d.laps, lapsSincePB: d.lapsSincePB, mutationRate: d.mutationRate,
         interventionRate: d.interventionRate, crashes: d.crashes, distanceToChampion: d.distanceToChampion, paceMargin: d.paceMargin })) });
     const stale = this.fullHistory.length - 1 - LOG_DRIVER_GENERATIONS;
@@ -341,16 +348,18 @@ export class LearningStats {
     const recent = this.history.slice(-TREND_WINDOW);
     const series = (pick: (g: GenerationStats) => number | null) =>
       linearTrend(recent.flatMap(g => { const y = pick(g); return y === null ? [] : [{ x: g.generation, y }]; }));
+    // The whole session, not the charted window: a record older than MAX_HISTORY generations still counts.
+    const all = this.fullHistory.length >= this.history.length ? this.fullHistory : this.history;
     let gensSinceRecord = 0;
     const best = population.globalBestLap;
-    for (let i = this.history.length - 1; i >= 0; i--) {
-      const previous = i > 0 ? this.history[i - 1].sessionBest : null;
-      const record = this.history[i].sessionBest;
+    for (let i = all.length - 1; i >= 0; i--) {
+      const previous = i > 0 ? all[i - 1].sessionBest : null;
+      const record = all[i].sessionBest;
       if (record !== null && (previous === null || record < previous - 1e-6)) break;
       gensSinceRecord++;
     }
     // The running generation set a new record: nothing has stalled.
-    const lastRecord = this.history.length ? this.history[this.history.length - 1].sessionBest : null;
+    const lastRecord = all.length ? all[all.length - 1].sessionBest : null;
     if (best !== null && (lastRecord === null || best < lastRecord - 1e-6)) gensSinceRecord = 0;
     let won = this.current.trialsWon, lost = this.current.trialsLost;
     for (const g of this.history) { won += g.trialsWon; lost += g.trialsLost; }
@@ -371,6 +380,7 @@ export class LearningStats {
         alive: car.isAlive,
         champion: i === championIndex,
         bestLap: record?.bestLapTime ?? null,
+        rating: record ? teamRating(record) : null,
         lastLap: record?.lastLapTime ?? null,
         laps: record?.lapsCount ?? 0,
         lapsSincePB: record?.stagnationCounter ?? 0,

@@ -67,6 +67,10 @@ try {
     s.history = [{ sessionBest: 90 }, { sessionBest: 88 }, { sessionBest: 88 }, { sessionBest: 88 }].map((g, i) => ({ generation: i + 1, ...g }));
     assert.equal(s.trend({ globalBestLap: 88 }).gensSinceRecord, 2);
     assert.equal(s.trend({ globalBestLap: 87 }).gensSinceRecord, 0, 'a record in the running generation resets the plateau');
+    // The charted history is thinned to 400 entries; the count still reaches back over the whole session.
+    s.fullHistory = Array.from({ length: 1078 }, (_, i) => ({ generation: i + 1, sessionBest: i === 0 ? 124 : 118.16 }));
+    s.history = s.fullHistory.slice(-376);
+    assert.equal(s.trend({ globalBestLap: 118.16 }).gensSinceRecord, 1076);
   }
 
   // Insights: each detector on a synthetic history, and silence on healthy, noisy learning.

@@ -701,8 +701,11 @@ export class Car {
   public lapDragFactor: number = 1.0;
   /** This lap is a stress lap (see `SimConfig.stressLapShare`). */
   public stressLap = false;
-  /** The brain is a stagnation-breaking mutation of the record brain, on trial until its next clean lap. */
+  /** The brain is a stagnation-breaking mutation of the record brain, on trial until its verdict (see `TeamRating.ts`). */
   public explorationTrial = false;
+  /** Training bookkeeping: the brain now being judged and its clean laps so far (see `TeamRating.ts`). */
+  public judgedBrain: NeuralNetwork | null = null;
+  public judgedLaps: number[] = [];
   /** Stress-lap LiDAR error seen by the network: per-reading noise and a per-lap calibration bias. */
   private sensorNoise = 0;
   private sensorBias = 0;

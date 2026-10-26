@@ -1,5 +1,6 @@
 import { normalizePressure } from './DriverPressure';
 import { Population, TeamRecord } from './Population';
+import { RATING_MIN_LAPS, RECENT_LAPS, median, teamRating } from './TeamRating';
 import { Car } from '../physics/Car';
 import { Track } from '../track/Track';
 import { TrackPoint } from '../math/Spline';
@@ -55,6 +56,7 @@ export function exportDriver(population: Population, index: number): any {
     ers: Math.round(car.ersEnergy),
     tyres: { tempFront: car.tyreTempFront, tempRear: car.tyreTempRear, wearFront: car.tyreWearFront, wearRear: car.tyreWearRear },
     lineNet: car.lineNet ? car.lineNet.toJSON() : null,
+    recentLaps: record ? [...record.recentLaps] : [],
     lapsCount: record?.lapsCount ?? 0,
     avgSpeed: record?.avgSpeed ?? 0,
     topSpeed: record?.topSpeed ?? 0,
@@ -88,7 +90,7 @@ export function applyDriverModel(car: Car, record: TeamRecord | undefined, drive
     car.safeBrainPressure = car.bestLapPressure;
     if (record) record.bestLapPressure = car.bestLapPressure;
     if (record) record.bestLapTime = driverData.bestLapTime;
-    if (record) { record.referenceLapTime = null; record.recentLaps = []; }
+    if (record) record.recentLaps = Array.isArray(driverData.recentLaps) ? driverData.recentLaps.filter((t: unknown) => typeof t === 'number' && t > 0).slice(-RECENT_LAPS) : [];
     if (record) record.bestLapConditions = isConditions(driverData.bestLapConditions) ? driverData.bestLapConditions : 'dry';
   }
   if (Array.isArray(driverData.bestLapSplits) && driverData.bestLapSplits.length === 4) {
@@ -121,7 +123,7 @@ export function applyDriverModel(car: Car, record: TeamRecord | undefined, drive
 
 /**
  * Island migration: a driver takes another population's model only for a strictly
- * faster clean lap at the same driver pressure and with the same network inputs,
+ * better rating (or, before both teams have one, a faster clean lap) at the same driver pressure and with the same network inputs,
  * and one round replaces at most `maxAdoptions` drivers (largest gains first).
  * The lap in progress is flagged, so a mixed lap never evaluates either model.
  * Returns the number of drivers that changed.
@@ -134,12 +136,19 @@ export function mergeBetterDrivers(population: Population, drivers: any[], maxAd
     if (!data || typeof data.bestLapTime !== 'number' || !(data.bestLapTime > 0) || !data.bestBrain) continue;
     // Only a lap in the conditions this field is driving in now; an own record from other conditions does not count.
     if ((isConditions(data.bestLapConditions) ? data.bestLapConditions : 'dry') !== population.conditions) continue;
-    const own = (record?.bestLapConditions ?? 'dry') === population.conditions ? record?.bestLapTime ?? car.bestLapTime : null;
-    if (own !== null && own !== undefined && own > 0 && data.bestLapTime >= own - 1e-3) continue;
+    const sameConditions = (record?.bestLapConditions ?? 'dry') === population.conditions;
+    // Both ratings known: compare those (see TeamRating.ts); else the island's lap record against our own.
+    const laps: number[] = Array.isArray(data.recentLaps) ? data.recentLaps.filter((t: unknown) => typeof t === 'number' && t > 0) : [];
+    const theirRating = laps.length >= RATING_MIN_LAPS ? median(laps) : null;
+    const ownRating = sameConditions && record ? teamRating(record) : null;
+    const rated = theirRating !== null && ownRating !== null;
+    const own = rated ? ownRating : sameConditions ? record?.bestLapTime ?? car.bestLapTime : null;
+    const theirs = rated ? theirRating : data.bestLapTime;
+    if (own !== null && own !== undefined && own > 0 && theirs >= own - 1e-3) continue;
     if (normalizePressure(data.bestLapPressure ?? 0) !== car.driverPressure) continue;
     if (!car.brain || !Array.isArray(data.bestBrain.layerSizes) || data.bestBrain.layerSizes.join() !== car.brain.layerSizes.join()) continue;
     if (car.isManual || car.isRaceMode) continue;
-    candidates.push({ index: i, data, gain: own !== null && own !== undefined && own > 0 ? own - data.bestLapTime : 1e9 });
+    candidates.push({ index: i, data, gain: own !== null && own !== undefined && own > 0 ? own - theirs : 1e9 });
   }
   // Diversity guard: one exchange replaces only the largest improvements, so the
   // fields do not all collapse onto the same models in a single round.

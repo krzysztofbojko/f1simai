@@ -8,7 +8,7 @@ import { formatLapTime } from './format';
 import { icon } from './icons';
 
 type Tab = 'overview' | 'insights' | 'supervisor' | 'trends' | 'drivers' | 'network';
-type SortKey = 'bestLap' | 'lastLap' | 'laps' | 'lapsSincePB' | 'mutationRate' | 'interventionRate' | 'paceMargin' | 'lineBest' | 'distanceToChampion' | 'crashes';
+type SortKey = 'bestLap' | 'rating' | 'lastLap' | 'laps' | 'lapsSincePB' | 'mutationRate' | 'interventionRate' | 'paceMargin' | 'lineBest' | 'distanceToChampion' | 'crashes';
 
 interface PanelState { open: boolean; tab: Tab; x: number; y: number; w: number; h: number; supervisorMode: SupervisorMode }
 
@@ -26,7 +26,7 @@ const LEVEL_MARK: Record<VerdictLevel, string> = { good: '✓', warn: '!', bad: 
 const CHART_LABEL: Record<InsightChart, string> = { laps: 'Czas okrążenia', interventions: 'Interwencje strażnika', events: 'Zdarzenia',
   diversity: 'Różnorodność', mutation: 'Mutacja', network: 'Sieć', general: 'Cała sesja' };
 const ACTION_LABEL: Record<SupervisorActionKind, string> = { 'pace-reset': 'Reset tempa', 'mutation-reset': 'Reset mutacji',
-  'reference-refresh': 'Odświeżenie referencji', selection: 'Selekcja' };
+  selection: 'Selekcja' };
 const TREND_CHARTS: readonly InsightChart[] = ['laps', 'interventions', 'events', 'diversity', 'mutation'];
 const SESSION_LABEL: Record<string, string> = { IDLE: 'Trening', QUALIFYING: 'Kwalifikacje', QUALI_FINISHED: 'Po kwalifikacjach',
   GRID_START: 'Start', RACING: 'Wyścig', FINISHED: 'Po wyścigu' };
@@ -246,9 +246,10 @@ export class LearningPanel {
       <div class="lp-verdicts">${verdicts}</div>
       <div class="lp-tiles">
         ${tile('Rekord sesji', lap(r.sessionBest), t.gensSinceRecord ? `${t.gensSinceRecord} gen. bez rekordu` : 'świeży rekord')}
+        ${tile('Najlepsza ocena', lap(c.bestRating), lastGen ? `poprz. gen. ${lap(lastGen.bestRating)}` : '', 'Mediana ostatnich 20 czystych okrążeń najlepszego zespołu: miara postępu odporna na szczęśliwe okrążenia')}
         ${tile('Trend mediany', slope(t.medianSlope), `best ${slope(t.bestSlope)}`, 'Nachylenie prostej dopasowanej do ostatnich 10 generacji; ujemne = szybciej')}
         ${tile('Interwencje strażnika', pct(c.interventionRate, 1), lastGen ? `poprz. gen. ${pct(lastGen.interventionRate, 1)}` : '', 'Udział kroków, w których ekspert poprawił sieć. Spada = sieć jedzie sama coraz lepiej')}
-        ${tile('Skuteczność eksploracji', pct(t.trialSuccess), `z ${t.trials} zakończonych prób`, 'Mocniejsza mutacja po 8 okrążeniach bez rekordu życiowego')}
+        ${tile('Skuteczność eksploracji', pct(t.trialSuccess), `z ${t.trials} zakończonych prób`, 'Mocniejsza mutacja po 8 okrążeniach bez lepszego mózgu; wygrana = mediana 4 okrążeń lepsza od oceny zespołu')}
         ${tile('Różnorodność', num(c.diversity, 4), `mutacja śr. ${num(c.meanMutationRate, 3)}`, 'Średnia odległość (RMS wag) mózgów zespołów od mózgu mistrza')}
         ${tile('Wyspy', r.islands.count ? `${r.islands.count} × ${Math.round(r.islands.stepsPerSecond / 1000)}k kr/s` : 'wyłączone', `adopcji: ${r.islands.adopted}`)}
       </div>
@@ -257,7 +258,7 @@ export class LearningPanel {
         <div><dt>Czyste okrążenia</dt><dd>${c.cleanLaps}${c.yellowLaps ? ` (${c.yellowLaps} pod żółtą)` : ''}</dd></div>
         <div><dt>Skażone okrążenia</dt><dd>${c.compromisedLaps}</dd></div>
         <div><dt>Najlepsze / mediana</dt><dd>${lap(c.bestLap)} / ${lap(c.medianLap)}</dd></div>
-        <div><dt>Rekordy życiowe</dt><dd>${c.personalBests}</dd></div>
+        <div><dt>Lepsze mózgi</dt><dd>${c.personalBests}</dd></div>
         <div><dt>Cofnięcia mózgu</dt><dd>${c.reverts}</dd></div>
         <div><dt>Próby eksploracji</dt><dd>${c.trialsStarted} (✓ ${c.trialsWon} / ✕ ${c.trialsLost})</dd></div>
         <div><dt>Wypadki</dt><dd>${crashTotal(c)} — bariera ${crashes.barrier}, auto ${crashes.car}, utknął ${crashes.stuck}, pod prąd ${crashes['wrong-way']}</dd></div>
@@ -318,7 +319,7 @@ export class LearningPanel {
           <p>${escapeHtml(a.reason)}</p><p>→ ${escapeHtml(a.action)}</p>
           ${a.status === 'pending' && !r.raceMode ? `<button class="f1-btn" data-apply="${a.id}">Zastosuj</button>` : ''}</div>
       </div>`).join('');
-    return `<p class="lp-note">Nadzorca po każdej generacji treningu czyta historię i reaguje na objawy: zapas tempa przy minimum, mutację przyklejoną do maksimum, rekordy, których nikt nie bije, i sesję bez postępu. Każdy rodzaj akcji odczekuje co najmniej 30 generacji.</p>
+    return `<p class="lp-note">Nadzorca po każdej generacji treningu czyta historię i reaguje na objawy: zapas tempa przy minimum, mutację przyklejoną do maksimum i sesję bez postępu. Każdy rodzaj akcji odczekuje co najmniej 30 generacji.</p>
       <div class="lp-segmented" role="group" aria-label="Tryb nadzorcy">${modeButton('auto', 'Automatycznie')}${modeButton('suggest', 'Tylko sugestie')}</div>
       <div class="lp-verdicts">${items || '<p class="lp-empty">Na razie bez akcji: nie widać objawów, na które nadzorca reaguje.</p>'}</div>`;
   }
@@ -348,6 +349,7 @@ export class LearningPanel {
       { label: 'Najlepsze w gen.', color: COLORS.gold, values: h.map(g => g.bestLap) },
       { label: 'Mediana czystych', color: COLORS.cyan, values: h.map(g => g.medianLap) },
       { label: 'Rekord sesji', color: COLORS.purple, values: h.map(g => g.sessionBest) },
+      { label: 'Najlepsza ocena', color: COLORS.papaya, values: h.map(g => g.bestRating) },
     ], secs);
     set('interventions', [
       { label: 'Wszystkie', color: COLORS.gold, values: h.map(g => g.interventionRate) },
@@ -356,7 +358,7 @@ export class LearningPanel {
       { label: 'Hamowanie awaryjne', color: COLORS.purple, values: h.map(g => g.interventionRate === null ? null : g.causes.brake) },
     ], share, 0);
     set('events', [
-      { label: 'Rekordy życiowe', color: COLORS.cyan, values: h.map(g => g.personalBests) },
+      { label: 'Lepsze mózgi', color: COLORS.cyan, values: h.map(g => g.personalBests) },
       { label: 'Cofnięcia mózgu', color: COLORS.papaya, values: h.map(g => g.reverts) },
       { label: 'Wypadki', color: COLORS.purple, values: h.map(crashTotal) },
       { label: 'Adopcje z wysp', color: COLORS.gold, values: h.map(g => g.islandAdoptions) },
@@ -384,7 +386,7 @@ export class LearningPanel {
     const row = (d: DriverStats) => `
       <tr data-color="${escapeHtml(d.color)}" class="${d.alive ? '' : 'dead'}">
         <td class="lp-driver"><span class="team-dot" style="background-color:${escapeHtml(d.color)}"></span>${escapeHtml(d.name)}${d.champion ? ' <span class="lp-badge gold">mistrz</span>' : ''}${d.exploring ? ' <span class="lp-badge cyan">próba</span>' : ''}</td>
-        <td>${lap(d.bestLap)}</td><td>${lap(d.lastLap)}</td><td>${d.laps}</td><td>${d.lapsSincePB}</td>
+        <td>${lap(d.bestLap)}</td><td>${lap(d.rating)}</td><td>${lap(d.lastLap)}</td><td>${d.laps}</td><td>${d.lapsSincePB}</td>
         <td>${num(d.mutationRate, 3)}</td><td>${pct(d.interventionRate, 1)}</td><td>${num(d.paceMargin, 3)}</td>
         <td>${lap(d.lineBest)}</td><td>${num(d.distanceToChampion, 4)}</td><td>${d.crashes}</td>
       </tr>`;
@@ -392,9 +394,10 @@ export class LearningPanel {
       <div class="lp-table-wrap"><table class="lp-table">
         <thead><tr><th>Kierowca</th>
           ${head('Best', 'bestLap', 'Rekord życiowy (czyste okrążenie)')}
+          ${head('Ocena', 'rating', 'Mediana ostatnich 20 czystych okrążeń zespołu: według niej przyjmowane są mózgi i wybierany mistrz')}
           ${head('Last', 'lastLap', 'Ostatnie okrążenie')}
           ${head('Okr.', 'laps', 'Okrążenia w sesji')}
-          ${head('Od PB', 'lapsSincePB', 'Czyste okrążenia od ostatniego rekordu życiowego (8 = próba eksploracji)')}
+          ${head('Od PB', 'lapsSincePB', 'Czyste okrążenia od ostatniego przyjętego mózgu (8 = próba eksploracji)')}
           ${head('Mutacja', 'mutationRate', 'Bieżąca stopa mutacji zespołu (wyżarzanie)')}
           ${head('Interw.', 'interventionRate', 'Udział kroków poprawionych przez strażnika')}
           ${head('Tempo', 'paceMargin', 'Margines przyczepności z wyszukiwania tempa')}

@@ -120,16 +120,24 @@ try {
   // Performance rollback must discard samples from the failed trial.
   {
     const { population, car, record, event, saved } = fixture();
+    record.recentLaps = [60, 60.5, 59.5, 60.2, 59.8, 60.1];
     car.brain.layers[0].weights[0][0] = 12345;
     car.replayBuffer = [{ inputs: [], targets: [0, 0, 0], reward: 1 }]; car.replayStepTimer = 89;
     population.recordLap({ ...event, lapTime: 65 }, car, false, track);
     assert.equal(parameters(car.brain), saved); assert.equal(parameters(car.safeBrainBackup), saved);
     assert.equal(car.replayBuffer.length, 0); assert.equal(car.replayStepTimer, 0);
-    // A genuine improvement is still allowed to replace the PB model.
+    // One lucky lap is the team's record but never its brain; a 4-lap median below the rating is.
     car.brain.layers[0].weights[0][0] = 8;
     const improved = parameters(car.brain);
-    population.recordLap({ ...event, lapTime: 59 }, car, false, track);
-    assert.equal(record.bestLapTime, 59); assert.equal(parameters(record.bestBrain), improved);
+    population.recordLap({ ...event, lapTime: 50 }, car, false, track);
+    assert.equal(record.bestLapTime, 50); assert.equal(parameters(record.bestBrain), saved, 'a single lap picked the brain');
+    for (const lapTime of [59, 59.2, 59.1]) population.recordLap({ ...event, lapTime }, car, false, track);
+    assert.equal(parameters(record.bestBrain), improved);
+    assert.equal(parameters(car.brain), improved, 'an accepted brain keeps driving');
+    // A brain whose median does not beat the rating goes back to the record brain.
+    car.brain.layers[0].weights[0][0] = 9;
+    for (const lapTime of [60.4, 60.6, 60.5, 60.7]) population.recordLap({ ...event, lapTime }, car, false, track);
+    assert.equal(parameters(car.brain), improved);
   }
   // Sparse/dense trajectory samples must not shift coaching into another corner.
   {

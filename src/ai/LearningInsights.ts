@@ -248,14 +248,14 @@ const changesHurt: Detector = (history, ctx) => {
     ? 'Mutacja jest już niska, więc jazdę psują raczej korekty online albo losowe warunki (paliwo, ruch).'
     : 'Obniż mutację.';
   return { level: 'warn', chart: 'events', title: 'Więcej cofnięć niż rekordów', since: recent[0].generation,
-    detail: `W ostatnich ${recent.length} gen. ${reverts} cofnięć mózgu przy ${bests} rekordach życiowych: zmiany w sieciach częściej pogarszają jazdę, niż ją poprawiają. ${advice}` };
+    detail: `W ostatnich ${recent.length} gen. ${reverts} cofnięć mózgu przy ${bests} przyjętych lepszych mózgach: zmiany w sieciach częściej pogarszają jazdę, niż ją poprawiają. ${advice}` };
 };
 
 const noOneImproves: Detector = history => {
   const tail = streak(history, g => g.personalBests === 0);
   if (tail.length < TREND_WINDOW) return null;
   return { level: 'warn', chart: 'events', title: 'Nikt się nie poprawia', since: tail[0].generation,
-    detail: `Od ${tail.length} gen. żaden kierowca nie pobił swojego rekordu życiowego (${sum(tail, g => g.cleanLaps)} czystych okrążeń). Każdy zespół stoi w miejscu, nie tylko lider.` };
+    detail: `Od ${tail.length} gen. żaden zespół nie przyjął lepszego mózgu (${sum(tail, g => g.cleanLaps)} czystych okrążeń). Każdy zespół stoi w miejscu, nie tylko lider.` };
 };
 
 const islandsUseless: Detector = (history, ctx) => {
@@ -316,7 +316,7 @@ const mutationNoEffect: Detector = (history, ctx) => {
   if (!last || ctx.mutationCeiling === undefined || last.meanMutationRate < 0.9 * ctx.mutationCeiling || trialSuccess === null || trials < 10 || trialSuccess >= 0.05) return null;
   const tail = streak(history, g => g.meanMutationRate >= 0.9 * ctx.mutationCeiling!);
   return { level: 'info', chart: 'mutation', title: 'Silna mutacja bez efektu', since: tail[0].generation,
-    detail: `Mutacja jest blisko maksimum (${dec(last.meanMutationRate, 3)}), a tylko ${pct(trialSuccess)} z ${trials} prób eksploracji dało rekord życiowy. Losowe zmiany już nie pomagają: potrzebna inna topologia albo reset.` };
+    detail: `Mutacja jest blisko maksimum (${dec(last.meanMutationRate, 3)}), a tylko ${pct(trialSuccess)} z ${trials} prób eksploracji dało lepszy mózg. Losowe zmiany już nie pomagają: potrzebna inna topologia albo reset.` };
 };
 
 // ---- Network ----

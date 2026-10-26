@@ -25,7 +25,7 @@ export interface LearningLogConfig {
 
 export interface LearningLog {
   type: 'F1_LEARNING_LOG';
-  version: 1;
+  version: 2;
   exportedAt: string;
   generation: number;
   sessionState: string;
@@ -54,14 +54,15 @@ export const LEARNING_LOG_SCHEMA = {
     wallSeconds: 'Wall-clock seconds the generation took.',
     bestLap: 'Fastest clean lap of the generation (s), null without clean laps.',
     medianLap: 'Median clean lap of the generation (s).',
-    sessionBest: 'Session lap record when the generation ended (s).',
+    sessionBest: 'Session lap record when the generation ended (s). A single lap: noisy, it never picks a brain.',
+    bestRating: 'Best team rating when the generation ended (s): the median of a team\'s last 20 clean laps. The robust progress measure.',
     cleanLaps: 'Laps that evaluate a brain, including yellowLaps.',
     yellowLaps: "Clean laps run under someone else's yellow flag.",
     compromisedLaps: 'Laps that never evaluate a brain (traffic, pressure change, island hand-over).',
-    personalBests: 'Driver personal bests set in the generation: laps faster than the team reference (the record, or the supervisor-refreshed reference); each saves that brain as the team record brain.',
-    reverts: 'Degraded brains (lap > 2.5 s slower than the team reference) sent back to the team record brain.',
-    trialsStarted: 'Exploration trials started: a stronger mutation of the record brain after 8 clean laps without a personal best.',
-    trialsWon: 'Exploration trials that ended in a personal best.',
+    personalBests: 'Accepted brains: the median of a brain\'s 4 clean laps beat its team rating, so it became the team record brain.',
+    reverts: 'Brains sent back to the team record brain: their 4-lap median did not beat the team rating, or one lap was over max(2.5 s, 3 spreads) slower than it.',
+    trialsStarted: 'Exploration trials started: a stronger mutation of the record brain after 8 clean laps without an accepted brain.',
+    trialsWon: 'Exploration trials accepted (4-lap median beat the team rating).',
     trialsLost: 'Exploration trials that failed and were reverted.',
     crashes: 'Eliminations by cause: barrier, car (collision), stuck, wrong-way, other.',
     interventionRate: 'Share of AI control steps the guardian overrode (0..1).',
@@ -69,16 +70,16 @@ export const LEARNING_LOG_SCHEMA = {
     onlineTrainSteps: 'Online training updates of the networks from guardian corrections.',
     islandAdoptions: 'Faster drivers taken over from island workers (parallel training copies).',
     diversity: 'Mean RMS weight distance of the team record brains from the champion brain; below 0.002 all teams drive practically one brain.',
-    meanMutationRate: 'Mean annealed mutation rate of the teams (raised by failed trials, lowered by personal bests).',
+    meanMutationRate: 'Mean annealed mutation rate of the teams (raised by failed trials, lowered by accepted brains).',
     hiddenSaturation: "Mean share of the champion's hidden neurons with |tanh activation| > 0.95 in its last step.",
     meanPaceMargin: 'Mean grip margin of the pace search (planner grip budget multiplier, 0.9..1.15) over the AI drivers.',
     paceAtFloor: 'Share of AI drivers whose pace-search margin sits within 0.02 of its 0.9 floor (0..1).',
     drivers: 'Each driver at the end of the generation.',
   },
   driver: {
-    name: 'Driver name', color: 'Team colour (identifies the team)', champion: 'Holds the session champion brain',
-    bestLap: 'Personal best clean lap (s)', lastLap: 'Last lap (s)', laps: 'Laps in the session',
-    lapsSincePB: 'Clean laps since the last personal best (8 starts an exploration trial)', mutationRate: 'Team mutation rate',
+    name: 'Driver name', color: 'Team colour (identifies the team)', champion: 'Holds the session champion brain (best team rating)',
+    bestLap: 'Personal best clean lap (s)', rating: 'Team rating: median of its last 20 clean laps (s)', lastLap: 'Last lap (s)', laps: 'Laps in the session',
+    lapsSincePB: 'Clean laps since the last accepted brain (8 starts an exploration trial)', mutationRate: 'Team mutation rate',
     interventionRate: 'Share of steps the guardian overrode', crashes: 'Crashes in the session',
     distanceToChampion: 'RMS weight distance from the champion brain',
     lineBest: 'Best time of the racing-line network (s), current drivers only', paceMargin: 'Grip margin from the pace search, current drivers only',
@@ -88,7 +89,7 @@ export const LEARNING_LOG_SCHEMA = {
   network: 'Champion network: layer sizes, parameter count, mean |weight| and tanh saturation per layer.',
   supervisor: 'Training supervisor. mode: auto (acts) or suggest (waits for the user). actions: every action and suggestion of the session, '
     + 'with generation (whose end triggered it), kind (pace-reset: pace search back to margin 1; mutation-reset: team mutation rates back to the floor; '
-    + 'reference-refresh: team reference = 20th percentile of its last 20 clean laps, records unchanged; selection: the 3 weakest teams try a crossover '
+    + 'selection: the 3 weakest teams try a crossover '
     + 'of the champion and a top-5 brain as an exploration trial), reason and action (Polish UI text), status (applied/pending/expired) and appliedAt.',
 } as const;
 
@@ -96,7 +97,7 @@ export function learningLog(view: LearningStatsView, generations: GenerationLogE
   meta: { sessionState: string; simTime: number; config: LearningLogConfig; supervisorActions: SupervisorAction[] }): LearningLog {
   return {
     type: 'F1_LEARNING_LOG',
-    version: 1,
+    version: 2,
     exportedAt: new Date().toISOString(),
     generation: view.generation,
     sessionState: meta.sessionState,

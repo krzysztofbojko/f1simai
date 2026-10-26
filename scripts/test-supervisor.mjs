@@ -83,14 +83,10 @@ try {
     const before = population.cars.map(car => car.brain);
     population.supervisor.review(population);
     const kinds = population.learningStats.supervisorActions.map(a => a.kind).sort();
-    assert.deepEqual(kinds, ['mutation-reset', 'pace-reset', 'reference-refresh', 'selection']);
+    assert.deepEqual(kinds, ['mutation-reset', 'pace-reset', 'selection']);
     assert.ok(population.learningStats.supervisorActions.every(a => a.status === 'applied' && a.generation === 70));
     assert.ok(population.cars.every(car => car.pace.margin === 1), 'pace probe restarted');
     assert.ok(population.teamRecords.every(r => r.currentMutationRate === Population.MIN_MUTATION_RATE), 'annealing restarted');
-    population.teamRecords.forEach((record, i) => {
-      assert.equal(record.bestLapTime, 98.7 + i, 'the record itself stays');
-      assert.ok(Math.abs(record.referenceLapTime - (110.4 + i)) < 1e-9, 'reference = 20th percentile of the recent laps');
-    });
     const champion = population.championRecord();
     const championIndex = population.teamRecords.indexOf(champion);
     const trials = population.cars.map((car, i) => car.explorationTrial ? i : -1).filter(i => i >= 0);
@@ -102,7 +98,7 @@ try {
     // Cooldown: the same history one generation later does nothing new.
     population.learningStats.fullHistory.push(gen(71));
     population.supervisor.review(population);
-    assert.equal(population.learningStats.supervisorActions.length, 4);
+    assert.equal(population.learningStats.supervisorActions.length, 3);
   }
 
   // Suggest mode: actions wait, change nothing, and apply on request.
@@ -111,7 +107,7 @@ try {
     population.supervisor.mode = 'suggest';
     population.supervisor.review(population);
     const log = population.learningStats.supervisorActions;
-    assert.equal(log.length, 4);
+    assert.equal(log.length, 3);
     assert.ok(log.every(a => a.status === 'pending'));
     assert.ok(population.cars.every(car => car.pace.margin === 0.9), 'nothing changes before the user applies it');
     const pace = log.find(a => a.kind === 'pace-reset');
@@ -132,22 +128,17 @@ try {
     assert.equal(population.learningStats.supervisorActions.length, 0);
   }
 
-  // Team reference in lap judging: a lap faster than the refreshed reference is a personal best
-  // and the new reference, while the shown record stays the faster time.
+  // The champion is the team with the best rating, not the one lucky lap.
   {
-    const population = new Population(2, track);
-    const car = population.cars[0], record = population.teamRecords[0];
-    record.bestLapTime = 98;
-    record.referenceLapTime = 110;
-    const event = lapTime => ({ lapTime, trajectory: [], maxSpeed: 250, avgSpeed: 200, fuelRemaining: 50, fuelUsed: 1.5, compromised: false, yellow: false, pressure: 0 });
-    population.recordLap(event(109), car);
-    assert.equal(record.bestLapTime, 98);
-    assert.equal(record.referenceLapTime, 109);
-    assert.equal(population.learningStats.fullHistory.length, 0);
-    population.recordLap(event(97), car);
-    assert.equal(record.bestLapTime, 97);
-    assert.equal(record.referenceLapTime, null, 'a real record is the reference again');
-    assert.deepEqual(record.recentLaps, [109, 97]);
+    const population = new Population(3, track);
+    const [lucky, steady, fresh] = population.teamRecords;
+    lucky.bestLapTime = 90; lucky.recentLaps = [90, 112, 113, 112, 114, 113];
+    steady.bestLapTime = 104; steady.recentLaps = [104, 105, 106, 105, 104, 105];
+    fresh.bestLapTime = 95; fresh.recentLaps = [95, 96];
+    assert.equal(population.championRecord(), steady);
+    const rated = population.learningStats.view(population).drivers;
+    assert.equal(rated[1].rating, 105);
+    assert.equal(rated[2].rating, null, 'too few laps for a rating');
   }
 
   console.log('supervisor tests passed');

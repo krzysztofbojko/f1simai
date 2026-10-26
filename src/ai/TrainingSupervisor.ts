@@ -4,17 +4,18 @@ import { PaceSearch } from './PaceSearch';
 import { LONG_WINDOW, STUCK_GENERATIONS } from './LearningInsights';
 import type { GenerationStats } from './LearningStats';
 import type { Population, TeamRecord } from './Population';
+import { teamRating } from './TeamRating';
 
 /**
  * Training supervisor: after every generation it reads the learning history and the field, and
  * acts on the symptoms the diagnostics only describe (pace probe stuck at its floor, annealing
- * stuck at its ceiling, team references nobody can beat, a stalled session). Every action is
+ * stuck at its ceiling, a stalled session). Every action is
  * learning bookkeeping or a new exploration trial; none touches the vehicle physics.
  * In 'suggest' mode an action waits in the log until the user applies it.
  */
 
 export type SupervisorMode = 'auto' | 'suggest';
-export type SupervisorActionKind = 'pace-reset' | 'mutation-reset' | 'reference-refresh' | 'selection';
+export type SupervisorActionKind = 'pace-reset' | 'mutation-reset' | 'selection';
 
 export interface SupervisorAction {
   id: number;
@@ -38,16 +39,10 @@ const PACE_WINDOW = 10;
 export const PACE_FLOOR_BAND = 0.02;
 /** Share of the field at the floor that makes it a field-wide problem, not one clumsy driver. */
 const PACE_FLOOR_SHARE = 0.5;
-/** Clean laps a team needs before its reference can be refreshed from them. */
-const MIN_REFERENCE_LAPS = 10;
-/** The refreshed reference: this quantile of the team's recent clean laps. */
-const REFERENCE_QUANTILE = 0.2;
 /** Weakest teams that get a crossover trial in one selection round. */
 const SELECTION_COUNT = 3;
 /** The partner brain for the champion's crossover comes from this many fastest teams. */
 const SELECTION_POOL = 5;
-/** Clean laps a team keeps for its reference. */
-export const RECENT_LAPS = 20;
 
 const dec = (value: number, digits: number) => value.toFixed(digits).replace('.', ',');
 
@@ -56,16 +51,6 @@ function streak(history: readonly GenerationStats[], test: (g: GenerationStats) 
   let n = 0;
   for (let i = history.length - 1; i >= 0 && test(history[i]); i--) n++;
   return n;
-}
-
-function quantile(values: readonly number[], q: number): number {
-  const sorted = [...values].sort((a, b) => a - b);
-  return sorted[Math.min(sorted.length - 1, Math.floor(q * sorted.length))];
-}
-
-/** Lap time a team is judged against: the refreshed reference, else its record. */
-export function teamReference(record: TeamRecord): number | null {
-  return record.referenceLapTime ?? record.bestLapTime;
 }
 
 interface Finding { kind: SupervisorActionKind; reason: string; action: string }
@@ -104,7 +89,6 @@ export class TrainingSupervisor {
   private execute(population: Population, entry: SupervisorAction): void {
     if (entry.kind === 'pace-reset') this.resetPace(population);
     else if (entry.kind === 'mutation-reset') this.resetMutation(population);
-    else if (entry.kind === 'reference-refresh') this.refreshReferences(population);
     else this.select(population);
     entry.status = 'applied';
     entry.appliedAt = population.generation;
@@ -130,13 +114,6 @@ export class TrainingSupervisor {
         action: `Reset wyżarzania: stopa mutacji zespołów wraca do ${dec(this.mutationFloor, 3)}.` });
     }
 
-    const noPB = streak(history, g => g.personalBests === 0);
-    if (noPB >= STUCK_GENERATIONS && this.refreshableTeams(population).length) {
-      found.push({ kind: 'reference-refresh',
-        reason: `Od ${noPB} gen. nikt nie pobił swojej referencji: rekordy mogą pochodzić z wyjątkowych okrążeń (lekkie auto, świeże opony, inne tempo).`,
-        action: `Referencja każdego zespołu = ${Math.round(REFERENCE_QUANTILE * 100)}. percentyl jego ostatnich czystych okrążeń; rekordy do tabeli zostają.` });
-    }
-
     const sinceRecord = population.learningStats.trend(population).gensSinceRecord;
     if (sinceRecord >= 2 * STUCK_GENERATIONS && population.championRecord()?.bestBrain) {
       found.push({ kind: 'selection',
@@ -156,26 +133,12 @@ export class TrainingSupervisor {
     for (const record of population.teamRecords) record.currentMutationRate = this.mutationFloor;
   }
 
-  private refreshableTeams(population: Population): TeamRecord[] {
-    return population.teamRecords.filter(r => r.bestLapTime !== null && r.recentLaps.length >= MIN_REFERENCE_LAPS);
-  }
-
-  /** Only ever loosens: a reference faster than the team's recent laps becomes their 20th percentile. */
-  private refreshReferences(population: Population): void {
-    for (const record of this.refreshableTeams(population)) {
-      const reference = teamReference(record)!;
-      const refreshed = quantile(record.recentLaps, REFERENCE_QUANTILE);
-      if (refreshed > reference) record.referenceLapTime = refreshed;
-      record.stagnationCounter = 0;
-    }
-  }
-
   /** The selection automatic generations lack: the weakest teams try the champion crossed with a fast team. */
   private select(population: Population): void {
     const champion = population.championRecord();
     if (!champion?.bestBrain) return;
     const records = population.teamRecords;
-    const time = (r: TeamRecord) => teamReference(r) ?? Infinity;
+    const time = (r: TeamRecord) => teamRating(r) ?? r.bestLapTime ?? Infinity;
     const ranked = records.map((record, index) => ({ record, index }))
       .filter(({ record }) => record !== champion && record.bestBrain)
       .sort((a, b) => time(a.record) - time(b.record));

@@ -47,11 +47,12 @@ try {
   assert.equal(clampStressShare(2), 0.6);
   assert.equal(clampStressShare('x'), 0.25);
 
-  // 2. Stagnation breaker: a trial never worsens the record; a faster trial is kept.
+  // 2. Stagnation breaker: a trial never worsens the record brain; a trial whose 4-lap median beats the rating is kept.
   const pop = new Population(2, track);
   const driver = pop.cars[0], record = pop.teamRecords[0];
   const lap = (lapTime, compromised = false) => pop.recordLap({ compromised, pressure: 0, lapTime, trajectory: [], maxSpeed: 300, avgSpeed: 200, fuelRemaining: 50 }, driver, false, track);
   lap(80);
+  record.recentLaps = [80, 80, 80, 80, 80, 80];
   const proven = record.bestBrain.toJSON();
   for (let i = 0; i < Population.STAGNATION_LAPS - 1; i++) lap(81);
   assert.equal(driver.explorationTrial, false);
@@ -63,7 +64,9 @@ try {
   const firstRate = record.currentMutationRate;
   lap(82, true);
   assert.equal(driver.explorationTrial, true, 'a compromised lap does not judge the trial');
-  lap(80.5);
+  for (let i = 0; i < 3; i++) lap(82);
+  assert.equal(driver.explorationTrial, true, 'a trial runs until its verdict');
+  lap(82);
   assert.equal(driver.explorationTrial, false);
   assert.equal(driver.brain.toJSON(), proven, 'a slower trial is discarded');
   assert.equal(record.bestLapTime, 80);
@@ -71,7 +74,7 @@ try {
   assert.equal(driver.explorationTrial, true);
   assert.ok(record.currentMutationRate > firstRate && record.currentMutationRate <= Population.MAX_SHAKE_RATE, 'repeated stagnation explores further');
   const trial = driver.brain.toJSON();
-  lap(79);
+  for (let i = 0; i < 4; i++) lap(79);
   assert.equal(driver.explorationTrial, false);
   assert.equal(record.bestLapTime, 79);
   assert.equal(record.bestBrain.toJSON(), trial, 'a faster trial becomes the record brain');
@@ -85,6 +88,7 @@ try {
   const yDriver = yPop.cars[0], yRecord = yPop.teamRecords[0];
   const yLap = (lapTime, yellow) => yPop.recordLap({ compromised: false, yellow, pressure: 0, lapTime, trajectory: [], maxSpeed: 300, avgSpeed: 200, fuelRemaining: 50 }, yDriver, false, track);
   yLap(60, false);
+  yRecord.recentLaps = [60, 60, 60, 60, 60, 60];
   const learned = yDriver.brain.clone();
   yDriver.replayBuffer = [{}];
   yLap(75, true);

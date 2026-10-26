@@ -11,7 +11,8 @@ import { Track } from '../track/Track';
 import type { TrackConditions } from '../physics/Weather';
 import { FUEL_PER_METRE, trainingFuelKg } from '../race/RaceFuel';
 import { LearningStats } from './LearningStats';
-import { RECENT_LAPS, TrainingSupervisor, teamReference, type SupervisorMode } from './TrainingSupervisor';
+import { TrainingSupervisor, type SupervisorMode } from './TrainingSupervisor';
+import { JUDGE_LAPS, RECENT_LAPS, degradedLap, median, teamRating } from './TeamRating';
 
 export interface F1TeamDef {
   teamName: string;
@@ -28,12 +29,7 @@ export interface TeamRecord {
   bestBrain: NeuralNetwork | null;
   bestFitness: number;
   bestLapTime: number | null;
-  /**
-   * Lap time personal bests, trials and the performance guard are judged against when the
-   * supervisor has loosened an unbeatable record (see `TrainingSupervisor.ts`); null: the record.
-   */
-  referenceLapTime: number | null;
-  /** The team's last clean laps at its record pressure, newest last (the reference refresh reads them). */
+  /** The team's last clean laps at its record pressure, newest last: its rating (see `TeamRating.ts`). */
   recentLaps: number[];
   bestLapPressure?: number;
   /** Track-condition class the best lap was set in (absent: dry). */
@@ -256,7 +252,6 @@ export class Population {
         bestBrain: brain.clone(),
         bestFitness: 0,
         bestLapTime: null,
-        referenceLapTime: null,
         recentLaps: [],
         bestLapSplits: [null, null, null, null],
         lastLapTime: null,
@@ -327,7 +322,38 @@ export class Population {
     record.currentMutationRate = Math.min(Population.MAX_SHAKE_RATE, rate * 1.5);
   }
 
-  /** The car drives `brain` for one judged lap: a personal best keeps it, anything else restores the record brain. */
+  /** The brain the car drives beats its team's rating: it becomes the team's record brain. */
+  private acceptBrain(car: Car, record: TeamRecord, pressure: number): void {
+    if (!car.brain) return;
+    record.bestBrain = car.brain.clone();
+    // Point 3: Simulated Annealing Cooldown on an accepted brain
+    record.stagnationCounter = 0;
+    record.currentMutationRate = Math.max(Population.MIN_MUTATION_RATE, record.currentMutationRate * 0.85);
+    this.learningStats.notePersonalBest();
+    if (car.explorationTrial) this.learningStats.noteTrial('won');
+    car.explorationTrial = false;
+    car.safeBrainBackup = car.brain.clone();
+    car.safeBrainPressure = pressure;
+    car.judgedLaps = [];
+  }
+
+  /** A failed trial or a brain slower than its team's rating goes back to the record brain. */
+  private revertBrain(car: Car, record: TeamRecord, pressure: number): void {
+    if (!record.bestBrain) return;
+    if (car.explorationTrial) this.learningStats.noteTrial('lost');
+    else {
+      record.stagnationCounter++;
+      this.learningStats.noteRevert();
+    }
+    car.explorationTrial = false;
+    car.brain = record.bestBrain.clone();
+    car.safeBrainBackup = record.bestBrain.clone();
+    car.safeBrainPressure = pressure;
+    car.replayBuffer = [];
+    car.replayStepTimer = 0;
+  }
+
+  /** The car drives `brain` until its verdict: beating the team's rating keeps it, anything else restores the record brain. */
   startTrial(car: Car, record: TeamRecord, brain: NeuralNetwork): void {
     if (!record.bestBrain) return;
     car.brain = brain;
@@ -383,56 +409,47 @@ export class Population {
       t.lapsCount++;
       t.lastLapTime = lapEvent.lapTime;
       const newConditions = !this.isRaceMode && (t.bestLapConditions ?? 'dry') !== this.conditions;
-      const reference = newConditions ? null : teamReference(t);
-      if (newConditions) t.recentLaps = [];
-      if (!lapEvent.yellow && !car.explorationTrial && (t.bestLapPressure ?? 0) === lapPressure) {
-        t.recentLaps.push(lapEvent.lapTime);
-        if (t.recentLaps.length > RECENT_LAPS) t.recentLaps.shift();
+      // The first lap, a lap in new conditions or a faster lap at another driver pressure starts the team afresh:
+      // the laps behind its rating were driven in something no longer comparable.
+      const baseline = !t.bestLapTime || newConditions || (lapEvent.lapTime < t.bestLapTime && (t.bestLapPressure ?? 0) !== lapPressure);
+      if (!t.bestLapTime || baseline || lapEvent.lapTime < t.bestLapTime) {
+        // The team's lap record: tables and race timing only, it never picks a brain (see TeamRating.ts).
+        t.bestLapTime = lapEvent.lapTime;
+        t.bestLapPressure = lapPressure;
+        t.bestLapConditions = this.conditions;
+        car.bestLapPressure = lapPressure;
+        t.bestLapSplits = [...car.bestLapSplits];
+        t.avgSpeed = lapEvent.avgSpeed;
+        t.topSpeed = lapEvent.maxSpeed;
+        t.fuelRemaining = lapEvent.fuelRemaining;
       }
-      if (reference === null || lapEvent.lapTime < reference) {
-        t.referenceLapTime = null;
-        if (!t.bestLapTime || newConditions || lapEvent.lapTime < t.bestLapTime) {
-          t.bestLapTime = lapEvent.lapTime;
-          t.bestLapPressure = lapPressure;
-          t.bestLapConditions = this.conditions;
-          car.bestLapPressure = lapPressure;
-          t.bestLapSplits = [...car.bestLapSplits];
-          t.avgSpeed = lapEvent.avgSpeed;
-          t.topSpeed = lapEvent.maxSpeed;
-          t.fuelRemaining = lapEvent.fuelRemaining;
-        } else {
-          // Faster than the supervisor's refreshed reference, not than the record: the new reference.
-          t.referenceLapTime = lapEvent.lapTime;
-        }
-        // Point 3: Simulated Annealing Cooldown on personal best lap
-        t.stagnationCounter = 0;
-        t.currentMutationRate = Math.max(Population.MIN_MUTATION_RATE, t.currentMutationRate * 0.85);
-        stats?.notePersonalBest();
-        if (car.explorationTrial) stats?.noteTrial('won');
-        car.explorationTrial = false;
-        // The first lap in new conditions only resets the reference time; the proven brain stays.
-        if (car.brain && !(newConditions && t.bestBrain)) {
-          t.bestBrain = car.brain.clone();
-        }
-        car.safeBrainBackup = car.brain ? car.brain.clone() : null;
-        car.safeBrainPressure = lapPressure;
+      if (car.judgedBrain !== car.brain) { car.judgedBrain = car.brain; car.judgedLaps = []; }
+      if (baseline) {
+        t.recentLaps = lapEvent.yellow ? [] : [lapEvent.lapTime];
+        // The first lap in new conditions only starts the rating afresh; the proven brain stays.
+        if (car.brain && !(newConditions && t.bestBrain)) this.acceptBrain(car, t, lapPressure);
+        else car.judgedLaps = [];
       } else if (lapEvent.yellow) {
-        // Someone else's wreck slowed this lap: it neither punishes the brain nor judges a running trial.
-      } else if ((t.bestLapPressure ?? 0) === lapPressure && t.bestBrain && (car.explorationTrial || lapEvent.lapTime > reference + 2.5)) {
-        // PERFORMANCE GUARD: a failed exploration trial or a degraded brain goes back to the proven championship brain.
-        if (!car.explorationTrial) t.stagnationCounter++;
-        if (car.explorationTrial) stats?.noteTrial('lost');
-        else stats?.noteRevert();
-        car.explorationTrial = false;
-        car.brain = t.bestBrain.clone();
-        car.safeBrainBackup = t.bestBrain.clone();
-        car.safeBrainPressure = lapPressure;
-        car.replayBuffer = [];
-        car.replayStepTimer = 0;
-      } else if ((t.bestLapPressure ?? 0) === lapPressure) {
-        t.stagnationCounter++;
+        // Someone else's wreck slowed this lap: it neither rates the team nor judges a brain.
+      } else if ((t.bestLapPressure ?? 0) === lapPressure && t.bestBrain && car.brain) {
+        const rating = teamRating(t);
+        const degraded = degradedLap(t, lapEvent.lapTime);
+        if (!car.explorationTrial) {
+          t.recentLaps.push(lapEvent.lapTime);
+          if (t.recentLaps.length > RECENT_LAPS) t.recentLaps.shift();
+        }
+        car.judgedLaps.push(lapEvent.lapTime);
+        if (degraded) {
+          // PERFORMANCE GUARD: a brain this far off the team's usual pace goes back to the record brain at once.
+          this.revertBrain(car, t, lapPressure);
+        } else if (car.judgedLaps.length >= JUDGE_LAPS) {
+          if (rating === null || median(car.judgedLaps) < rating) this.acceptBrain(car, t, lapPressure);
+          else this.revertBrain(car, t, lapPressure);
+        } else if (!car.explorationTrial) {
+          t.stagnationCounter++;
+        }
       }
-      if (!this.isRaceMode && !isPlayer && t.bestBrain && (t.bestLapPressure ?? 0) === lapPressure
+      if (!this.isRaceMode && !isPlayer && t.bestBrain && !car.explorationTrial && (t.bestLapPressure ?? 0) === lapPressure
         && t.stagnationCounter >= Population.STAGNATION_LAPS) this.shakeBrain(car, t);
     }
 
@@ -508,10 +525,18 @@ export class Population {
   }
 
   /**
-   * The session champion: the team with the fastest lap if its brain is kept, else (before any
-   * lap) the team with the highest fitness above zero. Ties go to the first team. One pass, no sort.
+   * The session champion: the team with the best rating (see `TeamRating.ts`), else before any
+   * rating the team with the fastest lap if its brain is kept, else (before any lap) the team with
+   * the highest fitness above zero. A single lucky lap never makes a champion once ratings exist.
+   * Ties go to the first team. One pass per rule, no sort.
    */
   championRecord(): TeamRecord | null {
+    let rated: TeamRecord | null = null, ratedTime = Infinity;
+    for (const t of this.teamRecords) {
+      const rating = t.bestBrain ? teamRating(t) : null;
+      if (rating !== null && rating < ratedTime) { rated = t; ratedTime = rating; }
+    }
+    if (rated) return rated;
     let fastest: TeamRecord | null = null;
     for (const t of this.teamRecords) {
       if (t.bestLapTime !== null && (fastest === null || t.bestLapTime < fastest.bestLapTime!)) fastest = t;
@@ -995,7 +1020,6 @@ export class Population {
         this.teamRecords[i].bestBrain = brain.clone();
         this.teamRecords[i].bestFitness = 0;
         this.teamRecords[i].bestLapTime = null;
-        this.teamRecords[i].referenceLapTime = null;
         this.teamRecords[i].recentLaps = [];
         this.teamRecords[i].bestLapSplits = [null, null, null, null];
         this.teamRecords[i].lastLapTime = null;
@@ -1039,7 +1063,6 @@ export class Population {
       record.bestBrain = baseBrain.clone();
       record.bestFitness = 0;
       record.bestLapTime = null;
-      record.referenceLapTime = null;
       record.recentLaps = [];
       record.bestLapSplits = [null, null, null, null];
       record.lastLapTime = null;
@@ -1073,7 +1096,6 @@ export class Population {
       if (rec) {
         rec.bestFitness = 0;
         rec.bestLapTime = null;
-        rec.referenceLapTime = null;
         rec.recentLaps = [];
         rec.bestLapSplits = [null, null, null, null];
         rec.lastLapTime = null;
