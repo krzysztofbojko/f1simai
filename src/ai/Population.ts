@@ -326,6 +326,8 @@ export class Population {
   private acceptBrain(car: Car, record: TeamRecord, pressure: number): void {
     if (!car.brain) return;
     record.bestBrain = car.brain.clone();
+    record.recentLaps.push(...car.judgedLaps);
+    if (record.recentLaps.length > RECENT_LAPS) record.recentLaps.splice(0, record.recentLaps.length - RECENT_LAPS);
     // Point 3: Simulated Annealing Cooldown on an accepted brain
     record.stagnationCounter = 0;
     record.currentMutationRate = Math.max(Population.MIN_MUTATION_RATE, record.currentMutationRate * 0.85);
@@ -426,6 +428,7 @@ export class Population {
       if (car.judgedBrain !== car.brain) { car.judgedBrain = car.brain; car.judgedLaps = []; }
       if (baseline) {
         t.recentLaps = lapEvent.yellow ? [] : [lapEvent.lapTime];
+        car.judgedLaps = [];
         // The first lap in new conditions only starts the rating afresh; the proven brain stays.
         if (car.brain && !(newConditions && t.bestBrain)) this.acceptBrain(car, t, lapPressure);
         else car.judgedLaps = [];
@@ -434,10 +437,8 @@ export class Population {
       } else if ((t.bestLapPressure ?? 0) === lapPressure && t.bestBrain && car.brain) {
         const rating = teamRating(t);
         const degraded = degradedLap(t, lapEvent.lapTime);
-        if (!car.explorationTrial) {
-          t.recentLaps.push(lapEvent.lapTime);
-          if (t.recentLaps.length > RECENT_LAPS) t.recentLaps.shift();
-        }
+        // The lap rates the team only once its brain is accepted: laps of a brain that goes back would
+        // drag the rating towards it, and a slower brain would then pass more easily.
         car.judgedLaps.push(lapEvent.lapTime);
         if (degraded) {
           // PERFORMANCE GUARD: a brain this far off the team's usual pace goes back to the record brain at once.

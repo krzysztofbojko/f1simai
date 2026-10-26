@@ -55,7 +55,7 @@ export const LEARNING_LOG_SCHEMA = {
     bestLap: 'Fastest clean lap of the generation (s), null without clean laps.',
     medianLap: 'Median clean lap of the generation (s).',
     sessionBest: 'Session lap record when the generation ended (s). A single lap: noisy, it never picks a brain.',
-    bestRating: 'Best team rating when the generation ended (s): the median of a team\'s last 20 clean laps. The robust progress measure.',
+    bestRating: 'Best team rating when the generation ended (s): the median of the last 20 clean laps of a team\'s accepted brains. The robust progress measure.',
     cleanLaps: 'Laps that evaluate a brain, including yellowLaps.',
     yellowLaps: "Clean laps run under someone else's yellow flag.",
     compromisedLaps: 'Laps that never evaluate a brain (traffic, pressure change, island hand-over).',
@@ -78,7 +78,7 @@ export const LEARNING_LOG_SCHEMA = {
   },
   driver: {
     name: 'Driver name', color: 'Team colour (identifies the team)', champion: 'Holds the session champion brain (best team rating)',
-    bestLap: 'Personal best clean lap (s)', rating: 'Team rating: median of its last 20 clean laps (s)', lastLap: 'Last lap (s)', laps: 'Laps in the session',
+    bestLap: 'Personal best clean lap (s)', rating: 'Team rating: median of the last 20 clean laps of its accepted brains (s)', lastLap: 'Last lap (s)', laps: 'Laps in the session',
     lapsSincePB: 'Clean laps since the last accepted brain (8 starts an exploration trial)', mutationRate: 'Team mutation rate',
     interventionRate: 'Share of steps the guardian overrode', crashes: 'Crashes in the session',
     distanceToChampion: 'RMS weight distance from the champion brain',

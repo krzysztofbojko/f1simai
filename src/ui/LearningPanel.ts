@@ -246,7 +246,7 @@ export class LearningPanel {
       <div class="lp-verdicts">${verdicts}</div>
       <div class="lp-tiles">
         ${tile('Rekord sesji', lap(r.sessionBest), t.gensSinceRecord ? `${t.gensSinceRecord} gen. bez rekordu` : 'świeży rekord')}
-        ${tile('Najlepsza ocena', lap(c.bestRating), lastGen ? `poprz. gen. ${lap(lastGen.bestRating)}` : '', 'Mediana ostatnich 20 czystych okrążeń najlepszego zespołu: miara postępu odporna na szczęśliwe okrążenia')}
+        ${tile('Najlepsza ocena', lap(c.bestRating), lastGen ? `poprz. gen. ${lap(lastGen.bestRating)}` : '', 'Mediana ostatnich 20 czystych okrążeń przyjętych mózgów najlepszego zespołu: miara postępu odporna na szczęśliwe okrążenia')}
         ${tile('Trend mediany', slope(t.medianSlope), `best ${slope(t.bestSlope)}`, 'Nachylenie prostej dopasowanej do ostatnich 10 generacji; ujemne = szybciej')}
         ${tile('Interwencje strażnika', pct(c.interventionRate, 1), lastGen ? `poprz. gen. ${pct(lastGen.interventionRate, 1)}` : '', 'Udział kroków, w których ekspert poprawił sieć. Spada = sieć jedzie sama coraz lepiej')}
         ${tile('Skuteczność eksploracji', pct(t.trialSuccess), `z ${t.trials} zakończonych prób`, 'Mocniejsza mutacja po 8 okrążeniach bez lepszego mózgu; wygrana = mediana 4 okrążeń lepsza od oceny zespołu')}
@@ -394,7 +394,7 @@ export class LearningPanel {
       <div class="lp-table-wrap"><table class="lp-table">
         <thead><tr><th>Kierowca</th>
           ${head('Best', 'bestLap', 'Rekord życiowy (czyste okrążenie)')}
-          ${head('Ocena', 'rating', 'Mediana ostatnich 20 czystych okrążeń zespołu: według niej przyjmowane są mózgi i wybierany mistrz')}
+          ${head('Ocena', 'rating', 'Mediana ostatnich 20 czystych okrążeń przyjętych mózgów zespołu: według niej przyjmowane są mózgi i wybierany mistrz')}
           ${head('Last', 'lastLap', 'Ostatnie okrążenie')}
           ${head('Okr.', 'laps', 'Okrążenia w sesji')}
           ${head('Od PB', 'lapsSincePB', 'Czyste okrążenia od ostatniego przyjętego mózgu (8 = próba eksploracji)')}

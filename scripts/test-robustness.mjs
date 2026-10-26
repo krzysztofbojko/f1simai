@@ -83,6 +83,17 @@ try {
   assert.equal(driver.explorationTrial, false, 'no trials in a race');
   pop.isRaceMode = false;
 
+  // 2a. Only accepted brains rate the team: the laps of a brain that goes back leave the rating alone.
+  const rPop = new Population(2, track);
+  const rDriver = rPop.cars[0], rRecord = rPop.teamRecords[0];
+  const rLap = lapTime => rPop.recordLap({ compromised: false, pressure: 0, lapTime, trajectory: [], maxSpeed: 300, avgSpeed: 200, fuelRemaining: 50 }, rDriver, false, track);
+  rLap(80);
+  rRecord.recentLaps = [80, 80, 80, 80, 80, 80];
+  for (let i = 0; i < 4; i++) rLap(82);
+  assert.deepEqual(rRecord.recentLaps, [80, 80, 80, 80, 80, 80], 'a reverted brain does not rate the team');
+  for (let i = 0; i < 4; i++) rLap(79);
+  assert.deepEqual(rRecord.recentLaps, [80, 80, 80, 80, 80, 80, 79, 79, 79, 79], 'an accepted brain rates the team');
+
   // 2b. A lap slowed by a yellow flag still counts but neither reverts the brain nor feeds stagnation.
   const yPop = new Population(2, track);
   const yDriver = yPop.cars[0], yRecord = yPop.teamRecords[0];
