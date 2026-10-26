@@ -160,7 +160,7 @@ Skutki: podsterowność przy nasyceniu przedniej osi, nadsterowność przy nasyc
 
 ## Poszukiwanie limitu i linii (trening)
 
-- `PaceSearch` (`src/ai/PaceSearch.ts`): auto, które zostaje na asfalcie, ma zapas, więc po każdym czystym okrążeniu planowana przyczepność w zakrętach i hamowanie rosną (`margin` 0,9–1,15; hamowanie zmienia się o połowę tego, co zakręty). Jeśli okrążenie nie jest szybsze, wraca do sprawdzonego marginesu i próbuje drobniejszym krokiem. Zjazd z asfaltu, uderzenie w bandę lub wycofanie auta cofa margines i obniża sufit poszukiwań. W wyścigu używany jest sprawdzony `bestMargin`.
+- `PaceSearch` (`src/ai/PaceSearch.ts`): auto, które zostaje na asfalcie, ma zapas, więc po każdym czystym okrążeniu planowana przyczepność w zakrętach i hamowanie rosną (`margin` 0,9–1,15; hamowanie zmienia się o połowę tego, co zakręty). Jeśli okrążenie jest wolniejsze o ponad 3%, wraca do sprawdzonego marginesu i próbuje drobniejszym krokiem; lepsze okrążenie znów zwiększa krok. Zjazd z asfaltu, uderzenie w bandę lub wycofanie auta cofa margines i obniża sufit poszukiwań, ale tylko wtedy, gdy to błąd samej sieci: wyjazd lub rozbicie na okrążeniu stresowym albo po wstrzykniętym błędzie kierowcy (`DriverMistakes`) margines zostawia. W wyścigu używany jest sprawdzony `bestMargin`.
 - `LineSearch`: oprócz 5 bazowych linii mutacje (co 2. okrążenie) przesuwają linię osobno w 16 odcinkach toru (`trim`, do ±2,2 m), czyli wcześniejszy/późniejszy wierzchołek, szersze wejście itd. Zwycięska linia jest zachowana, a nowa kandydatka testowana obok.
 
 ## Wyjścia pedałów i linia z sieci (`LineNet`)
@@ -319,6 +319,12 @@ Samotny ekspert (`seedRandom(1)`, 3 okrążenia, najlepsze okrążenie):
 | GP | 51,78 s | 51,49 s | 52,40 s |
 
 Wytrenowana stawka na Albert Park (900 s treningu, 20 aut, ziarna 145 / 456, przed → po): najlepsze okrążenie 104,6 → 101,8 s / 102,9 → 100,8 s, mediana wszystkich okrążeń 116,5 → 125,9 s / 117,0 → 118,2 s, mediana czystych okrążeń 112,7 → 116,6 s / 109,0 → 111,1 s, wraki na minutę 0,9 → 0,5 / 1,3 → 1,5. Najlepsze okrążenie się poprawia, a typowe nie: w 6–9 generacjach sieci nie doganiają szybszego nauczyciela, a rozrzut między ziarnami jest duży. Skrót stanu `bench:step` się zmienia.
+
+## Szukanie tempa bez kary za okrążenia stresowe i wstrzyknięte błędy (26.10.2026)
+
+Sesja treningowa z 2005 generacjami (tor 2639 m, presja 1, 15% okrążeń stresowych) pokazała zapadkę w `PaceSearch`: w gen. 1–3 najlepsze okrążenia 98,7–101 s, od gen. 4 już tylko ok. 110–112 s, mediana ok. 122 s do końca sesji. Wszyscy 20 kierowców mieli `margin` 0,90–0,92, czyli minimum (98,7 s × 1,12 ≈ 110,6 s). `fail()` odejmował 0,06 przy każdym wyjeździe, także na okrążeniach stresowych (−8% przyczepności, szum LIDAR) i po celowo wstrzykniętych błędach kierowcy, a odbijał się o ok. 0,01 na czyste okrążenie. Cofanie mózgów tego nie naprawiało, bo tempo planisty nie siedzi w sieci.
+
+Teraz wyjazd lub rozbicie na okrążeniu stresowym (`Car.stressLap`) albo na okrążeniu z błędem kierowcy (nowa flaga `Car.lapIncident`) nie cofa marginesu. Okrążenia stresowe i błędy działają jak dotąd we wszystkich sesjach; zmienia się tylko to, z czego uczy się szukanie tempa, więc czasy okrążeń w treningu (i wynikający z nich `bestMargin` w wyścigu) się zmieniają. Dodatkowo nadzorca treningu (`src/ai/TrainingSupervisor.ts`) resetuje szukanie tempa, gdy przez 10 generacji co najmniej połowa stawki stoi przy minimum. Ponadto okrążenie uznawane jest za nieudane dopiero przy 3% straty do najlepszego (wcześniej 0,4 s). Losowe paliwo w treningu daje rozrzut kilku procent, więc niemal każde cięższe okrążenie cofało margines i zmniejszało krok do 0,01 na stałe. Krok rośnie znów ×1,25 po każdym lepszym okrążeniu (do 0,05). Trening na GP (20 aut, presja 1, 15% okrążeń stresowych, 40 gen., ziarna 145 / 456), gen. 21–40, przed → po samym wyłączeniu kary → po całości: mediana czystych okrążeń 60,76 → 60,70 → 60,32 s / 60,32 → 60,42 → 60,07 s, średni margines na końcu 0,908 → 0,915 → 0,946 / 0,907 → 0,911 → 0,929. Zysk jest mały (ok. 0,5% mediany), ale ten sam na obu ziarnach. Skrót stanu `bench:step` się zmienia.
 
 ## Aleja serwisowa (25.10.2026)
 

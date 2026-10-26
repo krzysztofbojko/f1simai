@@ -1,5 +1,6 @@
 import { loadDriverPressure } from '../ai/DriverPressure';
 import type { SimSnapshot, ComputeProfile, ComputeProfileOptions, ComputeProfileConfig, TopologySpecifier, LearningReport, LearningLog } from './sim.worker';
+import type { SupervisorMode } from '../ai/TrainingSupervisor';
 
 export type { ComputeProfile, ComputeProfileOptions, ComputeProfileConfig, TopologySpecifier, LearningReport, LearningLog };
 
@@ -240,6 +241,16 @@ export class SimBridge {
 
   public setMutation(value: number): void {
     this.worker?.postMessage({ type: 'SET_MUTATION', value });
+  }
+
+  /** Training supervisor: act on learning symptoms by itself ('auto') or only suggest ('suggest'). */
+  public setSupervisorMode(mode: SupervisorMode): void {
+    this.worker?.postMessage({ type: 'SET_SUPERVISOR_MODE', mode });
+  }
+
+  /** Applies a waiting supervisor suggestion; resolves with the fresh learning report. */
+  public applySupervisorAction(id: number): Promise<LearningReport> {
+    return this.request(this.pendingLearningStats, { type: 'APPLY_SUPERVISOR_ACTION', id });
   }
 
   public setFuel(value: number): void {

@@ -2,14 +2,21 @@ import type { GenerationStats, DriverStats, VerdictLevel } from '../ai/LearningS
 import type { Insight, InsightChart } from '../ai/LearningInsights';
 import { stringifyLearningLog, type LearningLog } from '../ai/LearningLog';
 import type { LearningReport } from '../workers/sim.worker';
+import type { SupervisorAction, SupervisorActionKind, SupervisorMode } from '../ai/TrainingSupervisor';
 import { LineChart } from './charts';
 import { formatLapTime } from './format';
 import { icon } from './icons';
 
-type Tab = 'overview' | 'insights' | 'trends' | 'drivers' | 'network';
+type Tab = 'overview' | 'insights' | 'supervisor' | 'trends' | 'drivers' | 'network';
 type SortKey = 'bestLap' | 'lastLap' | 'laps' | 'lapsSincePB' | 'mutationRate' | 'interventionRate' | 'paceMargin' | 'lineBest' | 'distanceToChampion' | 'crashes';
 
-interface PanelState { open: boolean; tab: Tab; x: number; y: number; w: number; h: number }
+interface PanelState { open: boolean; tab: Tab; x: number; y: number; w: number; h: number; supervisorMode: SupervisorMode }
+
+/** What the panel asks of the training supervisor in the worker. */
+export interface SupervisorControls {
+  setMode(mode: SupervisorMode): void;
+  apply(id: number): Promise<LearningReport>;
+}
 
 const STORAGE_KEY = 'f1_learning_panel';
 const POLL_MS = 1000;
@@ -18,6 +25,8 @@ const LEVEL_LABEL: Record<VerdictLevel, string> = { good: 'OK', warn: 'Uwaga', b
 const LEVEL_MARK: Record<VerdictLevel, string> = { good: '✓', warn: '!', bad: '✕', info: 'i' };
 const CHART_LABEL: Record<InsightChart, string> = { laps: 'Czas okrążenia', interventions: 'Interwencje strażnika', events: 'Zdarzenia',
   diversity: 'Różnorodność', mutation: 'Mutacja', network: 'Sieć', general: 'Cała sesja' };
+const ACTION_LABEL: Record<SupervisorActionKind, string> = { 'pace-reset': 'Reset tempa', 'mutation-reset': 'Reset mutacji',
+  'reference-refresh': 'Odświeżenie referencji', selection: 'Selekcja' };
 const TREND_CHARTS: readonly InsightChart[] = ['laps', 'interventions', 'events', 'diversity', 'mutation'];
 const SESSION_LABEL: Record<string, string> = { IDLE: 'Trening', QUALIFYING: 'Kwalifikacje', QUALI_FINISHED: 'Po kwalifikacjach',
   GRID_START: 'Start', RACING: 'Wyścig', FINISHED: 'Po wyścigu' };
@@ -30,7 +39,7 @@ const slope = (v: number | null) => v === null ? '—' : `${v > 0 ? '+' : v < 0 
 const crashTotal = (g: GenerationStats) => Object.values(g.crashes).reduce((sum, n) => sum + n, 0);
 
 function loadState(): PanelState {
-  const fallback: PanelState = { open: false, tab: 'overview', x: 80, y: 90, w: 720, h: 560 };
+  const fallback: PanelState = { open: false, tab: 'overview', x: 80, y: 90, w: 720, h: 560, supervisorMode: 'auto' };
   try {
     const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? 'null');
     return saved && typeof saved === 'object' ? { ...fallback, ...saved } : fallback;
@@ -52,10 +61,12 @@ export class LearningPanel {
   private sort: { key: SortKey; dir: 1 | -1 } = { key: 'bestLap', dir: 1 };
   private charts: Record<string, LineChart> = {};
   private readonly insightsTab: HTMLButtonElement;
+  private readonly supervisorTab: HTMLButtonElement;
+  private supervisorMarkup = '';
   private readonly downloadButton: HTMLButtonElement;
 
   constructor(private readonly fetchReport: () => Promise<LearningReport>, private readonly fetchLog: () => Promise<LearningLog>,
-    private readonly onSelectDriver: (color: string) => void) {
+    private readonly onSelectDriver: (color: string) => void, private readonly supervisor: SupervisorControls) {
     this.root = document.createElement('section');
     this.root.className = 'learning-panel hidden';
     this.root.setAttribute('role', 'dialog');
@@ -70,6 +81,7 @@ export class LearningPanel {
       <nav class="lp-tabs" role="tablist">
         <button role="tab" data-tab="overview">Przegląd</button>
         <button role="tab" data-tab="insights">Uwagi</button>
+        <button role="tab" data-tab="supervisor">Nadzorca</button>
         <button role="tab" data-tab="trends">Trendy</button>
         <button role="tab" data-tab="drivers">Kierowcy</button>
         <button role="tab" data-tab="network">Sieć</button>
@@ -79,6 +91,9 @@ export class LearningPanel {
     this.body = this.root.querySelector('.lp-body')!;
     this.status = this.root.querySelector('#lp-status')!;
     this.insightsTab = this.root.querySelector('[data-tab="insights"]')!;
+    this.supervisorTab = this.root.querySelector('[data-tab="supervisor"]')!;
+    if (this.state.supervisorMode !== 'suggest') this.state.supervisorMode = 'auto';
+    this.supervisor.setMode(this.state.supervisorMode);
     this.downloadButton = this.root.querySelector('.lp-download')!;
     this.downloadButton.addEventListener('click', () => { void this.download(); });
     this.root.querySelector('.lp-close')!.addEventListener('click', () => this.toggle(false));
@@ -201,8 +216,14 @@ export class LearningPanel {
     if (!report) { if (this.state.tab !== 'trends') this.body.innerHTML = '<p class="lp-empty">Pobieranie danych…</p>'; return; }
     if (!this.downloadButton.disabled) this.status.textContent = `${SESSION_LABEL[report.sessionState] ?? report.sessionState} · gen ${report.generation}`;
     this.renderInsightsTab(report.insights);
+    this.renderSupervisorTab(report.supervisor.actions);
     if (this.state.tab === 'overview') this.body.innerHTML = this.overviewHtml(report);
     else if (this.state.tab === 'insights') this.body.innerHTML = this.insightsHtml(report.insights);
+    else if (this.state.tab === 'supervisor') {
+      // Rebuilt only when it changes, so its buttons are not replaced under the pointer every second.
+      const html = this.supervisorHtml(report);
+      if (html !== this.supervisorMarkup || !this.body.querySelector('.lp-segmented')) this.body.innerHTML = this.supervisorMarkup = html;
+    }
     else if (this.state.tab === 'trends') this.renderTrends(report);
     else if (this.state.tab === 'drivers') this.body.innerHTML = this.driversHtml(report);
     else this.body.innerHTML = this.networkHtml(report);
@@ -274,6 +295,32 @@ export class LearningPanel {
   private insightsHtml(insights: readonly Insight[]): string {
     return `<p class="lp-note">Automatyczne uwagi do wykresów: od kiedy trwa objaw i co można zrobić. Kliknij uwagę, aby zobaczyć jej wykres.</p>
       <div class="lp-verdicts">${insights.map(i => this.insightHtml(i, true)).join('')}</div>`;
+  }
+
+  /** Tab label: suggestions waiting for the user. */
+  private renderSupervisorTab(actions: readonly SupervisorAction[]): void {
+    const pending = actions.filter(a => a.status === 'pending').length;
+    this.supervisorTab.textContent = pending ? `Nadzorca (${pending})` : 'Nadzorca';
+    this.supervisorTab.dataset.level = pending ? 'warn' : '';
+  }
+
+  private supervisorHtml(r: LearningReport): string {
+    const mode = this.state.supervisorMode;
+    const modeButton = (value: SupervisorMode, label: string) =>
+      `<button class="f1-btn${mode === value ? ' active' : ''}" data-supervisor-mode="${value}" aria-pressed="${mode === value}">${label}</button>`;
+    const status = (a: SupervisorAction) => a.status === 'applied'
+      ? `wykonano${a.appliedAt !== null && a.appliedAt !== a.generation + 1 ? ` w gen. ${a.appliedAt}` : ''}`
+      : a.status === 'expired' ? 'wygasła' : 'czeka';
+    const items = [...r.supervisor.actions].reverse().map(a => `
+      <div class="lp-verdict ${a.status === 'pending' ? 'warn' : a.status === 'applied' ? 'good' : 'info'}">
+        <span class="lp-verdict-mark" aria-hidden="true">${a.status === 'applied' ? '✓' : a.status === 'pending' ? '!' : '–'}</span>
+        <div><strong>${ACTION_LABEL[a.kind]}</strong> <span class="lp-insight-meta">po gen. ${a.generation} · ${status(a)}</span>
+          <p>${escapeHtml(a.reason)}</p><p>→ ${escapeHtml(a.action)}</p>
+          ${a.status === 'pending' && !r.raceMode ? `<button class="f1-btn" data-apply="${a.id}">Zastosuj</button>` : ''}</div>
+      </div>`).join('');
+    return `<p class="lp-note">Nadzorca po każdej generacji treningu czyta historię i reaguje na objawy: zapas tempa przy minimum, mutację przyklejoną do maksimum, rekordy, których nikt nie bije, i sesję bez postępu. Każdy rodzaj akcji odczekuje co najmniej 30 generacji.</p>
+      <div class="lp-segmented" role="group" aria-label="Tryb nadzorcy">${modeButton('auto', 'Automatycznie')}${modeButton('suggest', 'Tylko sugestie')}</div>
+      <div class="lp-verdicts">${items || '<p class="lp-empty">Na razie bez akcji: nie widać objawów, na które nadzorca reaguje.</p>'}</div>`;
   }
 
   private trendsSkeleton(): string {
@@ -396,6 +443,20 @@ export class LearningPanel {
     if (goto) {
       this.showTab(goto === 'network' ? 'network' : 'trends');
       this.body.querySelector(`[data-chart-card="${goto}"]`)?.scrollIntoView({ block: 'nearest' });
+      return;
+    }
+    const mode = target.closest<HTMLElement>('[data-supervisor-mode]')?.dataset.supervisorMode;
+    if (mode === 'auto' || mode === 'suggest') {
+      this.state.supervisorMode = mode;
+      this.save();
+      this.supervisor.setMode(mode);
+      this.render();
+      return;
+    }
+    const apply = target.closest<HTMLButtonElement>('[data-apply]');
+    if (apply) {
+      apply.disabled = true;
+      this.supervisor.apply(Number(apply.dataset.apply)).then(report => { this.report = report; this.render(); }, () => { apply.disabled = false; });
       return;
     }
     const sortButton = target.closest<HTMLButtonElement>('[data-sort]');

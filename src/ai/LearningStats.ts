@@ -1,10 +1,12 @@
 import { emptyInterventions, type Car, type InterventionCounts } from '../physics/Car';
 import type { NeuralNetwork } from './NeuralNetwork';
 import type { Population } from './Population';
+import { PaceSearch } from './PaceSearch';
+import { PACE_FLOOR_BAND, type SupervisorAction, type SupervisorMode } from './TrainingSupervisor';
 
 /**
  * Learning diagnostics: what each generation achieved and how the networks stand now. Pure
- * bookkeeping: it never draws from `random()` and nothing in the driving or the evolution reads it.
+ * bookkeeping: it never draws from `random()`; only the training supervisor reads its history.
  */
 
 export type LapOutcome = 'clean' | 'yellow' | 'compromised';
@@ -42,6 +44,10 @@ export interface GenerationStats {
   meanMutationRate: number;
   /** Mean share of the champion's hidden neurons near the tanh limits in its last step; null without a champion. */
   hiddenSaturation: number | null;
+  /** Mean grip margin of the AI drivers' pace search; null without AI drivers. */
+  meanPaceMargin: number | null;
+  /** Share of AI drivers whose pace search sits at its floor (0..1); null without AI drivers. */
+  paceAtFloor: number | null;
 }
 
 export interface DriverStats {
@@ -65,7 +71,7 @@ export interface DriverStats {
 
 /** A driver at the end of a generation, as the session log keeps it. */
 export type DriverLogRow = Pick<DriverStats, 'name' | 'color' | 'champion' | 'bestLap' | 'lastLap' | 'laps' | 'lapsSincePB'
-  | 'mutationRate' | 'interventionRate' | 'crashes' | 'distanceToChampion'>;
+  | 'mutationRate' | 'interventionRate' | 'crashes' | 'distanceToChampion' | 'paceMargin'>;
 
 /** One finished generation in the session log: its summary and where every driver stood. */
 export interface GenerationLogEntry extends GenerationStats {
@@ -121,6 +127,7 @@ export interface LearningStatsView {
   verdicts: Verdict[];
   drivers: DriverStats[];
   network: NetworkStats | null;
+  supervisor: { mode: SupervisorMode; actions: SupervisorAction[] };
 }
 
 /** Generations the trend and the verdict look back over. */
@@ -233,6 +240,8 @@ export class LearningStats {
   history: GenerationStats[] = [];
   /** Every finished generation of the session, never thinned (the downloadable log). */
   fullHistory: GenerationLogEntry[] = [];
+  /** The training supervisor's actions and waiting suggestions over the session, oldest first. */
+  supervisorActions: SupervisorAction[] = [];
   private current = LearningStats.blank(1);
   private cleanTimes: number[] = [];
   private wallStart = Date.now();
@@ -246,7 +255,7 @@ export class LearningStats {
       cleanLaps: 0, yellowLaps: 0, compromisedLaps: 0, personalBests: 0, reverts: 0,
       trialsStarted: 0, trialsWon: 0, trialsLost: 0, crashes: { barrier: 0, car: 0, stuck: 0, 'wrong-way': 0, other: 0 },
       interventionRate: null, causes: emptyInterventions(), onlineTrainSteps: 0, islandAdoptions: 0,
-      diversity: null, meanMutationRate: 0, hiddenSaturation: null };
+      diversity: null, meanMutationRate: 0, hiddenSaturation: null, meanPaceMargin: null, paceAtFloor: null };
   }
 
   noteLap(lapTime: number, outcome: LapOutcome): void {
@@ -283,6 +292,7 @@ export class LearningStats {
     }
     const scale = (n: number) => steps ? n / steps : 0;
     const records = population.teamRecords;
+    const margins = population.cars.filter(car => !car.isManual).map(car => car.pace.margin);
     return {
       ...this.current,
       crashes: { ...this.current.crashes },
@@ -297,6 +307,8 @@ export class LearningStats {
       diversity: diversity(population),
       meanMutationRate: records.length ? records.reduce((sum, r) => sum + r.currentMutationRate, 0) / records.length : 0,
       hiddenSaturation: hiddenSaturation(championBrain(population)),
+      meanPaceMargin: margins.length ? margins.reduce((sum, m) => sum + m, 0) / margins.length : null,
+      paceAtFloor: margins.length ? margins.filter(m => m <= PaceSearch.MIN + PACE_FLOOR_BAND).length / margins.length : null,
     };
   }
 
@@ -307,7 +319,7 @@ export class LearningStats {
     this.fullHistory.push({ ...summary, crashes: { ...summary.crashes }, causes: { ...summary.causes },
       drivers: this.drivers(population).map(d => ({ name: d.name, color: d.color, champion: d.champion, bestLap: d.bestLap,
         lastLap: d.lastLap, laps: d.laps, lapsSincePB: d.lapsSincePB, mutationRate: d.mutationRate,
-        interventionRate: d.interventionRate, crashes: d.crashes, distanceToChampion: d.distanceToChampion })) });
+        interventionRate: d.interventionRate, crashes: d.crashes, distanceToChampion: d.distanceToChampion, paceMargin: d.paceMargin })) });
     const stale = this.fullHistory.length - 1 - LOG_DRIVER_GENERATIONS;
     if (stale >= 0) this.fullHistory[stale].drivers = [];
     if (this.history.length > MAX_HISTORY) {
@@ -394,6 +406,7 @@ export class LearningStats {
       verdicts: verdicts(this.history, trend),
       drivers: this.drivers(population),
       network,
+      supervisor: { mode: population.supervisor.mode, actions: this.supervisorActions.slice(-100).map(a => ({ ...a })) },
     };
   }
 }

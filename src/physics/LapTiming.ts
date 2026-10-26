@@ -197,9 +197,12 @@ export function passGate(car: Car, track: Track, gateT: number | null): LapFinis
       car.lapWetMin = car.lapWetMax = car.wetness;
       if (!car.lapCompromised && !offConditions) scoreLap(car, finishedLapTime);
       const compromised = car.lapCompromised || car.pressureLearningBlocked || offConditions || afterFlag;
-      if (!car.isManual) car.pace.finishLap(finishedLapTime, !compromised, car.lapExcursion && !car.lapContact);
+      // Only the network's own excursions probe the limit: a stress lap (less grip, noisy sensors)
+      // or a scripted mistake says nothing about the pace the car can hold.
+      if (!car.isManual) car.pace.finishLap(finishedLapTime, !compromised, car.lapExcursion && !car.lapContact && !car.lapIncident && !car.stressLap);
       car.lapExcursion = false;
       car.lapContact = false;
+      car.lapIncident = car.incidentActive;
       if (!compromised && (!car.bestLapTime || finishedLapTime < car.bestLapTime)) {
         car.bestLapTime = finishedLapTime;
         car.bestLapPressure = car.driverPressure;

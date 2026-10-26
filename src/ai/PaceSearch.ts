@@ -6,6 +6,12 @@ export class PaceSearch {
   static readonly MIN = 0.9;
   /** The planner already budgets most of the grip including downforce: probing only trims it. */
   static readonly MAX = 1.15;
+  /**
+   * A lap this much slower than the best (share of it) failed. Training laps carry a random fuel load
+   * worth a few per cent of lap time, so a fixed few tenths would call most of them failures.
+   */
+  static readonly SLOWER_SHARE = 0.03;
+  static readonly MAX_STEP = 0.05;
   margin = 1;
   bestMargin = 1;
   ceiling = PaceSearch.MAX;
@@ -22,7 +28,7 @@ export class PaceSearch {
     this.bestMargin = clamp(data?.bestMargin, this.margin);
     this.ceiling = clamp(data?.ceiling, PaceSearch.MAX);
     this.bestTime = typeof data?.bestTime === 'number' && data.bestTime > 0 ? data.bestTime : Infinity;
-    this.step = typeof data?.step === 'number' ? Math.max(0.01, Math.min(0.05, data.step)) : 0.03;
+    this.step = typeof data?.step === 'number' ? Math.max(0.01, Math.min(PaceSearch.MAX_STEP, data.step)) : 0.03;
   }
 
   /** Margin used for planning: the proven one when racing, the probing one while training. */
@@ -35,8 +41,10 @@ export class PaceSearch {
     if (time < this.bestTime) {
       this.bestTime = time;
       this.bestMargin = this.margin;
+      // A margin that pays off probes on in bigger steps again, so a few failures do not freeze the search.
+      this.step = Math.min(PaceSearch.MAX_STEP, this.step * 1.25);
       this.margin = Math.min(this.ceiling, this.margin + this.step);
-    } else if (time > this.bestTime + 0.4) {
+    } else if (time > this.bestTime * (1 + PaceSearch.SLOWER_SHARE)) {
       // Pushing harder did not pay off: return to the proven margin and probe more finely.
       this.margin = this.bestMargin;
       this.step = Math.max(0.01, this.step * 0.7);
@@ -44,6 +52,14 @@ export class PaceSearch {
       this.margin = Math.min(this.ceiling, this.margin + this.step * 0.5);
     }
     this.margin = Math.max(PaceSearch.MIN, Math.min(PaceSearch.MAX, this.margin));
+  }
+
+  /** Starts the probe again from the planner's own budget (the training supervisor's pace reset). */
+  resetProbe(): void {
+    this.margin = this.bestMargin = 1;
+    this.ceiling = PaceSearch.MAX;
+    this.bestTime = Infinity;
+    this.step = 0.03;
   }
 
   /** Off-track, barrier or retirement: step back and do not return to the failing level. */

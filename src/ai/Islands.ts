@@ -88,6 +88,7 @@ export function applyDriverModel(car: Car, record: TeamRecord | undefined, drive
     car.safeBrainPressure = car.bestLapPressure;
     if (record) record.bestLapPressure = car.bestLapPressure;
     if (record) record.bestLapTime = driverData.bestLapTime;
+    if (record) { record.referenceLapTime = null; record.recentLaps = []; }
     if (record) record.bestLapConditions = isConditions(driverData.bestLapConditions) ? driverData.bestLapConditions : 'dry';
   }
   if (Array.isArray(driverData.bestLapSplits) && driverData.bestLapSplits.length === 4) {

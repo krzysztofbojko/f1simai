@@ -37,7 +37,7 @@ const MIN_LONG_POINTS = 20;
 /** Standard errors a slope must clear to count as a trend rather than lap-time noise. */
 const SIGNIFICANT = 2.5;
 /** Generations without a record before the session counts as stuck. */
-const STUCK_GENERATIONS = 30;
+export const STUCK_GENERATIONS = 30;
 
 const LEVEL_RANK: Record<InsightLevel, number> = { bad: 0, warn: 1, info: 2, good: 3 };
 const CAUSES: { key: keyof InterventionCounts; label: string; hint: string }[] = [
@@ -330,6 +330,15 @@ const saturated: Detector = history => {
 
 // ---- The session as a whole ----
 
+const paceFloor: Detector = history => {
+  const tail = streak(history, g => g.paceAtFloor !== null && g.paceAtFloor >= 0.5);
+  if (tail.length < TREND_WINDOW) return null;
+  const last = tail[tail.length - 1];
+  return { level: 'bad', chart: 'general', title: 'Zapas tempa na minimum', since: tail[0].generation,
+    detail: `Od ${tail.length} gen. ${pct(last.paceAtFloor!)} kierowców ma zapas przyczepności planera przy minimum (średnio ${dec(last.meanPaceMargin ?? 0, 2)}). `
+      + 'Auta jadą wolniej niezależnie od sieci, więc cofanie mózgów i mutacja nie przywrócą tempa; nadzorca resetuje wtedy szukanie tempa.' };
+};
+
 const stuck: Detector = (history, ctx) => {
   const { gensSinceRecord, trialSuccess, trials } = ctx.trend;
   if (gensSinceRecord < STUCK_GENERATIONS) return null;
@@ -347,7 +356,7 @@ const stuck: Detector = (history, ctx) => {
       + 'Kolejne generacje nic nie dają: zmień topologię sieci, dodaj wyspy albo zresetuj naukę.' };
 };
 
-const DETECTORS: Detector[] = [stuck, wrongDirection, strayed, noise, championOnly, blind,
+const DETECTORS: Detector[] = [stuck, paceFloor, wrongDirection, strayed, noise, championOnly, blind,
   guardianDrives, dominantCause, onlineStalled, interventionsFlat,
   crashSurge, changesHurt, noOneImproves, islandsUseless,
   diversityCollapse, towardCollapse, diverging, mutationStuck, mutationNoEffect, saturated];

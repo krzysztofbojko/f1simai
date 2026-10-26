@@ -159,6 +159,9 @@ class App {
       if (!car) return;
       this.selectedCar = car;
       this.bridge.setActiveCarColor(color);
+    }, {
+      setMode: mode => this.bridge.setSupervisorMode(mode),
+      apply: id => this.bridge.applySupervisorAction(id),
     });
     document.getElementById('btn-learning-stats')?.addEventListener('click', () => this.learningPanel.toggle());
     window.addEventListener('keydown', e => {

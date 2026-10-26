@@ -844,6 +844,8 @@ export class Car {
   public lapExcursion = false;
   /** Touched another car this lap: an excursion may have been forced and says nothing about the pace. */
   public lapContact = false;
+  /** A scripted driver mistake (see `DriverMistakes.ts`) hit this lap: its excursion is not the pace's fault. */
+  public lapIncident = false;
   /** Smoothed spare grip in the current corner (0..1), see PLAN_PUSH_MAX. */
   public cornerPush = 0;
   public lastStepDt = 1 / 60;
@@ -1056,6 +1058,7 @@ export class Car {
     this.offTrackTime = 0;
     this.lapExcursion = false;
     this.lapContact = false;
+    this.lapIncident = false;
     this.cornerPush = 0;
     this.tireUtilization = 0;
     this.damage = 0;
@@ -1396,6 +1399,7 @@ export class Car {
     this.incidentActive = incident.affected;
     if (incident.affected) {
       this.lapCompromised = true;
+      this.lapIncident = true;
       this.replayBuffer = [];
       this.replayStepTimer = 0;
       this.recoveryTimer = 2;

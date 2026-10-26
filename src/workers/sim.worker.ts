@@ -16,6 +16,7 @@ import { applyDriverModel, exportDriver, mergeBetterDrivers, serializeTrack } fr
 import type { LearningStatsView } from '../ai/LearningStats';
 import { insights, type Insight } from '../ai/LearningInsights';
 import { learningLog, type LearningLog } from '../ai/LearningLog';
+import type { SupervisorMode } from '../ai/TrainingSupervisor';
 
 export type { TopologySpecifier, RaceState, RaceStanding, QualifyingSnapshot };
 export type { CarView as SerializedCar, SerializedRay } from './CarView';
@@ -171,6 +172,7 @@ let rayCount = 25;
 let startingFuelKg = 105;
 let driverPressure = 0;
 let mutationRate = 0.09;
+let supervisorMode: SupervisorMode = 'auto';
 let speedMultiplier: number | 'max' = 1;
 let isPaused = true;
 let isPlayerDriving = false;
@@ -348,7 +350,7 @@ function createSnapshot(): SimSnapshot {
 
 /** A new field on the current track with every user setting (rays, topology, pressure, mutation, fuel) and the session hooks. */
 function createPopulation(): Population {
-  const next = Population.create(track, { rayCount, topology: currentTopology, driverPressure, mutationRate, startingFuelKg });
+  const next = Population.create(track, { rayCount, topology: currentTopology, driverPressure, mutationRate, startingFuelKg, supervisorMode });
   next.onLapCompleted = (car, event) => session.onLapCompleted(car, event);
   return next;
 }
@@ -595,6 +597,20 @@ self.onmessage = (e: MessageEvent) => {
     case 'SET_MUTATION': {
       mutationRate = data.value;
       population.mutationRate = mutationRate;
+      break;
+    }
+
+    case 'SET_SUPERVISOR_MODE': {
+      if (data.mode === 'auto' || data.mode === 'suggest') {
+        supervisorMode = data.mode;
+        population.supervisor.mode = supervisorMode;
+      }
+      break;
+    }
+
+    case 'APPLY_SUPERVISOR_ACTION': {
+      if (typeof data.id === 'number') population.supervisor.apply(population, data.id);
+      self.postMessage({ type: 'LEARNING_STATS_RESULT', requestId: data.requestId, report: learningReport() });
       break;
     }
 
@@ -869,6 +885,7 @@ self.onmessage = (e: MessageEvent) => {
           islands: { count: status.count, running: status.running, adopted: status.adopted },
           weather: { scenario: weather.scenario, state: { ...weather.state } },
         },
+        supervisorActions: population.learningStats.supervisorActions,
       });
       self.postMessage({ type: 'LEARNING_LOG_RESULT', requestId: data.requestId, log });
       break;

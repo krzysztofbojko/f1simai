@@ -1,5 +1,6 @@
 import type { GenerationLogEntry, LearningStatsView } from './LearningStats';
 import type { Insight } from './LearningInsights';
+import type { SupervisorAction, SupervisorMode } from './TrainingSupervisor';
 
 /**
  * The downloadable log of a learning session: every finished generation since learning last
@@ -37,6 +38,7 @@ export interface LearningLog {
   generations: GenerationLogEntry[];
   drivers: LearningStatsView['drivers'];
   network: LearningStatsView['network'];
+  supervisor: { mode: SupervisorMode; actions: SupervisorAction[] };
 }
 
 /** What each field means: times in seconds, shares in 0..1, weight distances as RMS. */
@@ -56,8 +58,8 @@ export const LEARNING_LOG_SCHEMA = {
     cleanLaps: 'Laps that evaluate a brain, including yellowLaps.',
     yellowLaps: "Clean laps run under someone else's yellow flag.",
     compromisedLaps: 'Laps that never evaluate a brain (traffic, pressure change, island hand-over).',
-    personalBests: 'Driver personal bests set in the generation (each also saves that brain as the team record).',
-    reverts: 'Degraded brains (lap > 2.5 s slower than the record) sent back to the team record brain.',
+    personalBests: 'Driver personal bests set in the generation: laps faster than the team reference (the record, or the supervisor-refreshed reference); each saves that brain as the team record brain.',
+    reverts: 'Degraded brains (lap > 2.5 s slower than the team reference) sent back to the team record brain.',
     trialsStarted: 'Exploration trials started: a stronger mutation of the record brain after 8 clean laps without a personal best.',
     trialsWon: 'Exploration trials that ended in a personal best.',
     trialsLost: 'Exploration trials that failed and were reverted.',
@@ -69,6 +71,8 @@ export const LEARNING_LOG_SCHEMA = {
     diversity: 'Mean RMS weight distance of the team record brains from the champion brain; below 0.002 all teams drive practically one brain.',
     meanMutationRate: 'Mean annealed mutation rate of the teams (raised by failed trials, lowered by personal bests).',
     hiddenSaturation: "Mean share of the champion's hidden neurons with |tanh activation| > 0.95 in its last step.",
+    meanPaceMargin: 'Mean grip margin of the pace search (planner grip budget multiplier, 0.9..1.15) over the AI drivers.',
+    paceAtFloor: 'Share of AI drivers whose pace-search margin sits within 0.02 of its 0.9 floor (0..1).',
     drivers: 'Each driver at the end of the generation.',
   },
   driver: {
@@ -82,10 +86,14 @@ export const LEARNING_LOG_SCHEMA = {
   summary: 'sessionBest (s); trend: slopes in s/generation over the last 10 generations (negative = faster), gensSinceRecord, trialSuccess; '
     + 'verdicts and insights: automatic diagnoses (level bad/warn/info/good, since = first generation of the symptom).',
   network: 'Champion network: layer sizes, parameter count, mean |weight| and tanh saturation per layer.',
+  supervisor: 'Training supervisor. mode: auto (acts) or suggest (waits for the user). actions: every action and suggestion of the session, '
+    + 'with generation (whose end triggered it), kind (pace-reset: pace search back to margin 1; mutation-reset: team mutation rates back to the floor; '
+    + 'reference-refresh: team reference = 20th percentile of its last 20 clean laps, records unchanged; selection: the 3 weakest teams try a crossover '
+    + 'of the champion and a top-5 brain as an exploration trial), reason and action (Polish UI text), status (applied/pending/expired) and appliedAt.',
 } as const;
 
 export function learningLog(view: LearningStatsView, generations: GenerationLogEntry[], insights: Insight[],
-  meta: { sessionState: string; simTime: number; config: LearningLogConfig }): LearningLog {
+  meta: { sessionState: string; simTime: number; config: LearningLogConfig; supervisorActions: SupervisorAction[] }): LearningLog {
   return {
     type: 'F1_LEARNING_LOG',
     version: 1,
@@ -101,6 +109,7 @@ export function learningLog(view: LearningStatsView, generations: GenerationLogE
     generations,
     drivers: view.drivers,
     network: view.network,
+    supervisor: { mode: view.supervisor.mode, actions: meta.supervisorActions },
   };
 }
 
