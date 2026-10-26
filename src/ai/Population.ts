@@ -300,6 +300,8 @@ export class Population {
   static readonly RESPAWN_CLEAR_SECONDS = 3;
   static readonly STAGNATION_LAPS = 8;
   static readonly MAX_SHAKE_RATE = 0.12;
+  /** Floor of the annealed mutation rate after personal bests. */
+  static readonly MIN_MUTATION_RATE = 0.025;
 
   private shakeBrain(car: Car, record: TeamRecord): void {
     if (!record.bestBrain) return;
@@ -371,7 +373,7 @@ export class Population {
         t.fuelRemaining = lapEvent.fuelRemaining;
         // Point 3: Simulated Annealing Cooldown on personal best lap
         t.stagnationCounter = 0;
-        t.currentMutationRate = Math.max(0.025, t.currentMutationRate * 0.85);
+        t.currentMutationRate = Math.max(Population.MIN_MUTATION_RATE, t.currentMutationRate * 0.85);
         stats?.notePersonalBest();
         if (car.explorationTrial) stats?.noteTrial('won');
         car.explorationTrial = false;

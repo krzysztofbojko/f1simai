@@ -40,6 +40,8 @@ export interface GenerationStats {
   /** Mean RMS weight distance of the team brains from the champion's. */
   diversity: number | null;
   meanMutationRate: number;
+  /** Mean share of the champion's hidden neurons near the tanh limits in its last step; null without a champion. */
+  hiddenSaturation: number | null;
 }
 
 export interface DriverStats {
@@ -59,6 +61,15 @@ export interface DriverStats {
   lineBest: number | null;
   distanceToChampion: number | null;
   crashes: number;
+}
+
+/** A driver at the end of a generation, as the session log keeps it. */
+export type DriverLogRow = Pick<DriverStats, 'name' | 'color' | 'champion' | 'bestLap' | 'lastLap' | 'laps' | 'lapsSincePB'
+  | 'mutationRate' | 'interventionRate' | 'crashes' | 'distanceToChampion'>;
+
+/** One finished generation in the session log: its summary and where every driver stood. */
+export interface GenerationLogEntry extends GenerationStats {
+  drivers: DriverLogRow[];
 }
 
 export interface LayerStats {
@@ -122,6 +133,8 @@ const REGRESSION_MIN_GENERATIONS = 6;
 /** Finished exploration trials before their success rate says anything. */
 const MIN_TRIALS = 10;
 const MAX_HISTORY = 400;
+/** Generations of the session log that keep their per-driver rows; older ones keep only the summary. */
+const LOG_DRIVER_GENERATIONS = 5000;
 
 export function median(values: readonly number[]): number | null {
   if (!values.length) return null;
@@ -216,7 +229,10 @@ export function verdicts(history: readonly GenerationStats[], trend: LearningTre
 }
 
 export class LearningStats {
+  /** Generation summaries for the charts; thinned in long sessions. */
   history: GenerationStats[] = [];
+  /** Every finished generation of the session, never thinned (the downloadable log). */
+  fullHistory: GenerationLogEntry[] = [];
   private current = LearningStats.blank(1);
   private cleanTimes: number[] = [];
   private wallStart = Date.now();
@@ -230,7 +246,7 @@ export class LearningStats {
       cleanLaps: 0, yellowLaps: 0, compromisedLaps: 0, personalBests: 0, reverts: 0,
       trialsStarted: 0, trialsWon: 0, trialsLost: 0, crashes: { barrier: 0, car: 0, stuck: 0, 'wrong-way': 0, other: 0 },
       interventionRate: null, causes: emptyInterventions(), onlineTrainSteps: 0, islandAdoptions: 0,
-      diversity: null, meanMutationRate: 0 };
+      diversity: null, meanMutationRate: 0, hiddenSaturation: null };
   }
 
   noteLap(lapTime: number, outcome: LapOutcome): void {
@@ -280,12 +296,20 @@ export class LearningStats {
       onlineTrainSteps: train,
       diversity: diversity(population),
       meanMutationRate: records.length ? records.reduce((sum, r) => sum + r.currentMutationRate, 0) / records.length : 0,
+      hiddenSaturation: hiddenSaturation(championBrain(population)),
     };
   }
 
   /** End of a generation: its summary joins the history and the cars' counters start again. */
   closeGeneration(population: Population): void {
-    this.history.push(this.live(population));
+    const summary = this.live(population);
+    this.history.push(summary);
+    this.fullHistory.push({ ...summary, crashes: { ...summary.crashes }, causes: { ...summary.causes },
+      drivers: this.drivers(population).map(d => ({ name: d.name, color: d.color, champion: d.champion, bestLap: d.bestLap,
+        lastLap: d.lastLap, laps: d.laps, lapsSincePB: d.lapsSincePB, mutationRate: d.mutationRate,
+        interventionRate: d.interventionRate, crashes: d.crashes, distanceToChampion: d.distanceToChampion })) });
+    const stale = this.fullHistory.length - 1 - LOG_DRIVER_GENERATIONS;
+    if (stale >= 0) this.fullHistory[stale].drivers = [];
     if (this.history.length > MAX_HISTORY) {
       // Thin the older half so a long session keeps its whole trend in a bounded list.
       const half = this.history.length >> 1;
@@ -322,11 +346,11 @@ export class LearningStats {
       gensSinceRecord, trialSuccess: won + lost > 0 ? won / (won + lost) : null, trials: won + lost };
   }
 
-  view(population: Population): LearningStatsView {
+  private drivers(population: Population): DriverStats[] {
     const champion = population.championRecord();
     const championIndex = champion ? population.teamRecords.indexOf(champion) : -1;
-    const championBrain = champion?.bestBrain ?? null;
-    const drivers: DriverStats[] = population.cars.map((car, i) => {
+    const championBest = champion?.bestBrain ?? null;
+    return population.cars.map((car, i) => {
       const record = population.teamRecords[i];
       const lineBest = car.lineNet?.bestTime;
       return {
@@ -343,12 +367,15 @@ export class LearningStats {
         interventionRate: car.aiSteps >= 600 ? car.aiInterventions / car.aiSteps : this.lastRateByColor.get(car.color) ?? (car.aiSteps ? car.aiInterventions / car.aiSteps : null),
         paceMargin: car.pace.margin,
         lineBest: typeof lineBest === 'number' && Number.isFinite(lineBest) ? lineBest : null,
-        distanceToChampion: championBrain && car.brain ? weightDistance(car.brain, championBrain) : null,
+        distanceToChampion: championBest && car.brain ? weightDistance(car.brain, championBest) : null,
         crashes: this.crashesByColor.get(car.color) ?? 0,
       };
     });
-    // The champion team's car brain: its activations are those of the last step it drove.
-    const liveBrain = championIndex >= 0 ? population.cars[championIndex]?.brain ?? championBrain : null;
+  }
+
+  view(population: Population): LearningStatsView {
+    const champion = population.championRecord();
+    const liveBrain = championBrain(population);
     const network: NetworkStats | null = liveBrain && champion ? {
       driver: champion.driverName,
       color: champion.color,
@@ -365,10 +392,24 @@ export class LearningStats {
       history: this.history.map(g => ({ ...g, crashes: { ...g.crashes }, causes: { ...g.causes } })),
       trend,
       verdicts: verdicts(this.history, trend),
-      drivers,
+      drivers: this.drivers(population),
       network,
     };
   }
+}
+
+/** The champion team's car brain: its activations are those of the last step it drove. */
+function championBrain(population: Population): NeuralNetwork | null {
+  const champion = population.championRecord();
+  if (!champion) return null;
+  const index = population.teamRecords.indexOf(champion);
+  return (index >= 0 ? population.cars[index]?.brain : null) ?? champion.bestBrain ?? null;
+}
+
+function hiddenSaturation(brain: NeuralNetwork | null): number | null {
+  if (!brain || brain.layers.length < 2) return null;
+  const hidden = layerStats(brain).slice(0, -1);
+  return hidden.reduce((sum, l) => sum + l.saturation, 0) / hidden.length;
 }
 
 /** Mean weight distance of the other teams' record brains from the champion's. */

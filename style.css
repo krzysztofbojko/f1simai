@@ -1858,8 +1858,8 @@ input[type="checkbox"] {
   touch-action: none;
 }
 .lp-header h2 { font-size: 15px; font-weight: 900; letter-spacing: 0.04em; text-transform: uppercase; }
-.lp-close { margin-left: auto; }
-.lp-close .icon { width: 14px; height: 14px; }
+.lp-download { margin-left: auto; }
+.lp-download .icon, .lp-close .icon { width: 14px; height: 14px; }
 .lp-tabs { display: flex; gap: 2px; padding: 6px 10px 0; border-bottom: 1px solid var(--border-soft); }
 .lp-tabs button {
   background: none;
@@ -1872,6 +1872,8 @@ input[type="checkbox"] {
 }
 .lp-tabs button:hover { color: var(--text-main); }
 .lp-tabs button.active { color: var(--text-main); border-bottom-color: var(--f1-cyan); }
+.lp-tabs button[data-level="bad"] { color: var(--f1-red-text); }
+.lp-tabs button[data-level="warn"] { color: var(--f1-papaya); }
 .lp-body { flex: 1; overflow: auto; padding: 12px 14px 16px; display: flex; flex-direction: column; gap: 12px; }
 .lp-empty, .lp-note { color: var(--text-muted); font-size: 12px; text-wrap: pretty; }
 .lp-verdicts { display: flex; flex-direction: column; gap: 6px; }
@@ -1900,6 +1902,12 @@ input[type="checkbox"] {
   font: 700 11px var(--font-mono);
 }
 .lp-verdict strong { font-size: 13px; }
+button.lp-insight { width: 100%; text-align: left; border: 0; border-left: 3px solid var(--lp-level); color: inherit; font: inherit; cursor: pointer; }
+button.lp-insight:hover { background: color-mix(in srgb, var(--lp-level) 16%, transparent); }
+.lp-insight-meta { color: var(--text-muted); font: 11px var(--font-mono); margin-left: 4px; }
+.lp-chart-notes { margin-top: 6px; gap: 4px; }
+.lp-chart-notes:empty { display: none; }
+.lp-chart-notes .lp-verdict { padding: 6px 8px; }
 .lp-verdict p { color: var(--text-soft); font-size: 12px; margin-top: 2px; text-wrap: pretty; }
 .lp-tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; }
 .lp-tile {

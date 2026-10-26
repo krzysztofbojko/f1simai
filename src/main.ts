@@ -152,7 +152,7 @@ class App {
 
   /** Learning diagnostics window: button or L opens it; the simulation keeps running. */
   private setupLearningPanel(): void {
-    this.learningPanel = new LearningPanel(() => this.bridge.getLearningStats(), color => {
+    this.learningPanel = new LearningPanel(() => this.bridge.getLearningStats(), () => this.bridge.getLearningLog(), color => {
       // Follow the driver; while the player drives, the driven car stays selected.
       if (this.isPlayerDriving) return;
       const car = this.population.cars.find(c => c.color === color);

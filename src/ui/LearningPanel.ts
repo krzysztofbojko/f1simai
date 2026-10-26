@@ -1,10 +1,12 @@
 import type { GenerationStats, DriverStats, VerdictLevel } from '../ai/LearningStats';
+import type { Insight, InsightChart } from '../ai/LearningInsights';
+import { stringifyLearningLog, type LearningLog } from '../ai/LearningLog';
 import type { LearningReport } from '../workers/sim.worker';
 import { LineChart } from './charts';
 import { formatLapTime } from './format';
 import { icon } from './icons';
 
-type Tab = 'overview' | 'trends' | 'drivers' | 'network';
+type Tab = 'overview' | 'insights' | 'trends' | 'drivers' | 'network';
 type SortKey = 'bestLap' | 'lastLap' | 'laps' | 'lapsSincePB' | 'mutationRate' | 'interventionRate' | 'paceMargin' | 'lineBest' | 'distanceToChampion' | 'crashes';
 
 interface PanelState { open: boolean; tab: Tab; x: number; y: number; w: number; h: number }
@@ -14,6 +16,9 @@ const POLL_MS = 1000;
 const COLORS = { gold: '#ffd700', cyan: '#00d2be', papaya: '#ff8000', purple: '#c98bf0' };
 const LEVEL_LABEL: Record<VerdictLevel, string> = { good: 'OK', warn: 'Uwaga', bad: 'Problem', info: 'Info' };
 const LEVEL_MARK: Record<VerdictLevel, string> = { good: '✓', warn: '!', bad: '✕', info: 'i' };
+const CHART_LABEL: Record<InsightChart, string> = { laps: 'Czas okrążenia', interventions: 'Interwencje strażnika', events: 'Zdarzenia',
+  diversity: 'Różnorodność', mutation: 'Mutacja', network: 'Sieć', general: 'Cała sesja' };
+const TREND_CHARTS: readonly InsightChart[] = ['laps', 'interventions', 'events', 'diversity', 'mutation'];
 const SESSION_LABEL: Record<string, string> = { IDLE: 'Trening', QUALIFYING: 'Kwalifikacje', QUALI_FINISHED: 'Po kwalifikacjach',
   GRID_START: 'Start', RACING: 'Wyścig', FINISHED: 'Po wyścigu' };
 
@@ -46,8 +51,11 @@ export class LearningPanel {
   private inFlight = false;
   private sort: { key: SortKey; dir: 1 | -1 } = { key: 'bestLap', dir: 1 };
   private charts: Record<string, LineChart> = {};
+  private readonly insightsTab: HTMLButtonElement;
+  private readonly downloadButton: HTMLButtonElement;
 
-  constructor(private readonly fetchReport: () => Promise<LearningReport>, private readonly onSelectDriver: (color: string) => void) {
+  constructor(private readonly fetchReport: () => Promise<LearningReport>, private readonly fetchLog: () => Promise<LearningLog>,
+    private readonly onSelectDriver: (color: string) => void) {
     this.root = document.createElement('section');
     this.root.className = 'learning-panel hidden';
     this.root.setAttribute('role', 'dialog');
@@ -56,10 +64,12 @@ export class LearningPanel {
       <header class="lp-header">
         <h2 id="lp-title">Diagnostyka uczenia</h2>
         <span class="panel-tag cyan" id="lp-status">—</span>
+        <button class="f1-btn icon-btn lp-download" aria-label="Pobierz log sesji do analizy (JSON)" title="Pobierz log całej sesji do analizy, np. przez AI (JSON)">${icon('download')}</button>
         <button class="f1-btn icon-btn lp-close" aria-label="Zamknij diagnostykę (L)" title="Zamknij (L)">${icon('close')}</button>
       </header>
       <nav class="lp-tabs" role="tablist">
         <button role="tab" data-tab="overview">Przegląd</button>
+        <button role="tab" data-tab="insights">Uwagi</button>
         <button role="tab" data-tab="trends">Trendy</button>
         <button role="tab" data-tab="drivers">Kierowcy</button>
         <button role="tab" data-tab="network">Sieć</button>
@@ -68,6 +78,9 @@ export class LearningPanel {
     document.getElementById('app')!.appendChild(this.root);
     this.body = this.root.querySelector('.lp-body')!;
     this.status = this.root.querySelector('#lp-status')!;
+    this.insightsTab = this.root.querySelector('[data-tab="insights"]')!;
+    this.downloadButton = this.root.querySelector('.lp-download')!;
+    this.downloadButton.addEventListener('click', () => { void this.download(); });
     this.root.querySelector('.lp-close')!.addEventListener('click', () => this.toggle(false));
     this.root.querySelectorAll<HTMLButtonElement>('[data-tab]').forEach(button =>
       button.addEventListener('click', () => this.showTab(button.dataset.tab as Tab)));
@@ -144,6 +157,27 @@ export class LearningPanel {
     }
   }
 
+  private async download(): Promise<void> {
+    if (this.downloadButton.disabled) return;
+    this.downloadButton.disabled = true;
+    this.status.textContent = 'przygotowuję log…';
+    try {
+      const log = await this.fetchLog();
+      const blob = new Blob([stringifyLearningLog(log)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `f1-diagnostyka-uczenia-gen${log.generation}-${new Date().toISOString().slice(0, 10)}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+      this.status.textContent = `log: ${log.generations.length} generacji`;
+    } catch {
+      this.status.textContent = 'nie udało się pobrać logu';
+    } finally {
+      this.downloadButton.disabled = false;
+    }
+  }
+
   private showTab(tab: Tab): void {
     this.state.tab = tab;
     this.save();
@@ -165,8 +199,10 @@ export class LearningPanel {
   private render(): void {
     const report = this.report;
     if (!report) { if (this.state.tab !== 'trends') this.body.innerHTML = '<p class="lp-empty">Pobieranie danych…</p>'; return; }
-    this.status.textContent = `${SESSION_LABEL[report.sessionState] ?? report.sessionState} · gen ${report.generation}`;
+    if (!this.downloadButton.disabled) this.status.textContent = `${SESSION_LABEL[report.sessionState] ?? report.sessionState} · gen ${report.generation}`;
+    this.renderInsightsTab(report.insights);
     if (this.state.tab === 'overview') this.body.innerHTML = this.overviewHtml(report);
+    else if (this.state.tab === 'insights') this.body.innerHTML = this.insightsHtml(report.insights);
     else if (this.state.tab === 'trends') this.renderTrends(report);
     else if (this.state.tab === 'drivers') this.body.innerHTML = this.driversHtml(report);
     else this.body.innerHTML = this.networkHtml(report);
@@ -217,11 +253,34 @@ export class LearningPanel {
       </dl>`;
   }
 
+  /** Tab label: how many notes need attention, coloured by the most serious one. */
+  private renderInsightsTab(insights: readonly Insight[]): void {
+    const serious = insights.filter(i => i.level === 'bad' || i.level === 'warn');
+    this.insightsTab.textContent = serious.length ? `Uwagi (${serious.length})` : 'Uwagi';
+    this.insightsTab.dataset.level = serious[0]?.level ?? '';
+  }
+
+  private insightHtml(insight: Insight, showChart: boolean): string {
+    const target = TREND_CHARTS.includes(insight.chart) || insight.chart === 'network' ? insight.chart : null;
+    const meta = `od gen. ${insight.since}${showChart ? ` · ${CHART_LABEL[insight.chart]}` : ''}`;
+    const inner = `
+        <span class="lp-verdict-mark" aria-hidden="true">${LEVEL_MARK[insight.level]}</span>
+        <div><strong>${escapeHtml(insight.title)}</strong> <span class="lp-insight-meta">${meta}</span><p>${escapeHtml(insight.detail)}</p></div>`;
+    return showChart && target
+      ? `<button class="lp-verdict lp-insight ${insight.level}" data-goto="${target}" title="Pokaż wykres: ${CHART_LABEL[insight.chart]}">${inner}</button>`
+      : `<div class="lp-verdict ${insight.level}">${inner}</div>`;
+  }
+
+  private insightsHtml(insights: readonly Insight[]): string {
+    return `<p class="lp-note">Automatyczne uwagi do wykresów: od kiedy trwa objaw i co można zrobić. Kliknij uwagę, aby zobaczyć jej wykres.</p>
+      <div class="lp-verdicts">${insights.map(i => this.insightHtml(i, true)).join('')}</div>`;
+  }
+
   private trendsSkeleton(): string {
     const legend = (items: [string, string][]) => `<div class="lp-legend">${items.map(([label, color]) =>
       `<span><span class="lp-key" style="background:${color}"></span>${label}</span>`).join('')}</div>`;
     const card = (id: string, title: string, items: [string, string][]) =>
-      `<figure class="lp-chart"><figcaption>${title}</figcaption>${items.length > 1 ? legend(items) : ''}<div class="lp-canvas-wrap"><canvas data-chart="${id}"></canvas></div></figure>`;
+      `<figure class="lp-chart" data-chart-card="${id}"><figcaption>${title}</figcaption>${items.length > 1 ? legend(items) : ''}<div class="lp-canvas-wrap"><canvas data-chart="${id}"></canvas></div><div class="lp-verdicts lp-chart-notes" data-notes="${id}"></div></figure>`;
     return `<div class="lp-charts">
       ${card('laps', 'Czas okrążenia po generacjach', [['Najlepsze w gen.', COLORS.gold], ['Mediana czystych', COLORS.cyan], ['Rekord sesji', COLORS.purple]])}
       ${card('interventions', 'Interwencje strażnika (udział kroków)', [['Wszystkie', COLORS.gold], ['Korytarz skrętu', COLORS.cyan], ['Strażnik przejmuje', COLORS.papaya], ['Hamowanie awaryjne', COLORS.purple]])}
@@ -257,6 +316,11 @@ export class LearningPanel {
     ], count, 0);
     set('diversity', [{ label: 'Różnorodność', color: COLORS.cyan, values: h.map(g => g.diversity) }], v => v.toFixed(3), 0);
     set('mutation', [{ label: 'Stopa mutacji', color: COLORS.papaya, values: h.map(g => g.meanMutationRate) }], v => v.toFixed(3), 0);
+    this.body.querySelectorAll<HTMLElement>('[data-notes]').forEach(el => {
+      const notes = r.insights.filter(i => i.chart === el.dataset.notes).slice(0, 2);
+      const html = notes.map(i => this.insightHtml(i, false)).join('');
+      if (el.innerHTML !== html) el.innerHTML = html;
+    });
   }
 
   private driversHtml(r: LearningReport): string {
@@ -309,7 +373,9 @@ export class LearningPanel {
         <td>${bar(l.saturation, 1, l.saturation > 0.5 ? 'papaya' : 'gold')} ${pct(l.saturation)}</td>
       </tr>`).join('');
     const saturated = n.layers.slice(0, -1).some(l => l.saturation > 0.5);
+    const notes = r.insights.filter(i => i.chart === 'network');
     return `
+      ${notes.length ? `<div class="lp-verdicts">${notes.map(i => this.insightHtml(i, false)).join('')}</div>` : ''}
       <div class="lp-tiles">
         <div class="lp-tile"><span class="lp-tile-label">Mistrz</span><strong><span class="team-dot" style="background-color:${escapeHtml(n.color)}"></span>${escapeHtml(n.driver)}</strong></div>
         <div class="lp-tile"><span class="lp-tile-label">Topologia</span><strong>${n.layerSizes.join('-')}</strong></div>
@@ -326,6 +392,12 @@ export class LearningPanel {
 
   private onBodyClick(e: MouseEvent): void {
     const target = e.target as HTMLElement;
+    const goto = target.closest<HTMLElement>('[data-goto]')?.dataset.goto;
+    if (goto) {
+      this.showTab(goto === 'network' ? 'network' : 'trends');
+      this.body.querySelector(`[data-chart-card="${goto}"]`)?.scrollIntoView({ block: 'nearest' });
+      return;
+    }
     const sortButton = target.closest<HTMLButtonElement>('[data-sort]');
     if (sortButton) {
       const key = sortButton.dataset.sort as SortKey;

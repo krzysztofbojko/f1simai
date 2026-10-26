@@ -15,9 +15,12 @@ Przeglądarkowy symulator wyścigów w TypeScript i Vite. Dwadzieścia bolidów 
 - Profile obliczeniowe, pauza i przyspieszenie symulacji.
 - „Diagnostyka AI” (przycisk w pasku sterowania albo klawisz L): pływające okno, które nie zatrzymuje treningu, kwalifikacji ani wyścigu. Odświeża się co sekundę tylko wtedy, gdy jest otwarte. Można je przeciągać i zmieniać jego rozmiar.
   - Przegląd: werdykt („Uczy się”, „Sieć uczy się jeździć sama”, „Plateau”, „Regres”, „Zapaść różnorodności”) i kluczowe wskaźniki. Najważniejszy z nich to udział kroków, w których strażnik poprawił sieć: gdy spada, sieć prowadzi coraz większą część okrążenia sama. Trend mediany to nachylenie prostej dopasowanej do ostatnich 10 generacji (ujemne oznacza szybciej). Okno pokazuje też skuteczność prób wyjścia ze stagnacji, różnorodność stawki (średnia odległość wag od mózgu mistrza) i wyspy. Dla bieżącej generacji podaje okrążenia czyste i nieoceniane, rekordy życiowe, cofnięcia mózgu, wypadki według przyczyny, korekty online i przyczyny interwencji.
+  - Uwagi: automatyczne uwagi do wykresów, od najpoważniejszych. Każda mówi, od której generacji trwa objaw i co można zrobić: czasy idą w złą stronę, model zbłądził (generacje trzymają się daleko od rekordu sesji), postęp mieści się w szumie, tylko lider jest szybki, nauka na ślepo (prawie brak czystych okrążeń), jedzie strażnik zamiast sieci, dominuje jedna przyczyna interwencji, korekty online stoją, lawina wypadków, więcej cofnięć niż rekordów, nikt się nie poprawia, wyspy bez pożytku, zapaść lub spadek różnorodności, mutacja stoi, nasycone neurony i „nauka utknęła” (dalsze generacje nic nie dają). Kliknięcie uwagi pokazuje jej wykres; w zakładce Trendy uwagi stoją też pod wykresami. Etykieta zakładki podaje liczbę ostrzeżeń.
   - Trendy: wykresy po generacjach (czasy, interwencje według przyczyny, zdarzenia, różnorodność, mutacja) z odczytem wartości po najechaniu.
   - Kierowcy: sortowana tabela (rekord, okrążenia od rekordu, stopa mutacji, interwencje, tempo, linia, odległość od mistrza, wypadki). Kliknięcie wiersza wybiera auto.
   - Sieć: topologia i liczba parametrów mózgu mistrza, średnie |w| i nasycenie tanh w każdej warstwie.
+
+  Przycisk pobierania w nagłówku okna zapisuje log całej sesji w JSON (`f1-diagnostyka-uczenia-gen…json`) do analizy, np. przez model AI: wszystkie zakończone generacje (wykresy przerzedzają historię po 400 generacjach, log nie), stan każdego kierowcy na koniec generacji, ustawienia sesji (tor, sieć, mutacja, paliwo, presja, wyspy, pogoda), werdykty, uwagi i opis znaczenia każdego pola z jednostkami.
 
   Statystyki to sama księgowość: nie zmieniają fizyki ani losowania. Nowa stawka, czysta tablica i reset czasów zaczynają je od zera.
 - „Czysta tablica” (panel sterowania): po potwierdzeniu wszyscy kierowcy zapominają wszystko, czego się nauczyli (sieci, linie przejazdu, tempo, rekordy, generacje), autozapis jest usuwany, a trwająca sesja przerwana. Tor i ustawienia zostają; stawka startuje jak po pierwszym uruchomieniu.
@@ -82,7 +85,7 @@ Vite wyświetli lokalny adres aplikacji, domyślnie `http://localhost:5173`.
 npm test               # regresje fizyki, wyścigu, treningu, poboczy i pomyłek
 npm run test:units     # szybkie testy jednostkowe: przyczepność mieszanek, wybór opon, LiDAR
 npm run test:learning  # ochrona wiedzy AI i zmiany generacji
-npm run test:stats     # diagnostyka uczenia: liczniki generacji, trendy, werdykty
+npm run test:stats     # diagnostyka uczenia: liczniki generacji, trendy, werdykty, uwagi, log sesji
 npm run test:qualifying # zasady Q1–Q3, siatka startowa
 npm run test:islands   # wyspy treningowe: przenoszenie toru i reguły wymiany modeli
 npm run test:parity    # trening = wyścig: wrak i żółta flaga 15 s, holowanie, obrona, atak, trudne okrążenia, paliwo
@@ -105,7 +108,7 @@ CI (`.github/workflows/ci.yml`) przy każdym pushu i pull requeście uruchamia `
 - `src/workers/` — `sim.worker.ts` (symulacja i protokół wiadomości), `island.worker.ts` (wyspy treningowe), `CarView.ts` (wspólny schemat stanu auta w snapshocie), `SimBridge.ts`.
 - `src/physics/` — `Car.ts` (dynamika, opony, hamulce, ERS, paliwo, obrys), `DrivePlanner.ts` (planista i strażnik), `LapTiming.ts` (pomiar okrążeń i sektorów), `PitStrategy.ts` (postoje), `Fitness.ts` (nagrody), `Traffic.ts` (kontakty, ślad aero), `Weather.ts`, `Tyres.ts`, `SimConfig.ts` (pogoda i ustawienia symulacji).
 - `src/race/RaceSession.ts` — kwalifikacje, start, wyścig, szachownica i klasyfikacja (czysty moduł, testowany bez workera).
-- `src/ai/` — sieci neuronowe, populacja, linie przejazdu, wyspy, taktyka wyścigowa, statystyki uczenia (`LearningStats.ts`).
+- `src/ai/` — sieci neuronowe, populacja, linie przejazdu, wyspy, taktyka wyścigowa, statystyki uczenia (`LearningStats.ts`), uwagi do wykresów (`LearningInsights.ts`) i log sesji do pobrania (`LearningLog.ts`).
 - `src/track/`, `src/math/` — geometria, presety, spline i wektory.
 - `src/rendering/three/` — scena Three.js: `SceneRenderer` (scena, światło, pogoda), `TrackMesh`, `CarFleet`, `Cameras`, `Effects`/`Particles`/`Rain`, `Labels`, `Overlays`, `Hud`; `src/rendering/HudCharts.ts` — wykresy telemetrii, `MotionInterpolator.ts` — płynny ruch między snapshotami.
 - `scripts/` — testy regresyjne (`npm test`), benchmarki i diagnostyka.

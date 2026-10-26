@@ -14,6 +14,8 @@ import { toCarView, type CarView } from './CarView';
 import { Weather, isWeatherScenario, type WeatherScenario, type WeatherState } from '../physics/Weather';
 import { applyDriverModel, exportDriver, mergeBetterDrivers, serializeTrack } from '../ai/Islands';
 import type { LearningStatsView } from '../ai/LearningStats';
+import { insights, type Insight } from '../ai/LearningInsights';
+import { learningLog, type LearningLog } from '../ai/LearningLog';
 
 export type { TopologySpecifier, RaceState, RaceStanding, QualifyingSnapshot };
 export type { CarView as SerializedCar, SerializedRay } from './CarView';
@@ -112,7 +114,11 @@ export interface LearningReport extends LearningStatsView {
   simTime: number;
   sessionState: RaceState;
   islands: IslandStatus;
+  /** Notes on what the charts show, most serious first. */
+  insights: Insight[];
 }
+
+export type { LearningLog };
 
 export interface IslandStatus {
   count: number;
@@ -262,6 +268,16 @@ function islandStatus(): IslandStatus {
   let stepsPerSecond = 0;
   for (const rate of islandRates.values()) stepsPerSecond += rate;
   return { count: islands.length, max: maxIslands, running: islandsRunning, stepsPerSecond: Math.round(stepsPerSecond), adopted: islandsAdopted };
+}
+
+function learningInsights(view: LearningStatsView): Insight[] {
+  return insights(population.learningStats.fullHistory, { sessionBest: view.sessionBest, trend: view.trend, islandCount: islands.length,
+    mutationFloor: Population.MIN_MUTATION_RATE, mutationCeiling: Population.MAX_SHAKE_RATE });
+}
+
+function learningReport(): LearningReport {
+  const view = population.learningStats.view(population);
+  return { ...view, simTime, sessionState: session.state, islands: islandStatus(), insights: learningInsights(view) };
 }
 
 function createSnapshot(): SimSnapshot {
@@ -829,8 +845,32 @@ self.onmessage = (e: MessageEvent) => {
     }
 
     case 'GET_LEARNING_STATS': {
-      const report: LearningReport = { ...population.learningStats.view(population), simTime, sessionState: session.state, islands: islandStatus() };
-      self.postMessage({ type: 'LEARNING_STATS_RESULT', requestId: data.requestId, report });
+      self.postMessage({ type: 'LEARNING_STATS_RESULT', requestId: data.requestId, report: learningReport() });
+      break;
+    }
+
+    case 'GET_LEARNING_LOG': {
+      const report = learningReport();
+      const status = report.islands;
+      const log = learningLog(report, population.learningStats.fullHistory, report.insights, {
+        sessionState: session.state,
+        simTime,
+        config: {
+          track: { lengthMeters: Math.round(track.totalLength / 2), widthMeters: trackWidth },
+          rayCount,
+          topology: currentTopology,
+          layerSizes: population.cars[0]?.brain ? [...population.cars[0].brain.layerSizes] : null,
+          populationSize: population.cars.length,
+          mutationRate,
+          startingFuelKg,
+          driverPressure,
+          stressLapShare: Car.config.stressLapShare,
+          computeProfile: currentProfile,
+          islands: { count: status.count, running: status.running, adopted: status.adopted },
+          weather: { scenario: weather.scenario, state: { ...weather.state } },
+        },
+      });
+      self.postMessage({ type: 'LEARNING_LOG_RESULT', requestId: data.requestId, log });
       break;
     }
 
