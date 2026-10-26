@@ -872,7 +872,7 @@ self.onmessage = (e: MessageEvent) => {
         sessionState: session.state,
         simTime,
         config: {
-          track: { lengthMeters: Math.round(track.totalLength / 2), widthMeters: trackWidth },
+          track: { lengthMeters: Math.round(track.totalLength), widthMeters: trackWidth },
           rayCount,
           topology: currentTopology,
           layerSizes: population.cars[0]?.brain ? [...population.cars[0].brain.layerSizes] : null,

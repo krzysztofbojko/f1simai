@@ -938,7 +938,7 @@ class App {
         // Every few metres: the loader resplines them, so the file need not hold every track point.
         centerPoints: this.track.points.filter((_, i) => i % this.track.pointsFor(EXPORT_POINT_SPACING) === 0)
           .map(p => ({ x: Math.round(p.center.x * 10) / 10, y: Math.round(p.center.y * 10) / 10 })),
-        lengthMeters: Math.round(this.track.totalLength / 2),
+        lengthMeters: Math.round(this.track.totalLength),
         savedAt: new Date().toISOString()
       };
 
