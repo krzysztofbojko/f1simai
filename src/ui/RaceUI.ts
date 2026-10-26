@@ -356,6 +356,10 @@ export class RaceUI {
         `;
       })
       .join('');
+    const fieldSize = this.host.population.cars.length;
+    const title = document.getElementById('leaderboard-title');
+    const titleText = `KLASYFIKACJA · TOP ${Math.min(RaceUI.LEADERBOARD_ROWS, fieldSize)} / ${fieldSize}`;
+    if (title && title.textContent !== titleText) title.textContent = titleText;
     // Keep each driver's row stable while live timings and ranking change.
     const template = document.createElement('template');
     template.innerHTML = leaderboardHtml;

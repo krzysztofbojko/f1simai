@@ -130,7 +130,24 @@ try {
   const changed = main.teamRecords.map((r, i) => r.bestLapTime < 90 ? i : -1).filter(i => i >= 0);
   assert.deepEqual(changed, [15, 16, 17, 18, 19], 'largest improvements go first');
   assert.equal(mergeBetterDrivers(main, drivers, Infinity), 15, 'island seeding is not capped');
-  console.log('Robustness regressions passed (stress laps, stagnation trials, capped migration).');
+  // 4. The training field size: fewer cars keep the drivers they had, more cars add seed drivers; the field drives on.
+  const field = new Population(Population.MAX_CARS, track);
+  const kept = field.cars.slice(0, 4), keptBrain = kept[0].brain.toJSON();
+  field.setCarCount(4, track);
+  assert.equal(field.cars.length, 4);
+  assert.equal(field.teamRecords.length, 4);
+  assert.deepEqual(field.cars, kept, 'the first drivers stay');
+  assert.equal(new Set(field.teamRecords.map(r => r.teamName)).size, 4, 'one driver per team first');
+  assert.equal(field.cars[0].brain.toJSON(), keptBrain, 'a kept driver keeps its network');
+  field.setCarCount(6, track);
+  assert.equal(field.cars.length, 6);
+  assert.equal(field.populationSize, 6);
+  assert.ok(field.cars[5].brain && field.teamRecords[5].bestBrain, 'an added driver drives the seed network');
+  for (let i = 0; i < 600; i++) field.update(1 / 60, track);
+  assert.ok(field.cars.every(c => Number.isFinite(c.pos.x) && Number.isFinite(c.pos.y)));
+  field.setCarCount(99, track);
+  assert.equal(field.cars.length, Population.MAX_CARS);
+  console.log('Robustness regressions passed (stress laps, stagnation trials, capped migration, field size).');
 } finally {
   await rm(output, { recursive: true, force: true });
 }

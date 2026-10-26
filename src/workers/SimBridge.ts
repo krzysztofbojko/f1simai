@@ -1,4 +1,5 @@
 import { loadDriverPressure } from '../ai/DriverPressure';
+import { clampCarCount } from '../ai/Population';
 import type { SimSnapshot, ComputeProfile, ComputeProfileOptions, ComputeProfileConfig, TopologySpecifier, LearningReport, LearningLog } from './sim.worker';
 import type { SupervisorMode } from '../ai/TrainingSupervisor';
 
@@ -164,7 +165,7 @@ export class SimBridge {
         this.markUnavailable();
       };
 
-      this.worker.postMessage({ type: 'INIT', profile: this.currentComputeProfile, topology: this.currentTopology, driverPressure: loadDriverPressure() });
+      this.worker.postMessage({ type: 'INIT', profile: this.currentComputeProfile, topology: this.currentTopology, driverPressure: loadDriverPressure(), carCount: loadCarCount() });
     } catch (err) {
       console.warn('Web Worker could not be started in current environment:', err);
       this.worker = null;
@@ -251,6 +252,11 @@ export class SimBridge {
   /** Applies a waiting supervisor suggestion; resolves with the fresh learning report. */
   public applySupervisorAction(id: number): Promise<LearningReport> {
     return this.request(this.pendingLearningStats, { type: 'APPLY_SUPERVISOR_ACTION', id });
+  }
+
+  /** Cars in the training field (1..20); the field restarts from the grid. */
+  public setCarCount(value: number): void {
+    this.worker?.postMessage({ type: 'SET_CAR_COUNT', value });
   }
 
   public setFuel(value: number): void {
@@ -345,4 +351,10 @@ export class SimBridge {
   public resetBestTimes(): void {
     this.worker?.postMessage({ type: 'RESET_BEST_TIMES' });
   }
+}
+
+/** Training field size the user chose last (a full field by default). */
+export function loadCarCount(): number {
+  try { const v = localStorage.getItem('f1_training_cars'); if (v !== null) return clampCarCount(v); } catch {}
+  return clampCarCount(undefined);
 }

@@ -2,7 +2,7 @@ import { normalizePressure } from '../ai/DriverPressure';
 import { captureMotion, resolveTraffic, avoidTraffic } from '../physics/Traffic';
 import { Track, TimingGate } from '../track/Track';
 import { Presets } from '../track/Presets';
-import { Population, LapLeaderboardEntry } from '../ai/Population';
+import { Population, LapLeaderboardEntry, clampCarCount } from '../ai/Population';
 import { Car, CarControl, TrajectoryPoint, driverInputCount } from '../physics/Car';
 import { clampStressShare } from '../physics/SimConfig';
 import { DRAWN_POINT_GAP, Spline } from '../math/Spline';
@@ -171,6 +171,10 @@ let trackWidth = 14;
 let rayCount = 25;
 let startingFuelKg = 105;
 let driverPressure = 0;
+/** Cars in the training field (the same field then qualifies and races). */
+let carCount = Population.MAX_CARS;
+/** Models of the drivers the field size left out, by colour: they come back, and are saved, as they were. */
+const parkedDrivers = new Map<string, any>();
 let mutationRate = 0.09;
 let supervisorMode: SupervisorMode = 'auto';
 let speedMultiplier: number | 'max' = 1;
@@ -214,7 +218,7 @@ function exportAllDrivers(): any[] {
 
 function islandSetupMessage(): object {
   return { type: 'SETUP', version: islandVersion, track: serializeTrack(track), rayCount, topology: currentTopology,
-    driverPressure, mutationRate, startingFuelKg, stressLapShare: Car.config.stressLapShare, drivers: exportAllDrivers(),
+    driverPressure, mutationRate, startingFuelKg, stressLapShare: Car.config.stressLapShare, drivers: exportAllDrivers(), carCount,
     weatherScenario: weather.scenario, weatherSeed: weatherSeed() };
 }
 
@@ -350,9 +354,27 @@ function createSnapshot(): SimSnapshot {
 
 /** A new field on the current track with every user setting (rays, topology, pressure, mutation, fuel) and the session hooks. */
 function createPopulation(): Population {
-  const next = Population.create(track, { rayCount, topology: currentTopology, driverPressure, mutationRate, startingFuelKg, supervisorMode });
+  parkedDrivers.clear();
+  const next = Population.create(track, { rayCount, topology: currentTopology, driverPressure, mutationRate, startingFuelKg, supervisorMode, carCount });
   next.onLapCompleted = (car, event) => session.onLapCompleted(car, event);
   return next;
+}
+
+/** Training only: the field restarts from the grid; drivers that leave are parked with their models. */
+function setCarCount(count: number): void {
+  const next = clampCarCount(count);
+  if (session.state !== 'IDLE' || next === population.cars.length) return;
+  carCount = next;
+  for (let i = next; i < population.cars.length; i++) parkedDrivers.set(population.cars[i].color, exportDriver(population, i));
+  const before = population.cars.length;
+  population.setCarCount(next, track);
+  for (let i = before; i < population.cars.length; i++) {
+    const car = population.cars[i], parked = parkedDrivers.get(car.color);
+    if (!parked) continue;
+    applyDriverModel(car, population.teamRecords[i], parked);
+    parkedDrivers.delete(car.color);
+  }
+  lastSnapshotTime = 0;
 }
 
 // Simulation step execution: elapsed-time accumulator keeps 1x tied to real time.
@@ -447,7 +469,7 @@ function simLoop() {
 setInterval(simLoop, 16);
 
 /** Messages after which islands restart from the main field, or only take new settings. */
-const ISLAND_RESET_MESSAGES = new Set(['SET_TOPOLOGY', 'SET_TRACK_WIDTH', 'SET_PRESET', 'SET_CUSTOM_TRACK', 'SET_LIDAR_COUNT',
+const ISLAND_RESET_MESSAGES = new Set(['SET_CAR_COUNT', 'SET_TOPOLOGY', 'SET_TRACK_WIDTH', 'SET_PRESET', 'SET_CUSTOM_TRACK', 'SET_LIDAR_COUNT',
   'RESET_POPULATION', 'CLEAR_LEARNING', 'RESET_SINGLE_BRAIN', 'RESET_BEST_TIMES', 'LOAD_BRAIN', 'LOAD_ALL_MODELS']);
 const ISLAND_CONFIG_MESSAGES = new Set(['SET_DRIVER_PRESSURE', 'SET_MUTATION', 'SET_FUEL', 'SET_STRESS_LAPS']);
 
@@ -466,6 +488,7 @@ self.onmessage = (e: MessageEvent) => {
     case 'INIT': {
       driverPressure = normalizePressure(data.driverPressure ?? 0);
       population.setDriverPressure(driverPressure, true);
+      if (data.carCount !== undefined) setCarCount(data.carCount);
       if (data.topology) {
         currentTopology = data.topology as TopologySpecifier;
         population.setTopology(currentTopology, track);
@@ -480,9 +503,16 @@ self.onmessage = (e: MessageEvent) => {
       break;
     }
 
+    case 'SET_CAR_COUNT': {
+      setCarCount(data.value);
+      break;
+    }
+
     case 'SET_TOPOLOGY': {
       const topology = (data.topology || 'Standard') as TopologySpecifier;
       currentTopology = topology;
+      // Parked networks have the old layers: those drivers come back on the seed network.
+      parkedDrivers.clear();
       population.setTopology(topology, track);
       if (playerCar) {
         playerCar.reset(track.startPosition, track.startAngle, true);
@@ -518,6 +548,7 @@ self.onmessage = (e: MessageEvent) => {
         nextTrack.pitLaneLoss = track.pitLaneLoss;
         trackWidth = nextWidth; track = nextTrack;
         session.resetSectors();
+        parkedDrivers.clear();
         population.resetAll(track);
         if (playerCar) {
           playerCar.reset(track.startPosition, track.startAngle, true);
@@ -627,6 +658,7 @@ self.onmessage = (e: MessageEvent) => {
 
     case 'SET_LIDAR_COUNT': {
       rayCount = data.value;
+      parkedDrivers.clear();
       population.setRayCount(rayCount, track);
       if (playerCar) {
         playerCar.setRayCount(rayCount);
@@ -638,6 +670,7 @@ self.onmessage = (e: MessageEvent) => {
 
     case 'RESET_POPULATION': {
       population.generation++;
+      parkedDrivers.clear();
       population.resetAll(track);
       if (playerCar) {
         playerCar.reset(track.startPosition, track.startAngle, true);
@@ -892,7 +925,8 @@ self.onmessage = (e: MessageEvent) => {
     }
 
     case 'GET_ALL_MODELS': {
-      const driversData = population.cars.map((_, idx) => exportDriver(population, idx));
+      // Parked drivers are saved too, so a file from a smaller field restores the whole grid.
+      const driversData = [...population.cars.map((_, idx) => exportDriver(population, idx)), ...parkedDrivers.values()];
 
       self.postMessage({
         type: 'ALL_MODELS_RESULT',
@@ -985,6 +1019,10 @@ self.onmessage = (e: MessageEvent) => {
             population.topology = payload.topology;
           }
 
+          parkedDrivers.clear();
+          for (const d of payload.drivers) {
+            if (typeof d?.color === 'string' && !population.cars.some(c => c.color === d.color)) parkedDrivers.set(d.color, d);
+          }
           population.resetPositions(track);
           lastSnapshotTime = 0;
           self.postMessage({ type: 'LOAD_ALL_MODELS_SUCCESS', requestId: data.requestId });

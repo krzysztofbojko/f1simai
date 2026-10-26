@@ -4,7 +4,7 @@ import { DRAWN_POINT_GAP, Spline, pointGapFor } from './math/Spline';
 import { Track } from './track/Track';
 import { Presets } from './track/Presets';
 import { getRacingLine } from './track/RacingLine';
-import { Population } from './ai/Population';
+import { Population, clampCarCount } from './ai/Population';
 import { Car, CarControl, driverInputCount } from './physics/Car';
 import { clampStressShare, DEFAULT_STRESS_LAP_SHARE } from './physics/SimConfig';
 import { COMPOUND_SPECS, isCompound } from './physics/Tyres';
@@ -14,7 +14,7 @@ import { MotionInterpolator } from './rendering/MotionInterpolator';
 import type { CameraMode } from './rendering/three/Cameras';
 import { HudCharts } from './rendering/HudCharts';
 import { hydrateIcons, setControlContent } from './ui/icons';
-import { SimBridge, type ComputeProfile, type TopologySpecifier } from './workers/SimBridge';
+import { SimBridge, loadCarCount, type ComputeProfile, type TopologySpecifier } from './workers/SimBridge';
 import type { SimSnapshot } from './workers/sim.worker';
 import { SnapshotSync, type SyncTarget } from './ui/SnapshotSync';
 import { RaceUI, type RaceUIHost } from './ui/RaceUI';
@@ -234,6 +234,11 @@ class App {
     }
 
     this.bridge.onSnapshotCallback = (snapshot: SimSnapshot) => {
+      // The worker owns the field size: the display copy follows it.
+      if (snapshot.cars.length > 0 && snapshot.cars.length !== this.population.cars.length) {
+        this.population.setCarCount(snapshot.cars.length, this.track);
+        if (this.selectedCar && !this.population.cars.includes(this.selectedCar)) this.selectedCar = null;
+      }
       this.sync.apply(snapshot, this.page);
       this.raceUI.onSnapshot(snapshot);
     };
@@ -747,6 +752,20 @@ class App {
       stressSlider.addEventListener('change', () => applyStress(parseInt(stressSlider.value, 10), true));
     }
     applyStress(savedStress, false);
+
+    // Training field size: applied on release, the field restarts from the grid.
+    const carSlider = document.getElementById('slider-car-count') as HTMLInputElement | null;
+    const carLabel = document.getElementById('val-car-count');
+    if (carSlider) {
+      carSlider.value = String(loadCarCount());
+      if (carLabel) carLabel.textContent = carSlider.value;
+      carSlider.addEventListener('input', () => { if (carLabel) carLabel.textContent = carSlider.value; });
+      carSlider.addEventListener('change', () => {
+        const count = clampCarCount(carSlider.value);
+        this.bridge.setCarCount(count);
+        try { localStorage.setItem('f1_training_cars', String(count)); } catch {}
+      });
+    }
 
     // Sensor raycast checkbox
     const checkSensors = document.getElementById('check-sensors') as HTMLInputElement;

@@ -20,6 +20,8 @@ export interface IslandSetup {
   startingFuelKg: number;
   stressLapShare: number;
   drivers: any[];
+  /** Cars in the main field: an island trains in the same traffic. */
+  carCount: number;
   weatherScenario: string;
   weatherSeed: number;
 }
@@ -73,7 +75,7 @@ self.onmessage = (e: MessageEvent) => {
       const setup = data as IslandSetup;
       track = deserializeTrack(setup.track);
       population = Population.create(track, { rayCount: setup.rayCount, topology: setup.topology,
-        driverPressure: setup.driverPressure, mutationRate: setup.mutationRate, startingFuelKg: setup.startingFuelKg });
+        driverPressure: setup.driverPressure, mutationRate: setup.mutationRate, startingFuelKg: setup.startingFuelKg, carCount: setup.carCount });
       Car.config.stressLapShare = clampStressShare(setup.stressLapShare);
       weather.reset(isWeatherScenario(setup.weatherScenario) ? setup.weatherScenario : 'sunny', setup.weatherSeed);
       population.setConditions(weather.conditions);

@@ -179,6 +179,17 @@ function syncSettingControls(snapshot: SimSnapshot): void {
     }
   }
 
+  const carSlider = document.getElementById('slider-car-count') as HTMLInputElement | null;
+  if (carSlider && snapshot.cars.length > 0) {
+    // The field size changes only in training: qualifying and the race keep the field they started with.
+    carSlider.disabled = snapshot.raceState !== 'IDLE';
+    if (document.activeElement !== carSlider && carSlider.value !== String(snapshot.cars.length)) {
+      carSlider.value = String(snapshot.cars.length);
+      const label = document.getElementById('val-car-count');
+      if (label) label.textContent = carSlider.value;
+    }
+  }
+
   const isRacing = snapshot.raceState === 'GRID_START' || snapshot.raceState === 'RACING';
   const selectTop = document.getElementById('select-topology') as HTMLSelectElement | null;
   if (selectTop) {

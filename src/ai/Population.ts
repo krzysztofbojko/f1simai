@@ -45,6 +45,12 @@ export interface TeamRecord {
 }
 
 /** Training settings a new field starts with (the user's sliders, carried over to every new field). */
+/** Cars in a field: 1..MAX_CARS, whole numbers; anything else is a full field. */
+export function clampCarCount(value: unknown): number {
+  const n = Math.round(Number(value));
+  return Number.isFinite(n) ? Math.max(1, Math.min(Population.MAX_CARS, n)) : Population.MAX_CARS;
+}
+
 export interface PopulationSettings {
   rayCount?: number;
   topology?: TopologySpecifier;
@@ -52,6 +58,8 @@ export interface PopulationSettings {
   mutationRate?: number;
   startingFuelKg?: number;
   supervisorMode?: SupervisorMode;
+  /** Cars in the field (1..MAX_CARS, default MAX_CARS). */
+  carCount?: number;
 }
 
 export interface LapLeaderboardEntry {
@@ -200,7 +208,7 @@ export class Population {
    * never falls back to the defaults (mutation rate, fuel, driver pressure).
    */
   static create(track: Track, settings: PopulationSettings = {}): Population {
-    return new Population(Population.MAX_CARS, track, settings.rayCount, settings.topology, settings);
+    return new Population(settings.carCount ?? Population.MAX_CARS, track, settings.rayCount, settings.topology, settings);
   }
 
   public resetGenerationCounters(track?: Track): void {
@@ -235,55 +243,81 @@ export class Population {
     this.teamRecords = [];
     this.learningStats = new LearningStats();
     const baseBrain = NeuralNetwork.createTrainedDriverNetwork(this.rayCount, this.topology, track);
-
-    for (let i = 0; i < this.populationSize; i++) {
-      const def = Population.F1_TEAMS[i % Population.F1_TEAMS.length];
-      const slot = track.getGridSlot(i);
-      const brain = baseBrain.clone();
-      if (i > 0) {
-        brain.mutate(0.04, 0.10);
-      }
-
-      this.teamRecords.push({
-        teamName: def.teamName,
-        carName: def.carName,
-        driverName: def.driverName,
-        color: def.color,
-        bestBrain: brain.clone(),
-        bestFitness: 0,
-        bestLapTime: null,
-        recentLaps: [],
-        bestLapSplits: [null, null, null, null],
-        lastLapTime: null,
-        avgSpeed: 0,
-        topSpeed: 0,
-        fuelRemaining: this.startingFuelKg,
-        lapsCount: 0,
-        stagnationCounter: 0,
-        currentMutationRate: this.mutationRate,
-      });
-
-      const car = new Car(
-        slot.pos,
-        slot.heading,
-        brain,
-        def.color,
-        `${def.driverName} (${def.carName})`,
-        this.startingFuelKg,
-        this.rayCount
-      );
-      car.teamIndex = Population.teamIndexOf(i);
-      car.lineSearchSeed = i;
-      car.lineSearch = new LineSearch(i);
-      car.lineSearchByPressure.set(0, car.lineSearch);
-      car.lineNet = new LineNet(distillLineNetwork(this.rayCount, track));
-      car.lineNetByPressure.set(0, car.lineNet);
-      car.currentCheckpointIdx = (slot.checkpointIdx + 1) % track.checkpoints.length;
-      car.updateDimensionsForTrackWidth(track.width);
-      this.cars.push(car);
-    }
+    for (let i = 0; i < this.populationSize; i++) this.addDriver(i, track, baseBrain);
     this.setDriverPressure(this.driverPressure, true);
     this.resetGenerationCounters(track);
+  }
+
+  /** Driver `i` of the grid (team, colour, grid slot) on the seed network; the first one drives it unmutated. */
+  private addDriver(i: number, track: Track, baseBrain: NeuralNetwork): void {
+    const def = Population.F1_TEAMS[i % Population.F1_TEAMS.length];
+    const slot = track.getGridSlot(i);
+    const brain = baseBrain.clone();
+    if (i > 0) {
+      brain.mutate(0.04, 0.10);
+    }
+
+    this.teamRecords.push({
+      teamName: def.teamName,
+      carName: def.carName,
+      driverName: def.driverName,
+      color: def.color,
+      bestBrain: brain.clone(),
+      bestFitness: 0,
+      bestLapTime: null,
+      recentLaps: [],
+      bestLapSplits: [null, null, null, null],
+      lastLapTime: null,
+      avgSpeed: 0,
+      topSpeed: 0,
+      fuelRemaining: this.startingFuelKg,
+      lapsCount: 0,
+      stagnationCounter: 0,
+      currentMutationRate: this.mutationRate,
+    });
+
+    const car = new Car(
+      slot.pos,
+      slot.heading,
+      brain,
+      def.color,
+      `${def.driverName} (${def.carName})`,
+      this.startingFuelKg,
+      this.rayCount
+    );
+    car.teamIndex = Population.teamIndexOf(i);
+    car.lineSearchSeed = i;
+    car.lineSearch = new LineSearch(i);
+    car.lineSearchByPressure.set(0, car.lineSearch);
+    car.lineNet = new LineNet(distillLineNetwork(this.rayCount, track));
+    car.lineNetByPressure.set(0, car.lineNet);
+    car.currentCheckpointIdx = (slot.checkpointIdx + 1) % track.checkpoints.length;
+    car.updateDimensionsForTrackWidth(track.width);
+    this.cars.push(car);
+  }
+
+  /**
+   * Changes the size of the field (1..MAX_CARS) and restarts it from the grid. Drivers past the new size
+   * leave with everything they learned (the caller may keep their models); added drivers start from the
+   * seed network. The grid order puts one driver of every team first.
+   */
+  setCarCount(count: number, track: Track): void {
+    const n = clampCarCount(count);
+    if (n === this.cars.length) return;
+    if (n < this.cars.length) {
+      this.cars.length = n;
+      this.teamRecords.length = n;
+    } else {
+      const baseBrain = NeuralNetwork.createTrainedDriverNetwork(this.rayCount, this.topology, track);
+      for (let i = this.cars.length; i < n; i++) this.addDriver(i, track, baseBrain);
+    }
+    this.populationSize = n;
+    if (this.currentLeader && !this.cars.includes(this.currentLeader)) this.currentLeader = null;
+    this.setDriverPressure(this.driverPressure, true);
+    const line = this.bestRacingLine, speeds = this.leaderCheckpointSpeeds;
+    this.resetPositions(track);
+    this.bestRacingLine = line;
+    this.leaderCheckpointSpeeds = speeds;
   }
 
   get aliveCount(): number {
