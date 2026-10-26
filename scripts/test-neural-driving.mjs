@@ -216,10 +216,12 @@ try {
   const graze = probe(1.5), hit = probe(8);
   assert.ok(graze.alive && graze.along > 0.8, 'a graze keeps most speed: ' + graze.along);
   assert.ok(hit.along < graze.along);
-  // Limit probing: clean improving laps raise the margin, an excursion backs off and caps it.
+  // Limit probing: a probe that improves the median raises the margin, an excursion backs off and caps it.
   const pace = new PaceSearch();
-  [60, 59.5, 59].forEach(t => pace.finishLap(t, true, false));
-  assert.ok(pace.margin > 1.05, 'margin grows on clean faster laps: ' + pace.margin);
+  [60, 60, 60, 59.5, 59.5, 59.5, 59, 59, 59, 59].forEach(t => pace.finishLap(t, true, false));
+  assert.ok(pace.bestMargin > 1.05, 'margin grows on clean faster laps: ' + pace.bestMargin);
+  pace.finishLap(59, true, false);
+  assert.ok(pace.margin > pace.bestMargin, 'and probes on');
   const before = pace.margin;
   pace.finishLap(61, false, true);
   assert.ok(pace.margin < before && pace.ceiling <= before, 'excursion backs off');

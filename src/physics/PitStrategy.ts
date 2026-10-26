@@ -138,6 +138,8 @@ export function maybeEnterPitLane(car: Car, track: Track): void {
   // A window a few steps long at any speed: the car crosses the line between two steps.
   if (d < lane.entry || d > lane.entry + 15) return;
   car.isPitting = true;
+  // The lap the car is on holds the stop (the line may lie in the lane): no reference for learning either.
+  car.lapCompromised = true;
   car.wantsToPit = false;
   car.pitStopsCount++;
   car.pitPhase = 'lane';
