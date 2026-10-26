@@ -70,6 +70,8 @@ export function laneChangePerMetre(speed: number): number {
 export const TOW_STRAIGHT = 200;
 /** Gap (m) at which a car in the tow pulls out to pass on a straight. */
 export const TOW_PULL_OUT = 18;
+/** A running rival this far ahead (m) has pulled away: the pass is given up and the car rejoins its line. */
+export const PASS_ABANDON = 70;
 
 /**
  * Lateral plan per car: the precomputed racing line plus the driver's learned shift, then the race
@@ -131,6 +133,7 @@ export function planRaceLine(car: Car, cars: Car[], track: Track, dt: number): v
     });
   };
   if (plan && gap(track, car.pos, plan.target.pos) < -9 && laneFree(0)) plan = undefined;
+  if (plan && plan.target.isAlive && gap(track, car.pos, plan.target.pos) > PASS_ABANDON) plan = undefined;
   const ahead = cars.filter(other => other !== car && !other.wreckRemoved && !other.isPitting && !other.isFinishedRace)
     .map(other => ({ other, distance: gap(track, car.pos, other.pos) }))
     .filter(({ other, distance }) => distance > 5 && distance < (other.isAlive ? 70 : 100) && (!other.isAlive || Math.cos(other.heading - car.heading) > .8))

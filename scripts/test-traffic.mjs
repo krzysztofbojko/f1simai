@@ -10,7 +10,7 @@ try {
  const {Car} = await import(pathToFileURL(join(dir,'car.mjs')));
  const {Vector2} = await import(pathToFileURL(join(dir,'vector.mjs')));
  const {captureMotion,resolveTraffic,avoidTraffic,computeWake} = await import(pathToFileURL(join(dir,'traffic.mjs')));
- const {planRaceLine,updateRaceSafety,gap,YELLOW_EDGE_MARGIN} = await import(pathToFileURL(join(dir,'race.mjs')));
+ const {planRaceLine,updateRaceSafety,gap,YELLOW_EDGE_MARGIN,PASS_ABANDON} = await import(pathToFileURL(join(dir,'race.mjs')));
  const {Population} = await import(pathToFileURL(join(dir,'population.mjs')));
  const {Track} = await import(pathToFileURL(join(dir,'track.mjs')));
  const {NeuralNetwork} = await import(pathToFileURL(join(dir,'network.mjs')));
@@ -122,6 +122,10 @@ try {
  const waiting=car(150,0,25), slow=car(172,0,18), left=car(160,3.2,18), right=car(160,-3.2,18);
  planRaceLine(waiting,[waiting,slow,left,right],circuit,1/60);
  assert.equal(waiting.raceLineOffset,0);assert.equal(waiting.overtakingTargetName,'');
+ // A rival that pulls away ends the pass (here one the car pulled out of the tow for on the straight): the car does not hold a lane beside a car far up the road.
+ const chaser=car(150,0,25), quick=car(165,0,18);quick.driverName='Quick';
+ planRaceLine(chaser,[chaser,quick],circuit,1/60);assert.equal(chaser.overtakingTargetName,'Quick','a faster car closing in starts a pass');
+ quick.pos=new Vector2(150+PASS_ABANDON+10,0);planRaceLine(chaser,[chaser,quick],circuit,1/60);assert.equal(chaser.overtakingTargetName,'','a pass on a rival that pulled away is given up');
  // Future lane reservations behind the queue leader cannot deadlock a wreck bypass.
  const queueLeader=car(150,0),follower=car(140,0),queueWreck=car(180,0),occupiedLeft=car(165,-3.2);
  queueLeader.yellowFlag=follower.yellowFlag=true;queueWreck.isAlive=false;
