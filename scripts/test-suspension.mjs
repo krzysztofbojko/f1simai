@@ -161,6 +161,32 @@ try {
     }
   }
 
+  // A locked axle's sliding work heats its tread (the discs no longer take it), at any step size.
+  // Trail braking on hot discs: the cornering load leaves the fronts too little grip for a full pedal.
+  const lockRun = (dt, brake) => {
+    const car = planeCar(80);
+    car.brakeTempFront = car.brakeTempRear = 600;
+    for (let t = 0; t < 1 - 1e-9; t += dt) { car.timeSinceCheckpoint = 0; car.updatePhysics({ throttle: 0.5, brake: 0, steer: 0.05 }, dt, tyrePlane); }
+    let locked = 0;
+    for (let t = 0; t < 1.2 - 1e-9; t += dt) {
+      car.timeSinceCheckpoint = 0;
+      car.updatePhysics({ throttle: 0, brake, steer: 0.05 }, dt, tyrePlane);
+      if (car.wheelLockFront) locked += dt;
+    }
+    return { temp: car.tyreTempFront, locked };
+  };
+  // How long the axle stays locked depends on the lock detector; the heat per locked second must not.
+  const lockHeat = Car.LOCKED_TYRE_HEAT;
+  const locks = [1 / 30, 1 / 60, 1 / 120].map(dt => {
+    Car.LOCKED_TYRE_HEAT = 0; const cold = lockRun(dt, 1);
+    Car.LOCKED_TYRE_HEAT = lockHeat; const hot = lockRun(dt, 1);
+    return { locked: hot.locked, rate: (hot.temp - cold.temp) / Math.max(1e-9, hot.locked) };
+  });
+  const lockReport = locks.map(r => `${r.rate.toFixed(1)} K/s over ${r.locked.toFixed(2)} s`).join(' | ');
+  assert.ok(locks.every(r => r.locked > 0.3), `full brake in a corner locks the fronts: ${lockReport}`);
+  assert.ok(locks[2].rate > 15 && locks[2].rate < 80, `a lock flash-heats the front tread: ${lockReport}`);
+  for (const r of locks) assert.ok(Math.abs(r.rate - locks[2].rate) < 0.3 * locks[2].rate, `lock heating step independence: ${lockReport}`);
+
   // A non-finite value is caught before it reaches the position: the car is retired and respawnable, its state finite.
   for (const poison of [car => { car.heave = NaN; }, car => { car.vel.x = NaN; }, car => { car.angularVelocity = Infinity; }]) {
     const car = planeCar(50), bystander = planeCar(50);

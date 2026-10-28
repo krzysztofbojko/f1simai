@@ -601,6 +601,7 @@ export class Car {
   public static readonly LOCKED_GRIP = 0.85;
   public static readonly LOCKED_LATERAL = 0.3;
   public static readonly LOCK_WEAR_RATE = 0.01;           // tyre wear per second locked (flat spot)
+  public static LOCKED_TYRE_HEAT = 0.35;                  // share of a locked axle's sliding work that heats the tread; the road takes the rest (thermal effusivity: rubber ~650, asphalt ~1250)
   public brakeTempFront = Car.BRAKE_TEMP_START;
   public brakeTempRear = Car.BRAKE_TEMP_START;
   public wheelLockFront = false;
@@ -1705,14 +1706,18 @@ export class Car {
     // use is kept as the share of that ellipse, so the drive, brake and lock budgets see a saturated front as saturated.
     if (dynamicWeight > 0) { this.frontLateralInUse = Math.abs(dynamicFrontForce) / Car.FRONT_GRIP_BIAS; this.rearLateralInUse = Math.abs(dynamicRearForce); }
     else { const share = frontLoad / Math.max(1, frontLoad + rearLoad); this.frontLateralInUse = Math.abs(lateralForce) * share; this.rearLateralInUse = Math.abs(lateralForce) * (1 - share); }
-    // Longitudinal creep heats the driven / braked axles too.
-    frontSlipPower += Car.TYRE_LONG_HEAT * Math.abs(frontFx) * speedMag;
-    rearSlipPower += Car.TYRE_LONG_HEAT * Math.abs(rearFx) * speedMag;
+    // Longitudinal creep heats the driven / braked axles too. A locked axle slides at the full road
+    // speed: its braking work, which the discs no longer take, goes into the tread and the road.
+    const lockHeat = (locked: boolean, fx: number) => locked ? Car.LOCKED_TYRE_HEAT * Math.abs(fx) * speedMag : 0;
+    const frontLockPower = lockHeat(this.wheelLockFront, frontFx), rearLockPower = lockHeat(this.wheelLockRear, rearFx);
+    if (!this.wheelLockFront) frontSlipPower += Car.TYRE_LONG_HEAT * Math.abs(frontFx) * speedMag;
+    if (!this.wheelLockRear) rearSlipPower += Car.TYRE_LONG_HEAT * Math.abs(rearFx) * speedMag;
     const wetNow = this.wetness;
     if (wetNow < this.lapWetMin) this.lapWetMin = wetNow;
     if (wetNow > this.lapWetMax) this.lapWetMax = wetNow;
-    this.stepTyre(true, frontSlipPower * Car.TYRE_FRONT_HEAT, frontLoad, speedMag, dt);
-    this.stepTyre(false, rearSlipPower, rearLoad, speedMag, dt);
+    // TYRE_FRONT_HEAT weights the front's working slip; the sliding work of a lock is already a power.
+    this.stepTyre(true, frontSlipPower * Car.TYRE_FRONT_HEAT + frontLockPower, frontLoad, speedMag, dt);
+    this.stepTyre(false, rearSlipPower + rearLockPower, rearLoad, speedMag, dt);
     this.tireUtilization = Math.min(1, Math.hypot(frontFx + rearFx, lateralForce) / Math.max(1, frontLimit + rearLimit));
     const drifting = Math.abs(lateralSpeed) > 4.5 && speedMag > 18;
     this.isSkidding = slipRatio > 0.01 || drifting;
