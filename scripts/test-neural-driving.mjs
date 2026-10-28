@@ -467,6 +467,9 @@ try {
   // Ride-height aero: normalised to ~1 at cornering heights, penalised when the floor chokes, heights fall with speed.
   assert.ok(Math.abs(Car.rideHeightLift(0.0244, 0.0464) - 1) < 0.03, 'unit lift at a typical cornering height');
   assert.ok(Car.rideHeightLift(0.004, 0.010) < Car.rideHeightLift(0.016, 0.032), 'a choked floor loses downforce');
+  assert.ok(Math.abs(Car.aeroBalance(0.0244, 0.0464) - Car.AERO_BALANCE) < 1e-12, 'clean-air balance at the typical cornering height');
+  assert.ok(Car.aeroBalance(0.018, 0.052) > Car.AERO_BALANCE + 0.01 && Car.aeroBalance(0.026, 0.040) < Car.AERO_BALANCE, 'the centre of pressure moves forward as the nose dives, back as the tail squats');
+  assert.ok(Math.abs(Car.aeroBalance(0, 0.2) - Car.AERO_BALANCE) <= 0.04 + 1e-12, 'the balance shift is bounded');
   assert.ok(gearCar.rideHeightFront < Car.FRH_STATIC && gearCar.rideHeightRear < Car.RRH_STATIC, 'downforce compresses the axles at speed');
   // Network inputs: rays + 5 driving inputs + 8 vehicle-state inputs that follow the car.
   const inputCar = new Car(gp.startPosition, gp.startAngle, new NeuralNetwork([driverInputCount(25), 4, 3]), '#fff', 'inputs', 60, 25);

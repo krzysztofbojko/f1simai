@@ -504,10 +504,22 @@ export class Car {
    * `stall` overrides the floor's choke factor (1 = attached flow, 0.75 = fully stalled).
    */
   static rideHeightLift(frh: number, rrh: number, stall?: number): number {
-    const front = 1 + 0.35 * Math.exp(-(((frh - 0.016) / 0.018) ** 2));
-    const rear = 1 + 0.45 * (rrh / 0.035) * Math.exp(1 - rrh / 0.035);
     stall ??= frh < 0.008 || rrh < 0.015 ? 0.75 + 0.25 * Math.max(0, Math.min(1, Math.min(frh / 0.008, rrh / 0.015))) : 1;
-    return front * rear * stall / 1.83;
+    return Car.floorFrontEfficiency(frh) * Car.floorRearEfficiency(rrh) * stall / 1.83;
+  }
+  private static floorFrontEfficiency(frh: number): number { return 1 + 0.35 * Math.exp(-(((frh - 0.016) / 0.018) ** 2)); }
+  private static floorRearEfficiency(rrh: number): number { return 1 + 0.45 * (rrh / 0.035) * Math.exp(1 - rrh / 0.035); }
+  /** Front share of the downforce at the typical cornering height (the clean-air balance). */
+  public static readonly AERO_BALANCE = 0.46;
+  public static AERO_BALANCE_SENSITIVITY = 0.25;
+  /**
+   * Front share of the downforce from the ride heights: the front of the floor works harder when the
+   * nose dives (braking), the diffuser when the tail drops, so the centre of pressure moves with
+   * pitch (about +1.6 points under braking, -0.7 under power), up to 4 points either way.
+   */
+  static aeroBalance(frh: number, rrh: number): number {
+    const shift = Car.AERO_BALANCE_SENSITIVITY * (Car.floorFrontEfficiency(frh) / Car.floorFrontEfficiency(0.0244) - Car.floorRearEfficiency(rrh) / Car.floorRearEfficiency(0.0464));
+    return Car.AERO_BALANCE + Math.max(-0.04, Math.min(0.04, shift));
   }
 
   /**
@@ -1555,7 +1567,7 @@ export class Car {
     downforceMag -= wakeLostDownforce;
     // A crosswind stalls the front wing first: 60% of its loss comes off the front axle.
     const crosswindFrontShift = crosswindLoss > 0 ? 0.14 * downforceMag * crosswindLoss / (1 - crosswindLoss) : 0;
-    const aeroFront = downforceMag * 0.46 - 0.14 * wakeLostDownforce - crosswindFrontShift;
+    const aeroFront = downforceMag * Car.aeroBalance(this.floorHeightFront, this.floorHeightRear) - 0.14 * wakeLostDownforce - crosswindFrontShift;
     this.stepSuspension(dt, aeroFront, downforceMag - aeroFront, this.longitudinalG * Car.GRAVITY, this.lateralG * Car.GRAVITY);
 
     // Aerodynamic drag opposes the velocity relative to the air (a headwind costs top speed,

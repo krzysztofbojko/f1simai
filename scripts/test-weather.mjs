@@ -198,7 +198,12 @@ try {
     for (let i = 0; i < 3; i++) { c.updatePhysics({ throttle: 0, brake: 0.1, steer: 0 }, 1 / 60, plane); c.timeSinceCheckpoint = 0; }
     return { locked, lateral: locked ? lateral / locked : 0, flatSpot, freed: !c.wheelLockFront };
   };
+  // The lock mechanics in isolation: a fixed aero balance (the centre of pressure moving forward
+  // as the nose dives gives the fronts downforce and shortens the lock, see PHYSICS.md).
+  const balanceSensitivity = Car.AERO_BALANCE_SENSITIVITY;
+  Car.AERO_BALANCE_SENSITIVITY = 0;
   const stab = corner(1), trail = corner(0.3);
+  Car.AERO_BALANCE_SENSITIVITY = balanceSensitivity;
   // The lock holds until the warming tread grips enough again (about 10 of the 30 steps).
   assert.ok(stab.locked >= 8 && trail.locked === 0, `fronts locked ${stab.locked} steps at full pedal, ${trail.locked} at 30%`);
   assert.ok(stab.lateral < 0.5 && stab.flatSpot > 2 * trail.flatSpot && stab.freed, `locked fronts carry ${stab.lateral.toFixed(2)} g sideways, flat spot ${(stab.flatSpot * 100).toFixed(2)}% wear; freed on a light pedal`);
