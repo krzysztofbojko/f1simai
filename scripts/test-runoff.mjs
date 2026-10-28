@@ -99,6 +99,13 @@ try {
   };
   const partial=make(6.8,20); partial.updatePhysics(idle,1/60,track);
   assert.equal(partial.isAlive,true); assert.equal(partial.surfaceFractions.asphalt,0.5); assert.equal(partial.surfaceFractions.grass,0.5);
+  // Braking with the right-hand wheels on grass: the left (asphalt) side brakes harder and turns
+  // the car left, towards the asphalt, the same at any step; on even asphalt it brakes straight.
+  // Compared over 0.25 s: without countersteer the car then starts to spin, where any difference grows.
+  const brakeYaw = (y, dt) => { const c = make(y, 40); for (let t = 0; t < 0.25 - 1e-9; t += dt) c.updatePhysics({ ...idle, brake: 0.8 }, dt, track); return c.heading; };
+  const split = [1/30, 1/60, 1/120].map(dt => brakeYaw(6.8, dt)), even = brakeYaw(0, 1/60);
+  assert.ok(split.every(h => h < -0.01) && Math.abs(even) < 1e-6, `split-grip braking yaws towards the asphalt: ${split.map(h => h.toFixed(4)).join(' / ')} rad, even ${even.toFixed(6)}`);
+  assert.ok(Math.max(...split) - Math.min(...split) < 0.3 * Math.abs(split[2]), `split-grip yaw step independence: ${split.map(h => h.toFixed(4)).join(' / ')}`);
   const asphalt=make(0,30), gravel=make(9.3,30);
   asphalt.updatePhysics(idle,1/60,track); gravel.updatePhysics(idle,1/60,track);
   assert.equal(gravel.surfaceFractions.gravel,1);

@@ -355,6 +355,10 @@ export class Car {
   public static readonly KERB_ROUGHNESS = 0.003;
   /** Kerb grip as a share of the asphalt's: painted concrete, slippery in the wet. */
   static kerbGrip(wetness: number): number { return 0.8 - 0.35 * Math.max(0, Math.min(1, wetness)); }
+  /** Friction coefficient of a wheel on `surface` with a tyre that grips `asphaltMu` on the asphalt. */
+  static surfaceMu(surface: SurfaceType, asphaltMu: number, wetness: number): number {
+    return surface === 'asphalt' ? asphaltMu : surface === 'kerb' ? Car.kerbGrip(wetness) * asphaltMu : surface === 'grass' ? 0.45 : 0.60;
+  }
   public static readonly SPRUNG_MASS_SHARE = 0.85;
   /** Pitch inertia in kg·m² per kg of sprung mass. */
   public static readonly PITCH_INERTIA_FACTOR = 1.85;
@@ -823,6 +827,8 @@ export class Car {
 
   public surface: SurfaceType = 'asphalt';
   public surfaceFractions = { asphalt: 1, kerb: 0, grass: 0, gravel: 0 };
+  /** Surface under each wheel: rear left, rear right, front left, front right. */
+  public wheelSurfaces: SurfaceType[] = ['asphalt', 'asphalt', 'asphalt', 'asphalt'];
   /**
    * Track limits as raced: the wheels of one side may run over the kerb beyond the white line
    * (the grass then costs them grip); the whole car off, or any wheel in the gravel, is an excursion.
@@ -1056,6 +1062,7 @@ export class Car {
     this.isAlive = true;
     this.surface = 'asphalt';
     this.surfaceFractions = { asphalt: 1, kerb: 0, grass: 0, gravel: 0 };
+    this.wheelSurfaces.fill('asphalt');
     this.eliminationReason = null;
     this.barrierImpactSpeed = 0;
     this.incidentActive = false;
@@ -1563,14 +1570,17 @@ export class Car {
     const rearLoad = totalLoad - frontLoad;
     this.weightFrontRatio = frontLoad / (frontLoad + rearLoad);
     const fractions = this.surfaceFractions;
-    const surfaceMu = (fractions.asphalt + fractions.kerb * Car.kerbGrip(this.wetness)) * this.baseTireGrip + fractions.grass * 0.45 + fractions.gravel * 0.60;
+    // Each wheel grips on its own surface; an axle's limit is the mean of its two wheels.
+    const wet = this.wetness;
+    const [muRL, muRR, muFL, muFR] = this.wheelSurfaces.map(surface => Car.surfaceMu(surface, this.baseTireGrip, wet));
     this.aquaplaning = Car.aquaplaneLoss(this.tyreCompound, this.wetness, speedMag);
-    const mu = surfaceMu * this.lapGripFactor * (1 - this.aquaplaning);
+    const muScale = this.lapGripFactor * (1 - this.aquaplaning);
+    const frontMu = (muFL + muFR) / 2 * muScale, rearMu = (muRL + muRR) / 2 * muScale;
     // Roll moves load to the outer wheels; with load sensitivity that costs the axle grip.
     const frontGripLoad = Car.axleGripLoad(frontLoad, this.rollTransferFront);
     const rearGripLoad = Car.axleGripLoad(rearLoad, this.rollTransferRear);
-    const frontLimit = mu * this.tyreGripFront * frontGripLoad;
-    const rearLimit = mu * this.tyreGripRear * rearGripLoad;
+    const frontLimit = frontMu * this.tyreGripFront * frontGripLoad;
+    const rearLimit = rearMu * this.tyreGripRear * rearGripLoad;
 
     const icePower = this.stepGearbox(forwardSpeed, actualThrottle, dt);
     // Engine braking when off the throttle: compression drag through the current ratio.
@@ -1725,7 +1735,11 @@ export class Car {
       steeredFrontDrag = (frontFx * (cosSteer - 1) - frontForce * sinSteer) * dynamicWeight;
       const yawInertia = currentMass * Car.YAW_INERTIA_FACTOR;
       // The crosswind side force acts behind the centre of gravity and twists the car with each gust.
-      const yawAcceleration = (toFront * frontBodyLateral - toRear * rearForce - Car.SIDE_FORCE_LEVER * sideForce) / yawInertia;
+      // Drive and brake forces split between the wheels of an axle by their grip: with one side on
+      // grass or a kerb the side on asphalt pulls harder and turns the car towards it.
+      const sideSplit = (fx: number, muLeft: number, muRight: number) => fx * (muLeft - muRight) / Math.max(1e-6, muLeft + muRight);
+      const surfaceYawMoment = (sideSplit(frontFx, muFL, muFR) + sideSplit(rearFx, muRL, muRR)) * this.trackWidthMeters / 2;
+      const yawAcceleration = (toFront * frontBodyLateral - toRear * rearForce - Car.SIDE_FORCE_LEVER * sideForce + surfaceYawMoment) / yawInertia;
       dynamicFrontForce = frontForce; dynamicRearForce = rearForce;
       frontSlipPower = Car.TYRE_LAT_HEAT * Math.abs(frontForce * u * Math.tan(alphaFront));
       rearSlipPower = Car.TYRE_LAT_HEAT * Math.abs(rearForce * u * Math.tan(alphaRear));
@@ -1916,9 +1930,11 @@ export class Car {
         const wheel = this.wheelPoints[k++], along = front * half, across = left * this.width / 2;
         wheel.x = this.pos.x + fx * along + -fy * across;
         wheel.y = this.pos.y + fy * along + fx * across;
-        fractions[track.sampleSurface(wheel).surface] += 0.25;
+        const surface = track.sampleSurface(wheel).surface;
+        this.wheelSurfaces[k - 1] = surface;
+        fractions[surface] += 0.25;
       }
-    } else fractions.asphalt = 1;
+    } else { fractions.asphalt = 1; this.wheelSurfaces.fill('asphalt'); }
     // Wheels on a kerb are still on the road: the car is off it only on grass or gravel.
     this.surface = fractions.gravel > 0 ? 'gravel' : fractions.grass > 0 ? 'grass' : 'asphalt';
   }
