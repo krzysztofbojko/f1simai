@@ -174,6 +174,22 @@ try {
     // The relaxed slip angle (a lag of relaxation length / speed) follows the same course at any step.
     assert.ok(slips[2] > 0 && Math.max(...slips) - Math.min(...slips) < 0.1 * slips[2], `front slip angle step independence ${JSON.stringify(ctrl)}: ${slips.map(a => a.toFixed(5)).join(' / ')} rad`);
   }
+  // The limited-slip differential resists the rear wheels' speed difference: on power (its ramp locks
+  // with the drive force) the car yaws slower than with an open differential.
+  {
+    const diff = { preload: Car.DIFF_PRELOAD, power: Car.DIFF_POWER_LOCK, coast: Car.DIFF_COAST_LOCK };
+    const yawRate = ctrl => {
+      const car = planeCar(40);
+      for (let t = 0; t < 0.5 - 1e-9; t += 1 / 60) { car.timeSinceCheckpoint = 0; car.updatePhysics(ctrl, 1 / 60, tyrePlane); }
+      return car.angularVelocity;
+    };
+    const ctrl = { throttle: 0.6, brake: 0, steer: 0.06 };
+    const locked = yawRate(ctrl);
+    Car.DIFF_PRELOAD = Car.DIFF_POWER_LOCK = Car.DIFF_COAST_LOCK = 0;
+    const open = yawRate(ctrl);
+    Object.assign(Car, { DIFF_PRELOAD: diff.preload, DIFF_POWER_LOCK: diff.power, DIFF_COAST_LOCK: diff.coast });
+    assert.ok(locked > 0 && locked < 0.97 * open, `differential slows the yaw: ${locked.toFixed(4)} vs open ${open.toFixed(4)} rad/s`);
+  }
 
   // A locked axle's sliding work heats its tread (the discs no longer take it), at any step size.
   // Trail braking on hot discs: the cornering load leaves the fronts too little grip for a full pedal.

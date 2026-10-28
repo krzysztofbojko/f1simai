@@ -176,6 +176,16 @@ export class Car {
   public static readonly SLIDE_SLIP: number = 0.38;
   /** Tyre cornering stiffness in N per N of vertical load per radian of slip angle (the force peaks at about 3°). */
   public static readonly CORNERING_STIFFNESS: number = 30;
+  /**
+   * Limited-slip differential: the rear wheels may differ in speed only against a locking force,
+   * preload plus a ramp share of the axle's drive (POWER) or braking (COAST) force. Turning makes
+   * the outer wheel run faster, so the lock resists the yaw rate (a stabilising, understeering moment).
+   * DIFF_SLIP is the wheel-speed difference (as a share of road speed) at which the lock is ~76% on.
+   */
+  public static DIFF_PRELOAD = 300;
+  public static DIFF_POWER_LOCK = 0.3;
+  public static DIFF_COAST_LOCK = 0.2;
+  public static DIFF_SLIP = 0.02;
   /** Yaw inertia in kg·m² per kg of total mass (≈1170 kg·m² for a 900 kg car). */
   public static readonly YAW_INERTIA_FACTOR: number = 1.3;
   /**
@@ -1793,7 +1803,13 @@ export class Car {
       // grass or a kerb the side on asphalt pulls harder and turns the car towards it.
       const sideSplit = (fx: number, muLeft: number, muRight: number) => fx * (muLeft - muRight) / Math.max(1e-6, muLeft + muRight);
       const surfaceYawMoment = (sideSplit(frontFx, muFL, muFR) + sideSplit(rearFx, muRL, muRR)) * this.trackWidthMeters / 2;
-      const yawAcceleration = (toFront * frontBodyLateral - toRear * rearForce - Car.SIDE_FORCE_LEVER * sideForce + surfaceYawMoment) / yawInertia;
+      // The differential's moment saturates (tanh) with the wheel-speed difference ω·track / u.
+      const halfTrack = this.trackWidthMeters / 2;
+      const diffForce = Car.DIFF_PRELOAD + (rearFx > 0 ? Car.DIFF_POWER_LOCK : Car.DIFF_COAST_LOCK) * Math.abs(rearFx);
+      const diffSlip = 2 * halfTrack * yawPrevious / (u * Car.DIFF_SLIP), diffSech = 1 / Math.cosh(diffSlip);
+      const diffYawMoment = -diffForce * halfTrack * Math.tanh(diffSlip);
+      const diffDamping = diffForce * halfTrack * 2 * halfTrack / (u * Car.DIFF_SLIP) * diffSech * diffSech;
+      const yawAcceleration = (toFront * frontBodyLateral - toRear * rearForce - Car.SIDE_FORCE_LEVER * sideForce + surfaceYawMoment + diffYawMoment) / yawInertia;
       dynamicFrontForce = frontForce; dynamicRearForce = rearForce;
       frontSlipPower = Car.TYRE_LAT_HEAT * Math.abs(frontForce * u * Math.tan(alphaFront));
       rearSlipPower = Car.TYRE_LAT_HEAT * Math.abs(rearForce * u * Math.tan(alphaRear));
@@ -1806,7 +1822,7 @@ export class Car {
         return Car.CORNERING_STIFFNESS * load * sech * sech;
       };
       const yawDamping = relax * (toFront * toFront * axleStiffness(alphaFront, frontLoad, frontLateral * Car.FRONT_GRIP_BIAS) * cosSteer
-        + toRear * toRear * axleStiffness(alphaRear, rearLoad, rearLateral)) / u;
+        + toRear * toRear * axleStiffness(alphaRear, rearLoad, rearLateral)) / u + diffDamping;
       const dynamicYaw = Math.max(-3.5, Math.min(3.5, yawPrevious + yawAcceleration * dt / (1 + dt * yawDamping / yawInertia)));
       const dynamicLateral = frontBodyLateral + rearForce;
       lateralForce = kinematicLateral * (1 - dynamicWeight) + dynamicLateral * dynamicWeight;
