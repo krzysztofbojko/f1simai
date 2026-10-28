@@ -325,8 +325,8 @@ export class Car {
    */
   public static readonly FRH_STATIC = 0.030;
   public static readonly RRH_STATIC = 0.055;
-  public static readonly AXLE_STIFFNESS_FRONT = 380000; // 2 x 145 kN/m springs + 90 kN/m heave element
-  public static readonly AXLE_STIFFNESS_REAR = 305000;  // 2 x 115 kN/m + 75 kN/m
+  public static readonly AXLE_STIFFNESS_FRONT = 440000; // 2 x 165 kN/m springs + 110 kN/m heave element
+  public static readonly AXLE_STIFFNESS_REAR = 350000;  // 2 x 130 kN/m + 90 kN/m
   public rideHeightFront = Car.FRH_STATIC;
   public rideHeightRear = Car.RRH_STATIC;
   public aeroStall = false;
@@ -750,7 +750,7 @@ export class Car {
    * AIR_DENSITY_REF at 25 deg C: cold air gives more downforce and drag, hot air less.
    */
   get airDensity(): number { return Car.AIR_DENSITY_REF * (273.15 + Car.TYRE_AMBIENT) / (273.15 + Car.config.weather.airTemp); }
-  public readonly downforceCoeff: number = 3.10; // Cl * A [m^2]
+  public readonly downforceCoeff: number = 4.30; // Cl * A [m^2]: closed-wing (Z-Mode) downforce, about 15% below a 2025 car's ~5
   public readonly baseTireGrip: number = 1.85; // Peak friction coefficient mu
 
   // Organic Performance Variations

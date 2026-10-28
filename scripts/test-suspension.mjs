@@ -115,7 +115,7 @@ try {
   assert.ok(scrub.plank > 0 && free.plank === 0 && scrub.speed < free.speed - 0.5, `plank drag: ${scrub.speed.toFixed(2)} vs ${free.speed.toFixed(2)} m/s`);
   // Porpoising: with the floor working near its stall height the flow hysteresis settles the body
   // into a bounded 3–10 Hz bounce, at any simulation step; a floor clear of the stall runs steady.
-  const bounce = (dt, downforceCoeff = 5) => {
+  const bounce = (dt, downforceCoeff = 6) => {
     const plane = { checkpoints: [], timingGates: [], width: 76, isOutOfBounds: () => false };
     const car = new Car({ x: 0, y: 0, clone() { return this; } }, 0);
     car.pos = car.vel.clone(); car.prevPos = car.vel.clone();
@@ -180,11 +180,11 @@ try {
   const lockRun = (dt, brake) => {
     const car = planeCar(80);
     car.brakeTempFront = car.brakeTempRear = 600;
-    for (let t = 0; t < 1 - 1e-9; t += dt) { car.timeSinceCheckpoint = 0; car.updatePhysics({ throttle: 0.5, brake: 0, steer: 0.05 }, dt, tyrePlane); }
+    for (let t = 0; t < 1 - 1e-9; t += dt) { car.timeSinceCheckpoint = 0; car.updatePhysics({ throttle: 0.5, brake: 0, steer: 0.06 }, dt, tyrePlane); }
     let locked = 0;
     for (let t = 0; t < 1.2 - 1e-9; t += dt) {
       car.timeSinceCheckpoint = 0;
-      car.updatePhysics({ throttle: 0, brake, steer: 0.05 }, dt, tyrePlane);
+      car.updatePhysics({ throttle: 0, brake, steer: 0.06 }, dt, tyrePlane);
       if (car.wheelLockFront) locked += dt;
     }
     return { temp: car.tyreTempFront, locked };
