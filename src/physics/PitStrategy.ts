@@ -281,7 +281,7 @@ function finishService(car: Car): void {
   car.tyreCompound = pitCompound(car);
   car.usedCompounds.add(car.tyreCompound);
   car.tyreWearFront = car.tyreWearRear = 0; // fresh, pre-heated set
-  car.tyreTempFront = car.tyreTempRear = 85;
+  car.setTyreTemps(85);
 }
 
 /** Past the exit line: back on the track at the lane's speed, the stop shown above the car for a while. */

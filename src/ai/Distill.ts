@@ -35,8 +35,8 @@ export function collectExpertSamples(track: Track, rayCount: number, seconds: nu
   const scrambleState = () => {
     car.ersEnergy = random() * Car.ERS_CAPACITY;
     // Half of the time the tyres stay at the nominal (training) state so the common case is learned precisely.
-    if (random() < 0.5) { car.tyreTempFront = car.tyreTempRear = Car.TYRE_OPTIMUM; car.tyreWearFront = car.tyreWearRear = 0; return; }
-    car.tyreTempFront = 65 + random() * 65; car.tyreTempRear = 65 + random() * 65;
+    if (random() < 0.5) { car.setTyreTemps(Car.TYRE_OPTIMUM); car.tyreWearFront = car.tyreWearRear = 0; return; }
+    car.setTyreTemps(65 + random() * 65, 65 + random() * 65);
     car.tyreWearFront = random() * 0.6; car.tyreWearRear = random() * 0.6;
   };
   car.updateDimensionsForTrackWidth(track.width);

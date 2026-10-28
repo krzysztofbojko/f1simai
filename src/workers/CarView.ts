@@ -45,6 +45,8 @@ export interface CarView {
   engineRpm: number;
   tyreTempFront: number;
   tyreTempRear: number;
+  tyreSurfaceTempFront: number;
+  tyreSurfaceTempRear: number;
   tyreWearFront: number;
   tyreWearRear: number;
   tyreCompound: TyreCompound;
@@ -134,6 +136,8 @@ export function toCarView(car: Car, ctrl?: CarControl, isHeadless: boolean = fal
     engineRpm: Math.round(car.engineRpm),
     tyreTempFront: Math.round(car.tyreTempFront),
     tyreTempRear: Math.round(car.tyreTempRear),
+    tyreSurfaceTempFront: Math.round(car.tyreSurfaceTempFront),
+    tyreSurfaceTempRear: Math.round(car.tyreSurfaceTempRear),
     tyreWearFront: Math.round(car.tyreWearFront * 1000) / 1000,
     tyreWearRear: Math.round(car.tyreWearRear * 1000) / 1000,
     tyreCompound: car.tyreCompound,
@@ -234,6 +238,8 @@ export function applyCarView(car: Car, view: CarView): void {
   car.porpoisingHz = view.porpoisingHz ?? 0;
   car.tyreTempFront = view.tyreTempFront ?? 100;
   car.tyreTempRear = view.tyreTempRear ?? 100;
+  car.tyreSurfaceTempFront = view.tyreSurfaceTempFront ?? car.tyreTempFront;
+  car.tyreSurfaceTempRear = view.tyreSurfaceTempRear ?? car.tyreTempRear;
   car.tyreWearFront = view.tyreWearFront ?? 0;
   car.tyreWearRear = view.tyreWearRear ?? 0;
   car.tyreCompound = view.tyreCompound ?? 'medium';

@@ -54,7 +54,7 @@ export function exportDriver(population: Population, index: number): any {
     lastLapTime: record?.lastLapTime ?? car.lastLapTime,
     pace: car.pace.toJSON(),
     ers: Math.round(car.ersEnergy),
-    tyres: { tempFront: car.tyreTempFront, tempRear: car.tyreTempRear, wearFront: car.tyreWearFront, wearRear: car.tyreWearRear },
+    tyres: { tempFront: car.tyreTempFront, tempRear: car.tyreTempRear, surfaceFront: car.tyreSurfaceTempFront, surfaceRear: car.tyreSurfaceTempRear, wearFront: car.tyreWearFront, wearRear: car.tyreWearRear },
     lineNet: car.lineNet ? car.lineNet.toJSON() : null,
     recentLaps: record ? [...record.recentLaps] : [],
     lapsCount: record?.lapsCount ?? 0,
@@ -107,7 +107,8 @@ export function applyDriverModel(car: Car, record: TeamRecord | undefined, drive
   if (!live && typeof driverData.ers === 'number') car.ersEnergy = Math.max(0, Math.min(Car.ERS_CAPACITY, driverData.ers));
   if (!live && driverData.tyres) {
     const t = driverData.tyres, num = (v: unknown, d: number) => typeof v === 'number' && Number.isFinite(v) ? v : d;
-    car.tyreTempFront = num(t.tempFront, 85); car.tyreTempRear = num(t.tempRear, 85);
+    car.setTyreTemps(num(t.tempFront, 85), num(t.tempRear, 85));
+    car.tyreSurfaceTempFront = num(t.surfaceFront, car.tyreTempFront); car.tyreSurfaceTempRear = num(t.surfaceRear, car.tyreTempRear);
     car.tyreWearFront = Math.max(0, Math.min(1, num(t.wearFront, 0))); car.tyreWearRear = Math.max(0, Math.min(1, num(t.wearRear, 0)));
   }
   if (driverData.lineNet && car.lineNet) car.lineNet.fromJSON(driverData.lineNet);

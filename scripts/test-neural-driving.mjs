@@ -471,7 +471,7 @@ try {
   // Network inputs: rays + 5 driving inputs + 8 vehicle-state inputs that follow the car.
   const inputCar = new Car(gp.startPosition, gp.startAngle, new NeuralNetwork([driverInputCount(25), 4, 3]), '#fff', 'inputs', 60, 25);
   inputCar.updateDimensionsForTrackWidth(gp.width); inputCar.updateSensors(gp);
-  inputCar.tyreTempFront = 140; inputCar.tyreTempRear = 60; inputCar.tyreWearFront = 0.4; inputCar.ersEnergy = Car.ERS_CAPACITY / 2; inputCar.gear = 4;
+  inputCar.setTyreTemps(140, 60); inputCar.tyreWearFront = 0.4; inputCar.ersEnergy = Car.ERS_CAPACITY / 2; inputCar.gear = 4;
   const planned = inputCar.planDrive(gp).inputs;
   assert.equal(planned.length, driverInputCount(25));
   const vehicleState = planned.slice(-8);

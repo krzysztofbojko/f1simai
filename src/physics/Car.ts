@@ -564,14 +564,26 @@ export class Car {
   public static readonly TYRE_OPTIMUM = 100;     // deg C
   public static readonly TYRE_AMBIENT = 25;      // air (deg C) of the calibrated reference weather
   public static readonly TYRE_TRACK = 38;        // track surface (deg C) of the reference weather
-  public static readonly TYRE_HEAT_CAPACITY = 12000; // J/K per axle (tread + carcass: ~40 s time constant)
+  /**
+   * Two thermal layers per axle. The tread surface takes the sliding heat and touches the air and
+   * the track (a few seconds' time constant); the carcass under it takes the flexing (hysteresis)
+   * heat and exchanges heat only with the surface (tens of seconds). Grip follows a blend of both.
+   */
+  public static TYRE_SURFACE_CAPACITY = 3000;          // J/K per axle (a few mm of tread: ~1.3 s time constant)
+  public static TYRE_CORE_CAPACITY = 9000;             // J/K per axle (together the former 12 kJ/K)
+  public static TYRE_LAYER_CONDUCTANCE = 2000;         // W/K surface <-> carcass
+  public static TYRE_SURFACE_GRIP_SHARE = 0.5;         // share of the surface in the grip temperature
   public static TYRE_HEAT_SCALE = 0.75;          // calibration of slip / hysteresis heating (training field p50 ~100 C)
   public static TYRE_FRONT_HEAT = 1.6;           // fronts work harder per newton (steering, braking)
   public static TYRE_LAT_HEAT = 2;               // cornering slip power weight
   public static TYRE_LONG_HEAT = 0.012;          // creep power as a fraction of |Fx|*v
   public static readonly TYRE_WEAR_RATE = 7e-9;   // wear per joule of friction work
+  /** Carcass (bulk) temperatures, deg C. */
   public tyreTempFront = 85;
   public tyreTempRear = 85;
+  /** Tread surface temperatures, deg C. */
+  public tyreSurfaceTempFront = 85;
+  public tyreSurfaceTempRear = 85;
   public tyreWearFront = 0;
   public tyreWearRear = 0;
 
@@ -1114,7 +1126,7 @@ export class Car {
       this.raceLapsCompleted = 0;
       this.trackLimitExits = 0;
       this.ersEnergy = Car.ERS_CAPACITY * 0.85;
-      this.tyreTempFront = this.tyreTempRear = 85;
+      this.setTyreTemps(85);
       this.tyreWearFront = this.tyreWearRear = 0;
       this.brakeTempFront = this.brakeTempRear = Car.BRAKE_TEMP_START;
       this.wheelLockFront = this.wheelLockRear = false;
@@ -1226,26 +1238,48 @@ export class Car {
   /** Track wetness this car drives on. */
   get wetness(): number { return Car.config.weather.wetness; }
 
+  /** Temperature the grip follows: a blend of the tread surface and the carcass. */
+  get tyreGripTempFront(): number { return Car.TYRE_SURFACE_GRIP_SHARE * this.tyreSurfaceTempFront + (1 - Car.TYRE_SURFACE_GRIP_SHARE) * this.tyreTempFront; }
+  get tyreGripTempRear(): number { return Car.TYRE_SURFACE_GRIP_SHARE * this.tyreSurfaceTempRear + (1 - Car.TYRE_SURFACE_GRIP_SHARE) * this.tyreTempRear; }
+
   /** Grip the planner can expect from the current tyres. */
-  get tyreGripFront(): number { return Car.tyreGrip(this.tyreTempFront, this.tyreWearFront, this.tyreCompound, this.wetness); }
-  get tyreGripRear(): number { return Car.tyreGrip(this.tyreTempRear, this.tyreWearRear, this.tyreCompound, this.wetness); }
+  get tyreGripFront(): number { return Car.tyreGrip(this.tyreGripTempFront, this.tyreWearFront, this.tyreCompound, this.wetness); }
+  get tyreGripRear(): number { return Car.tyreGrip(this.tyreGripTempRear, this.tyreWearRear, this.tyreCompound, this.wetness); }
+
+  /** Sets both layers of a tyre set (a fresh set, a restored state); the rear defaults to the front. */
+  setTyreTemps(front: number, rear = front): void {
+    this.tyreTempFront = this.tyreSurfaceTempFront = front;
+    this.tyreTempRear = this.tyreSurfaceTempRear = rear;
+  }
 
   /**
-   * Heat balance of one axle: slip + hysteresis heating against airflow and track cooling.
-   * The air and the track surface come from the weather: a sun-baked track pushes the tyres out
-   * of their window and wears them faster, a cold one keeps them from warming up.
-   * Water cools the tyre (spray, cooler surface) and lubricates it, so it wears less.
+   * Heat balance of one axle in two layers. Sliding heats the tread surface, which the airflow and
+   * the track cool; flexing (hysteresis) and a locked axle's flat spot heat the carcass, which
+   * exchanges heat with the surface only. The air and the track surface come from the weather: a
+   * sun-baked track pushes the tyres out of their window and wears them faster, a cold one keeps
+   * them from warming up. Water cools the tyre (spray, cooler surface) and lubricates it, so it
+   * wears less. Both layers are integrated implicitly together, so the result does not depend on the step.
    */
-  private stepTyre(front: boolean, slipPower: number, load: number, speed: number, dt: number): void {
-    const temp = front ? this.tyreTempFront : this.tyreTempRear, wear = front ? this.tyreWearFront : this.tyreWearRear;
-    const wet = this.wetness, air = Car.config.weather.airTemp;
-    const heat = (slipPower + 0.0075 * load * speed) * Car.TYRE_HEAT_SCALE;
-    const cooling = (2 * (15 + 3.2 * Math.pow(Math.max(0, speed), 0.8)) * (temp - air) + 60 * (temp - Car.config.weather.trackTemp)) * (1 + 0.9 * wet);
-    const next = Math.max(air - 8 * wet, Math.min(180, temp + (heat - cooling) / Car.TYRE_HEAT_CAPACITY * dt));
+  private stepTyre(front: boolean, slipPower: number, lockPower: number, load: number, speed: number, dt: number): void {
+    const surface = front ? this.tyreSurfaceTempFront : this.tyreSurfaceTempRear, core = front ? this.tyreTempFront : this.tyreTempRear;
+    const wear = front ? this.tyreWearFront : this.tyreWearRear;
+    const wet = this.wetness, air = Car.config.weather.airTemp, track = Car.config.weather.trackTemp;
+    const surfaceHeat = slipPower * Car.TYRE_HEAT_SCALE;
+    const coreHeat = (lockPower + 0.0075 * load * speed) * Car.TYRE_HEAT_SCALE;
+    // Cooling k·(T − T_eq): convection to the air plus contact with the track.
+    const convection = 2 * (15 + 3.2 * Math.pow(Math.max(0, speed), 0.8));
+    const k = (convection + 60) * (1 + 0.9 * wet), ambient = (convection * air + 60 * track) / (convection + 60);
+    // Backward Euler for the linear 2x2 system.
+    const g = Car.TYRE_LAYER_CONDUCTANCE, a = Car.TYRE_SURFACE_CAPACITY / dt, b = Car.TYRE_CORE_CAPACITY / dt;
+    const r1 = a * surface + surfaceHeat + k * ambient, r2 = b * core + coreHeat;
+    const det = (a + k + g) * (b + g) - g * g;
+    const floor = air - 8 * wet;
+    const nextSurface = Math.max(floor, Math.min(200, (r1 * (b + g) + g * r2) / det));
+    const nextCore = Math.max(floor, Math.min(180, ((a + k + g) * r2 + g * r1) / det));
     const wearRate = Car.TYRE_WEAR_RATE * COMPOUND_SPECS[this.tyreCompound].wear * (1 - 0.6 * wet);
-    const nextWear = Math.min(1, wear + wearRate * Math.pow(temp / 100, 2) * slipPower * dt);
-    if (front) { this.tyreTempFront = next; this.tyreWearFront = nextWear; }
-    else { this.tyreTempRear = next; this.tyreWearRear = nextWear; }
+    const nextWear = Math.min(1, wear + wearRate * Math.pow(surface / 100, 2) * (slipPower + lockPower) * dt);
+    if (front) { this.tyreSurfaceTempFront = nextSurface; this.tyreTempFront = nextCore; this.tyreWearFront = nextWear; }
+    else { this.tyreSurfaceTempRear = nextSurface; this.tyreTempRear = nextCore; this.tyreWearRear = nextWear; }
   }
 
   /** A car placed along a path rather than driven (the pit lane): no yaw rate, wheels straight, no slip carried over. */
@@ -1715,9 +1749,10 @@ export class Car {
     const wetNow = this.wetness;
     if (wetNow < this.lapWetMin) this.lapWetMin = wetNow;
     if (wetNow > this.lapWetMax) this.lapWetMax = wetNow;
-    // TYRE_FRONT_HEAT weights the front's working slip; the sliding work of a lock is already a power.
-    this.stepTyre(true, frontSlipPower * Car.TYRE_FRONT_HEAT + frontLockPower, frontLoad, speedMag, dt);
-    this.stepTyre(false, rearSlipPower + rearLockPower, rearLoad, speedMag, dt);
+    // TYRE_FRONT_HEAT weights the front's working slip; the sliding work of a lock is already a power,
+    // and it soaks into the carcass under the flat spot rather than the whole tread surface.
+    this.stepTyre(true, frontSlipPower * Car.TYRE_FRONT_HEAT, frontLockPower, frontLoad, speedMag, dt);
+    this.stepTyre(false, rearSlipPower, rearLockPower, rearLoad, speedMag, dt);
     this.tireUtilization = Math.min(1, Math.hypot(frontFx + rearFx, lateralForce) / Math.max(1, frontLimit + rearLimit));
     const drifting = Math.abs(lateralSpeed) > 4.5 && speedMag > 18;
     this.isSkidding = slipRatio > 0.01 || drifting;
@@ -1877,7 +1912,7 @@ export class Car {
   private dynamicStateFinite(): boolean {
     return Number.isFinite(this.vel.x + this.vel.y + this.pos.x + this.pos.y + this.heading + this.angularVelocity
       + this.heave + this.heaveRate + this.pitch + this.pitchRate + this.roll + this.rollRate
-      + this.tyreTempFront + this.tyreTempRear + this.brakeTempFront + this.brakeTempRear + this.ersEnergy + this.fuelKg);
+      + this.tyreTempFront + this.tyreTempRear + this.tyreSurfaceTempFront + this.tyreSurfaceTempRear + this.brakeTempFront + this.brakeTempRear + this.ersEnergy + this.fuelKg);
   }
 
   private static invalidStateWarned = false;
@@ -1893,8 +1928,8 @@ export class Car {
     this.angularVelocity = 0;
     this.resetSuspension();
     this.pitchAngle = this.rollAngle = 0;
-    if (!Number.isFinite(this.tyreTempFront)) this.tyreTempFront = 85;
-    if (!Number.isFinite(this.tyreTempRear)) this.tyreTempRear = 85;
+    if (!Number.isFinite(this.tyreTempFront + this.tyreSurfaceTempFront)) this.tyreTempFront = this.tyreSurfaceTempFront = 85;
+    if (!Number.isFinite(this.tyreTempRear + this.tyreSurfaceTempRear)) this.tyreTempRear = this.tyreSurfaceTempRear = 85;
     if (!Number.isFinite(this.brakeTempFront)) this.brakeTempFront = Car.BRAKE_TEMP_START;
     if (!Number.isFinite(this.brakeTempRear)) this.brakeTempRear = Car.BRAKE_TEMP_START;
     if (!Number.isFinite(this.ersEnergy)) this.ersEnergy = 0;

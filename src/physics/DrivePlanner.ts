@@ -91,7 +91,7 @@ export function planDrive(car: Car, track: Track, leaderSpeeds?: number[]): Driv
   const outsideRoom = track.width / 2 + turnSign * here.lateral - car.width / 2;
   const free = (Car.PUSH_UTILISATION_FULL - car.tireUtilization) / (Car.PUSH_UTILISATION_FULL - Car.PUSH_UTILISATION_FREE);
   const canPush = !car.isSliding && here.surface === 'asphalt' && !car.yellowFlag && !car.isPitting && car.recoveryTimer <= 0
-    && Math.max(car.tyreTempFront, car.tyreTempRear) < Car.PUSH_TYRE_MAX_TEMP && outsideRoom > Car.PUSH_EDGE_ROOM;
+    && Math.max(car.tyreGripTempFront, car.tyreGripTempRear) < Car.PUSH_TYRE_MAX_TEMP && outsideRoom > Car.PUSH_EDGE_ROOM;
   const pushTarget = canPush ? Math.max(0, Math.min(1, free)) : 0;
   car.cornerPush = pushTarget < car.cornerPush ? pushTarget
     : car.cornerPush + (pushTarget - car.cornerPush) * Math.min(1, car.lastStepDt / Car.PUSH_RISE_TIME);
@@ -158,8 +158,8 @@ export function planDrive(car: Car, track: Track, leaderSpeeds?: number[]): Driv
     curvatureInput,
     overspeedDelta,
     // Vehicle state: lets the network learn tyre / hybrid / gearbox dependent driving.
-    Math.max(0, Math.min(1, (car.tyreTempFront - 60) / 80)),
-    Math.max(0, Math.min(1, (car.tyreTempRear - 60) / 80)),
+    Math.max(0, Math.min(1, (car.tyreGripTempFront - 60) / 80)),
+    Math.max(0, Math.min(1, (car.tyreGripTempRear - 60) / 80)),
     Math.max(0, Math.min(1, Math.max(car.tyreWearFront, car.tyreWearRear))),
     Math.max(0, Math.min(1, car.ersEnergy / Car.ERS_CAPACITY)),
     car.gear / 8,

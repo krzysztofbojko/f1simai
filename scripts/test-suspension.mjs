@@ -149,14 +149,14 @@ try {
       car.updatePhysics(ctrl, dt, tyrePlane);
     }
     assert.ok(car.isAlive, `tyre run ${phase} at dt ${dt.toFixed(4)} stays alive: ${car.eliminationReason}`);
-    return [car.tyreTempFront, car.tyreTempRear, car.tyreWearFront, car.tyreWearRear];
+    return [car.tyreTempFront, car.tyreTempRear, car.tyreWearFront, car.tyreWearRear, car.tyreSurfaceTempFront, car.tyreSurfaceTempRear];
   };
   for (const phase of ['straight', 'corner', 'braking']) {
     const [r30, r60, r120] = [1 / 30, 1 / 60, 1 / 120].map(dt => tyreRun(dt, phase));
-    const report = [r30, r60, r120].map(r => `${r[0].toFixed(1)}/${r[1].toFixed(1)}°C ${(r[2] * 1000).toFixed(2)}/${(r[3] * 1000).toFixed(2)}‰`).join(' | ');
+    const report = [r30, r60, r120].map(r => `${r[0].toFixed(1)}/${r[1].toFixed(1)}°C tread ${r[4].toFixed(1)}/${r[5].toFixed(1)}°C ${(r[2] * 1000).toFixed(2)}/${(r[3] * 1000).toFixed(2)}‰`).join(' | ');
     if (process.env.VERBOSE) console.log(phase, report);
     for (const r of [r30, r60]) {
-      assert.ok(Math.abs(r[0] - r120[0]) < 1.5 && Math.abs(r[1] - r120[1]) < 1.5, `tyre temperature step independence (${phase}): ${report}`);
+      for (const k of [0, 1, 4, 5]) assert.ok(Math.abs(r[k] - r120[k]) < 1.5, `tyre temperature step independence (${phase}): ${report}`);
       for (const k of [2, 3]) assert.ok(Math.abs(r[k] - r120[k]) <= 0.05 * r120[k] + 1e-5, `tyre wear step independence (${phase}): ${report}`);
     }
   }
