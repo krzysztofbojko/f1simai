@@ -529,6 +529,8 @@ export class Car {
    */
   /** Downforce lost when the floor flow is fully stalled in the porpoising model (a choked diffuser). */
   public static PORPOISING_STALL_LOSS = 0.4;
+  /** Share of the drag that is induced by the floor's downforce (it scales with rideHeightLift). */
+  public static INDUCED_DRAG_SHARE = 0.2;
   /** Stalled share of the floor flow, 0..1. */
   public floorStall = 0;
   /** Measured body bounce frequency while porpoising, Hz (0 = none). */
@@ -1561,7 +1563,8 @@ export class Car {
       : this.floorHeightFront < 0.008 || this.floorHeightRear < 0.015;
     this.floorStall += ((low ? 1 : 0) - this.floorStall) * (1 - Math.exp(-dt / Car.FLOOR_FLOW_LAG));
     this.aeroStall = this.floorStall > 0.5;
-    downforceMag *= Car.rideHeightLift(this.floorHeightFront, this.floorHeightRear, 1 - Car.PORPOISING_STALL_LOSS * this.floorStall);
+    const floorLift = Car.rideHeightLift(this.floorHeightFront, this.floorHeightRear, 1 - Car.PORPOISING_STALL_LOSS * this.floorStall);
+    downforceMag *= floorLift;
     // Dirty air takes 60% of its loss from the front wing (46% is the clean-air split).
     const wakeLostDownforce = downforceMag * (1 - this.wakeDownforce);
     downforceMag -= wakeLostDownforce;
@@ -1574,7 +1577,10 @@ export class Car {
     // a tailwind adds it); plank friction scrubs along the road against the motion. A crosswind
     // also pushes the car sideways through the side force, centred behind the centre of gravity.
     const plankDrag = Car.PLANK_FRICTION * this.plankForce;
-    const aeroDrag = 0.5 * this.airDensity * this.dragCoeff * this.lapDragFactor * this.wakeDrag * (1 + 0.15 * this.damage) * airSpeed * airSpeed;
+    // Induced drag: part of the drag comes with the floor's downforce, so it follows the ride height
+    // and falls when the floor stalls.
+    const inducedDrag = 1 + Car.INDUCED_DRAG_SHARE * (floorLift - 1);
+    const aeroDrag = 0.5 * this.airDensity * this.dragCoeff * inducedDrag * this.lapDragFactor * this.wakeDrag * (1 + 0.15 * this.damage) * airSpeed * airSpeed;
     const aeroScale = airSpeed > 0 ? Math.min(aeroDrag / airSpeed, currentMass / dt) : 0;
     const plankScale = speedMag > 0 ? Math.min(plankDrag / speedMag, currentMass / dt) : 0;
     const sideForce = 0.5 * this.airDensity * Car.SIDE_FORCE_AREA * airSpeed * windLat;
