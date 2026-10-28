@@ -164,12 +164,15 @@ try {
   // The yaw response to steering (with and without braking) barely depends on the step: the tyres'
   // yaw damping is integrated implicitly.
   for (const ctrl of [{ throttle: 0.3, brake: 0, steer: 0.03 }, { throttle: 0, brake: 0.8, steer: 0.03 }, { throttle: 0.3, brake: 0, steer: 0.1 }]) {
-    const headings = [1 / 30, 1 / 60, 1 / 120].map(dt => {
+    const runs = [1 / 30, 1 / 60, 1 / 120].map(dt => {
       const car = planeCar(40);
       for (let t = 0; t < 0.5 - 1e-9; t += dt) { car.timeSinceCheckpoint = 0; car.updatePhysics(ctrl, dt, tyrePlane); }
-      return car.heading;
+      return car;
     });
+    const headings = runs.map(c => c.heading), slips = runs.map(c => c.slipAngleFront);
     assert.ok(Math.max(...headings) - Math.min(...headings) < 0.06 * Math.abs(headings[2]), `yaw step independence ${JSON.stringify(ctrl)}: ${headings.map(h => h.toFixed(4)).join(' / ')} rad`);
+    // The relaxed slip angle (a lag of relaxation length / speed) follows the same course at any step.
+    assert.ok(slips[2] > 0 && Math.max(...slips) - Math.min(...slips) < 0.1 * slips[2], `front slip angle step independence ${JSON.stringify(ctrl)}: ${slips.map(a => a.toFixed(5)).join(' / ')} rad`);
   }
 
   // A locked axle's sliding work heats its tread (the discs no longer take it), at any step size.

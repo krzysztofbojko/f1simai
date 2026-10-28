@@ -165,6 +165,13 @@ export class Car {
   /** Fraction of the lateral force in use that drive/brake may not take from the friction circle. */
   public static readonly STABILITY_RESERVE: number = 1.1;
   public static readonly YAW_FEEDBACK: number = 0.1;
+  /**
+   * Tyre relaxation length (m): a tyre builds its slip angle over this much rolling, so the slip
+   * angles the axle forces see follow the kinematic ones with a time constant of length / speed.
+   */
+  public static TYRE_RELAXATION_LENGTH = 0.35;
+  /** Speed (m/s) from which the slip-angle model blends in over the kinematic one; fully dynamic at twice this. */
+  public static DYNAMIC_FROM = 8;
   /** Slip demand above which the car counts as sliding rather than working the tyres at their limit. */
   public static readonly SLIDE_SLIP: number = 0.38;
   /** Tyre cornering stiffness in N per N of vertical load per radian of slip angle. */
@@ -623,6 +630,9 @@ export class Car {
   public static LOCKED_TYRE_HEAT = 0.35;                  // share of a locked axle's sliding work that heats the tread; the road takes the rest (thermal effusivity: rubber ~650, asphalt ~1250)
   public brakeTempFront = Car.BRAKE_TEMP_START;
   public brakeTempRear = Car.BRAKE_TEMP_START;
+  /** Slip angles the axles work at (rad), lagging the kinematic ones by the relaxation length. */
+  public slipAngleFront = 0;
+  public slipAngleRear = 0;
   public wheelLockFront = false;
   public wheelLockRear = false;
   private lockTimerFront = 0;
@@ -1054,6 +1064,7 @@ export class Car {
     this.vel = new Vector2(0, 0);
     this.heading = startHeading;
     this.angularVelocity = 0;
+    this.slipAngleFront = this.slipAngleRear = 0;
     this.speed = 0;
     this.speedKmh = 0;
     this.maxSpeedInLap = 0;
@@ -1296,6 +1307,7 @@ export class Car {
   settleChassis(): void {
     this.resetSuspension();
     this.angularVelocity = 0;
+    this.slipAngleFront = this.slipAngleRear = 0;
     this.wheelAngle = this.steeringHands = 0;
     this.frontLateralInUse = this.rearLateralInUse = 0;
     this.understeerSlip = this.oversteerSlip = 0;
@@ -1708,7 +1720,7 @@ export class Car {
     // Dynamic single-track model: slip angles -> saturating axle forces -> yaw
     // torque on a rigid body with yaw inertia. Below ~10 m/s slip angles become
     // ill-conditioned, so the kinematic response above takes over smoothly.
-    const dynamicWeight = nextForwardSpeed > 0 ? Math.max(0, Math.min(1, (nextForwardSpeed - 8) / 8)) : 0;
+    const dynamicWeight = nextForwardSpeed > 0 ? Math.max(0, Math.min(1, (nextForwardSpeed - Car.DYNAMIC_FROM) / Car.DYNAMIC_FROM)) : 0;
     let lateralForce = kinematicLateral;
     let slipRatio = Math.abs(requestedLateral) > 0 ? Math.max(0, 1 - lateralLimit / Math.abs(requestedLateral)) : 0;
     let frontSlip = slipRatio, rearSlip = slipRatio;
@@ -1720,8 +1732,11 @@ export class Car {
       const toRear = this.wheelbase * 0.46, toFront = this.wheelbase - toRear; // CoG to axles
       const u = Math.max(1, nextForwardSpeed);
       const wheelAngle = this.wheelAngle;
-      const alphaFront = wheelAngle - Math.atan2(lateralSpeed + toFront * yawPrevious, u);
-      const alphaRear = -Math.atan2(lateralSpeed - toRear * yawPrevious, u);
+      // The carcass deforms over the relaxation length: exact first-order lag for a target held over the step.
+      const relax = 1 - Math.exp(-dt * Math.max(3, u) / Car.TYRE_RELAXATION_LENGTH);
+      this.slipAngleFront += (wheelAngle - Math.atan2(lateralSpeed + toFront * yawPrevious, u) - this.slipAngleFront) * relax;
+      this.slipAngleRear += (-Math.atan2(lateralSpeed - toRear * yawPrevious, u) - this.slipAngleRear) * relax;
+      const alphaFront = this.slipAngleFront, alphaRear = this.slipAngleRear;
       const axleForce = (alpha: number, load: number, limit: number) => {
         if (limit <= 1) return 0;
         return limit * Math.tanh(Car.CORNERING_STIFFNESS * load * alpha / limit);
@@ -1751,7 +1766,7 @@ export class Car {
         const sech = 1 / Math.cosh(Car.CORNERING_STIFFNESS * load * alpha / limit);
         return Car.CORNERING_STIFFNESS * load * sech * sech;
       };
-      const yawDamping = (toFront * toFront * axleStiffness(alphaFront, frontLoad, frontLateral * Car.FRONT_GRIP_BIAS) * cosSteer
+      const yawDamping = relax * (toFront * toFront * axleStiffness(alphaFront, frontLoad, frontLateral * Car.FRONT_GRIP_BIAS) * cosSteer
         + toRear * toRear * axleStiffness(alphaRear, rearLoad, rearLateral)) / u;
       const dynamicYaw = Math.max(-3.5, Math.min(3.5, yawPrevious + yawAcceleration * dt / (1 + dt * yawDamping / yawInertia)));
       const dynamicLateral = frontBodyLateral + rearForce;
@@ -1762,7 +1777,7 @@ export class Car {
       // Slip is only meaningful from the slip-angle model; the kinematic request mixes in slide damping.
       frontSlip = dynFront; rearSlip = dynRear;
       slipRatio = Math.max(frontSlip, rearSlip);
-    }
+    } else this.slipAngleFront = this.slipAngleRear = 0; // the kinematic model has no slip angles to carry over
     // The front's lateral grip is FRONT_GRIP_BIAS of its friction circle (an ellipse): its force in
     // use is kept as the share of that ellipse, so the drive, brake and lock budgets see a saturated front as saturated.
     if (dynamicWeight > 0) { this.frontLateralInUse = Math.abs(dynamicFrontForce) / Car.FRONT_GRIP_BIAS; this.rearLateralInUse = Math.abs(dynamicRearForce); }
@@ -1940,7 +1955,7 @@ export class Car {
   }
 
   private dynamicStateFinite(): boolean {
-    return Number.isFinite(this.vel.x + this.vel.y + this.pos.x + this.pos.y + this.heading + this.angularVelocity
+    return Number.isFinite(this.vel.x + this.vel.y + this.pos.x + this.pos.y + this.heading + this.angularVelocity + this.slipAngleFront + this.slipAngleRear
       + this.heave + this.heaveRate + this.pitch + this.pitchRate + this.roll + this.rollRate
       + this.tyreTempFront + this.tyreTempRear + this.tyreSurfaceTempFront + this.tyreSurfaceTempRear + this.brakeTempFront + this.brakeTempRear + this.ersEnergy + this.fuelKg);
   }
@@ -1956,6 +1971,7 @@ export class Car {
     if (!Number.isFinite(this.pos.x + this.pos.y)) this.pos.set(this.prevPos.x, this.prevPos.y);
     this.heading = Number.isFinite(previousHeading) ? previousHeading : 0;
     this.angularVelocity = 0;
+    this.slipAngleFront = this.slipAngleRear = 0;
     this.resetSuspension();
     this.pitchAngle = this.rollAngle = 0;
     if (!Number.isFinite(this.tyreTempFront + this.tyreSurfaceTempFront)) this.tyreTempFront = this.tyreSurfaceTempFront = 85;
