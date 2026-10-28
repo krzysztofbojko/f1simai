@@ -79,6 +79,17 @@ try {
   const p = new Vector2(250,0);
   assert.equal(track.sampleSurface(new Vector2(250,7.4)).surface, 'grass');
   assert.equal(track.sampleSurface(new Vector2(250,9.3)).surface, 'gravel');
+  // Corners carry kerbs on both edges, KERB_WIDTH beyond the white line; straights do not.
+  const kerbAt = gp.kerbs.findIndex((k, i) => k === 1 && gp.kerbs[(i + 20) % gp.kerbs.length] === 1 && gp.kerbs[(i - 20 + gp.kerbs.length) % gp.kerbs.length] === 1);
+  const plainAt = gp.kerbs.findIndex((k, i) => k === 0 && gp.kerbs[(i + 30) % gp.kerbs.length] === 0 && gp.kerbs[(i - 30 + gp.kerbs.length) % gp.kerbs.length] === 0);
+  assert.ok(kerbAt >= 0 && plainAt >= 0, 'the GP has kerbed corners and plain straights');
+  for (const side of [1, -1]) {
+    const beyond = (i, d) => { const pt = gp.points[i]; return (side > 0 ? pt.left : pt.right).add(pt.normal.mul(side * d)); };
+    assert.equal(gp.sampleSurface(beyond(kerbAt, 0.6)).surface, 'kerb', 'kerb beyond the white line in a corner');
+    assert.notEqual(gp.sampleSurface(beyond(kerbAt, Track.KERB_WIDTH + 0.4)).surface, 'kerb', 'the kerb ends KERB_WIDTH beyond the line');
+    assert.equal(gp.sampleSurface(beyond(plainAt, 0.6)).surface, 'grass', 'no kerb on a straight');
+  }
+  assert.ok(Car.kerbGrip(0) > 0.45 / 1.85 && Car.kerbGrip(0) < 1 && Car.kerbGrip(1) < Car.kerbGrip(0), 'a kerb grips less than asphalt, more than grass, and less again in the wet');
   const idle = { throttle:0, brake:0, steer:0 };
   const make = (y=0, vx=0, vy=0) => {
     const c = new Car(new Vector2(p.x,y),0);

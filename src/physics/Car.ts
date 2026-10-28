@@ -352,6 +352,9 @@ export class Car {
   /** Road roughness amplitude off the asphalt, m (bumps of a few metres' wavelength). */
   public static readonly GRASS_ROUGHNESS = 0.006;
   public static readonly GRAVEL_ROUGHNESS = 0.014;
+  public static readonly KERB_ROUGHNESS = 0.003;
+  /** Kerb grip as a share of the asphalt's: painted concrete, slippery in the wet. */
+  static kerbGrip(wetness: number): number { return 0.8 - 0.35 * Math.max(0, Math.min(1, wetness)); }
   public static readonly SPRUNG_MASS_SHARE = 0.85;
   /** Pitch inertia in kg·m² per kg of sprung mass. */
   public static readonly PITCH_INERTIA_FACTOR = 1.85;
@@ -426,7 +429,7 @@ export class Car {
     const cRollF = cRoll * critF / (critF + critR), cRollR = cRoll - cRollF;
     const rollMoment = ms * ay * this.cogHeight;
     // Off-road bumps: a new bump height under each axle every ~2.5 m of travel, the road easing towards it.
-    const roughness = this.surfaceFractions.grass * Car.GRASS_ROUGHNESS + this.surfaceFractions.gravel * Car.GRAVEL_ROUGHNESS;
+    const roughness = this.surfaceFractions.kerb * Car.KERB_ROUGHNESS + this.surfaceFractions.grass * Car.GRASS_ROUGHNESS + this.surfaceFractions.gravel * Car.GRAVEL_ROUGHNESS;
     const roadPrevFront = this.roadFront, roadPrevRear = this.roadRear;
     if (roughness > 0 || this.roadFront !== 0 || this.roadRear !== 0) {
       const travel = dt * Math.max(1, this.speed) / 2.5;
@@ -819,7 +822,7 @@ export class Car {
   public onlineTrainSteps = 0;
 
   public surface: SurfaceType = 'asphalt';
-  public surfaceFractions = { asphalt: 1, grass: 0, gravel: 0 };
+  public surfaceFractions = { asphalt: 1, kerb: 0, grass: 0, gravel: 0 };
   /**
    * Track limits as raced: the wheels of one side may run over the kerb beyond the white line
    * (the grass then costs them grip); the whole car off, or any wheel in the gravel, is an excursion.
@@ -1052,7 +1055,7 @@ export class Car {
     this.wrongWayTimer = 0;
     this.isAlive = true;
     this.surface = 'asphalt';
-    this.surfaceFractions = { asphalt: 1, grass: 0, gravel: 0 };
+    this.surfaceFractions = { asphalt: 1, kerb: 0, grass: 0, gravel: 0 };
     this.eliminationReason = null;
     this.barrierImpactSpeed = 0;
     this.incidentActive = false;
@@ -1560,7 +1563,7 @@ export class Car {
     const rearLoad = totalLoad - frontLoad;
     this.weightFrontRatio = frontLoad / (frontLoad + rearLoad);
     const fractions = this.surfaceFractions;
-    const surfaceMu = fractions.asphalt * this.baseTireGrip + fractions.grass * 0.45 + fractions.gravel * 0.60;
+    const surfaceMu = (fractions.asphalt + fractions.kerb * Car.kerbGrip(this.wetness)) * this.baseTireGrip + fractions.grass * 0.45 + fractions.gravel * 0.60;
     this.aquaplaning = Car.aquaplaneLoss(this.tyreCompound, this.wetness, speedMag);
     const mu = surfaceMu * this.lapGripFactor * (1 - this.aquaplaning);
     // Roll moves load to the outer wheels; with load sensitivity that costs the axle grip.
@@ -1894,7 +1897,7 @@ export class Car {
   private updateSurface(track: Track): void {
     // Updated in place each step; snapshots copy it.
     const fractions = this.surfaceFractions;
-    fractions.asphalt = fractions.grass = fractions.gravel = 0;
+    fractions.asphalt = fractions.kerb = fractions.grass = fractions.gravel = 0;
     if (track.sampleSurface) {
       // Same corners and arithmetic as footprint(), without allocating them.
       const fx = Math.cos(this.heading), fy = Math.sin(this.heading), half = this.wheelbase / 2;
@@ -1906,6 +1909,7 @@ export class Car {
         fractions[track.sampleSurface(wheel).surface] += 0.25;
       }
     } else fractions.asphalt = 1;
+    // Wheels on a kerb are still on the road: the car is off it only on grass or gravel.
     this.surface = fractions.gravel > 0 ? 'gravel' : fractions.grass > 0 ? 'grass' : 'asphalt';
   }
 

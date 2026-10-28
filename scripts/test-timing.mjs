@@ -53,7 +53,7 @@ try {
       car.pos = pos;
       car.heading = dir.heading();
       car.vel = dir.mul(SPEED); car.speed = SPEED;
-      car.surfaceFractions = { asphalt: 1, grass: 0, gravel: 0 };
+      car.surfaceFractions = { asphalt: 1, kerb: 0, grass: 0, gravel: 0 };
       car.lastStepDt = DT; car.sectorEvent = null;
       car.lapTime += DT; car.totalRaceTime += DT;
       const lap = car.checkTrackProgress(track);

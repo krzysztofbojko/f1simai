@@ -1,5 +1,5 @@
 import { Car, type CarControl, type DrivePlan } from './Car';
-import { Track } from '../track/Track';
+import { Track, isRoadSurface } from '../track/Track';
 import { Vector2 } from '../math/Vector2';
 import { LineProfile } from '../ai/LineProfile';
 import { pressureProfile } from '../ai/DriverPressure';
@@ -21,7 +21,7 @@ export function planDrive(car: Car, track: Track, leaderSpeeds?: number[]): Driv
   const racingLine = car.racingLine(track);
   if (!car.lineProfile || !car.lineProfile.matches(track)) car.lineProfile = LineProfile.fromLine(track, racingLine.offsets);
   const here = track.sampleSurface(car.pos);
-  if (here.surface === 'asphalt' && !car.isPitting && car.recoveryTimer <= 0 && !car.incidentActive && car.speed > 15) {
+  if (isRoadSurface(here.surface) && !car.isPitting && car.recoveryTimer <= 0 && !car.incidentActive && car.speed > 15) {
     if (here.index !== car.lineProfileIndex) car.lineProfile.recordSince(car.lineProfileIndex, car.lineProfileLateral, here.index, here.lateral);
     car.lineProfileIndex = here.index;
     car.lineProfileLateral = here.lateral;
@@ -90,7 +90,7 @@ export function planDrive(car: Car, track: Track, leaderSpeeds?: number[]): Driv
   const turnSign = Math.sign(track.points[here.index]?.curvature ?? 0);
   const outsideRoom = track.width / 2 + turnSign * here.lateral - car.width / 2;
   const free = (Car.PUSH_UTILISATION_FULL - car.tireUtilization) / (Car.PUSH_UTILISATION_FULL - Car.PUSH_UTILISATION_FREE);
-  const canPush = !car.isSliding && here.surface === 'asphalt' && !car.yellowFlag && !car.isPitting && car.recoveryTimer <= 0
+  const canPush = !car.isSliding && isRoadSurface(here.surface) && !car.yellowFlag && !car.isPitting && car.recoveryTimer <= 0
     && Math.max(car.tyreGripTempFront, car.tyreGripTempRear) < Car.PUSH_TYRE_MAX_TEMP && outsideRoom > Car.PUSH_EDGE_ROOM;
   const pushTarget = canPush ? Math.max(0, Math.min(1, free)) : 0;
   car.cornerPush = pushTarget < car.cornerPush ? pushTarget
@@ -317,7 +317,7 @@ export function planDrive(car: Car, track: Track, leaderSpeeds?: number[]): Driv
     brake = Math.max(brake, Math.min(1, 0.3 + carUrgency));
   }
 
-  const offRoad = (track.sampleSurface?.(car.pos).surface ?? 'asphalt') !== 'asphalt';
+  const offRoad = !isRoadSurface(track.sampleSurface?.(car.pos).surface ?? 'asphalt');
   if (offRoad) {
     // The geometric pursuit target remains on asphalt; at low speed it brings
     // the car back without the asphalt-edge LiDAR treating escape as a wall.

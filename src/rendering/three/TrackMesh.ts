@@ -234,32 +234,31 @@ export class TrackMesh {
     this.add(ground, this.ground);
   }
 
-  /** Red/white kerbs on the inside edge of every corner, as continuous runs (same rule as the 2D view). */
+  /** Red/white kerbs on both edges of every corner, as continuous runs: the physics' kerb surface (Track.kerbs, Track.KERB_WIDTH). */
   private buildKerbs(track: Track): void {
     const pts = track.points, n = pts.length;
-    const half = Math.min(1.2, Math.max(0.5, track.width * 0.06)) / 2;
     const parts: THREE.BufferGeometry[] = [];
     for (const side of [1, -1]) {
-      const bend = track.localCurvature;
-      const isKerb = (i: number) => Math.abs(bend[i]) > 0.003 && Math.sign(bend[i]) === side;
+      const isKerb = (i: number) => track.kerbs[i] === 1;
       // Scan from a straight point, so no run wraps across the scan start.
       const start = pts.findIndex((_, i) => !isKerb(i));
-      if (start < 0) { parts.push(this.kerbStrip(track, pts.map((_, i) => i), side, half, true)); continue; }
+      if (start < 0) { parts.push(this.kerbStrip(track, pts.map((_, i) => i), side, true)); continue; }
       for (let k = 0; k < n;) {
         if (!isKerb((start + k) % n)) { k++; continue; }
         const ids: number[] = [];
         while (k < n && isKerb((start + k) % n)) ids.push((start + k++) % n);
         ids.push((start + k) % n); // closes the segment from the last kerb point to the next
-        parts.push(this.kerbStrip(track, ids, side, half, false));
+        parts.push(this.kerbStrip(track, ids, side, false));
       }
     }
     if (parts.length) this.add(mergeGeometries(parts), this.kerb);
   }
 
-  private kerbStrip(track: Track, ids: number[], side: number, half: number, closed: boolean): THREE.BufferGeometry {
+  private kerbStrip(track: Track, ids: number[], side: number, closed: boolean): THREE.BufferGeometry {
     const edge = ids.map(i => side > 0 ? track.points[i].left : track.points[i].right);
     const nrm = ids.map(i => track.points[i].normal.mul(side));
-    return stripGeometry(edge.map((p, k) => p.sub(nrm[k].mul(half))), edge.map((p, k) => p.add(nrm[k].mul(half))), H.kerb, closed, false);
+    // From just inside the white line out to the kerb's edge.
+    return stripGeometry(edge.map((p, k) => p.sub(nrm[k].mul(0.15))), edge.map((p, k) => p.add(nrm[k].mul(Track.KERB_WIDTH))), H.kerb, closed, false);
   }
 
   /** Barrier walls along the physics barrier segments: 1 m high, 0.5 m thick. */

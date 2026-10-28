@@ -32,6 +32,7 @@ try {
       car.lapExcursion = true;
       car.lapCompromised = true;
       car.lapContact = false;
+      car.stressLap = false; // rolled at random after each lap; the cases below set what they test
       setup(car);
       return passGate(car, track, null);
     };

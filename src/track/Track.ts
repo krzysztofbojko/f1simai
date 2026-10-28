@@ -32,7 +32,10 @@ export interface IndexedSegment extends LineSegment {
   index?: number;
 }
 
-export type SurfaceType = 'asphalt' | 'grass' | 'gravel';
+export type SurfaceType = 'asphalt' | 'kerb' | 'grass' | 'gravel';
+
+/** The road a car may drive on: the asphalt and the kerbs beyond its white lines. */
+export const isRoadSurface = (surface: SurfaceType): boolean => surface === 'asphalt' || surface === 'kerb';
 export interface SurfaceSample {
   surface: SurfaceType;
   center: Vector2;
@@ -80,6 +83,12 @@ export class Track {
   public smoothedCurvature: Float64Array = new Float64Array(0);
   /** Centreline curvature averaged over about GATE_SPACING metres: the bend at a point as a gate or kerb sees it. */
   public localCurvature: Float64Array = new Float64Array(0);
+  /** Bend of each point at which both edges carry a kerb (|localCurvature| above this, 1/m). */
+  static readonly KERB_CURVATURE = 0.003;
+  /** Width of a kerb beyond the white line, m. */
+  static readonly KERB_WIDTH = 1.2;
+  /** 1 where the point's edges carry kerbs (in corners), else 0. */
+  public kerbs: Uint8Array = new Uint8Array(0);
   /** For every track point, the checkpoint (gate) at or before it. */
   private pointGate: Int32Array = new Int32Array(0);
 
@@ -246,6 +255,7 @@ export class Track {
     const curvature = Float64Array.from(this.points, p => p.curvature);
     this.smoothedCurvature = this.boxFilter(this.boxFilter(curvature, Track.CURVATURE_WINDOW), Track.CURVATURE_WINDOW);
     this.localCurvature = this.boxFilter(this.boxFilter(curvature, Track.GATE_SPACING), Track.GATE_SPACING);
+    this.kerbs = Uint8Array.from(this.localCurvature, c => Math.abs(c) > Track.KERB_CURVATURE ? 1 : 0);
 
     // Gates: evenly spaced points, the first on the start/finish line (point 0).
     const gates = Math.min(n, Math.max(4, Math.round(this.totalLength / Track.GATE_SPACING)));
@@ -492,7 +502,8 @@ export class Track {
     const barrierEdge = Vector2.lerp(lateral >= 0 ? a.leftBarrier : a.rightBarrier, lateral >= 0 ? b.leftBarrier : b.rightBarrier, fraction);
     const grassWidth = Math.abs(grassEdge.sub(center).dot(normal)) - asphaltWidth;
     const runoffWidth = Math.abs(barrierEdge.sub(center).dot(normal)) - asphaltWidth;
-    return { surface: excess <= 0 ? 'asphalt' : excess <= grassWidth ? 'grass' : 'gravel',
+    const kerb = this.kerbs[best] === 1 && excess <= Math.min(Track.KERB_WIDTH, runoffWidth);
+    return { surface: excess <= 0 ? 'asphalt' : kerb ? 'kerb' : excess <= grassWidth ? 'grass' : 'gravel',
       center, tangent, index: best, fraction, lateral, outsideBarrier: excess > runoffWidth + 0.01 };
   }
 

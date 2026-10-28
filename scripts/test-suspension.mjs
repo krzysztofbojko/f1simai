@@ -75,11 +75,11 @@ try {
   c = fresh(); run(c, 2, 1 / 60, () => [0.46 * 17000, 0.54 * 17000, 0]);
   assert.equal(c.plankForce, 0, 'no bottoming at 340 km/h downforce on smooth asphalt');
   // Off-road bumps shake the car and fade once it is back on the asphalt.
-  c = fresh(); c.speed = 30; c.surfaceFractions = { asphalt: 0, grass: 0, gravel: 1 };
+  c = fresh(); c.speed = 30; c.surfaceFractions = { asphalt: 0, kerb: 0, grass: 0, gravel: 1 };
   const heights = []; for (let i = 0; i < 120; i++) { c.stepSuspension(1 / 60, 0, 0, 0, 0); heights.push(c.rideHeightFront); }
   const meanH = heights.reduce((x, y) => x + y) / heights.length, spread = Math.sqrt(heights.reduce((x, y) => x + (y - meanH) ** 2, 0) / heights.length);
   assert.ok(spread > 0.002, 'gravel shakes the ride height: ' + mm(spread) + ' mm rms');
-  c.surfaceFractions = { asphalt: 1, grass: 0, gravel: 0 }; run(c, 2, 1 / 60, () => [0, 0, 0, 0]);
+  c.surfaceFractions = { asphalt: 1, kerb: 0, grass: 0, gravel: 0 }; run(c, 2, 1 / 60, () => [0, 0, 0, 0]);
   assert.ok(c.roadFront === 0 && c.roadRear === 0 && Math.abs(c.rideHeightFront - Car.FRH_STATIC) < 1e-4, 'smooth again on asphalt');
 
   // Full car: heights fall with speed and dive under braking.

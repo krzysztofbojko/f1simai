@@ -1546,9 +1546,10 @@ class App {
   private updateHUD(): void {
     const leader = (this.isPlayerDriving && this.playerCar?.isAlive ? this.playerCar : this.population.currentLeader) || this.population.cars[0];
     const activeCar = this.selectedCar || leader;
-    const surfaces = { asphalt: 'ASFALT', grass: 'TRAWA', gravel: 'ŻWIR' };
+    const surfaces = { asphalt: 'ASFALT', kerb: 'TARKA', grass: 'TRAWA', gravel: 'ŻWIR' };
     const reasons = { car: 'WYPADEK Z INNYM BOLIDEM', barrier: 'UDERZENIE W BANDĘ', fuel: 'BRAK PALIWA', stuck: 'BRAK POSTĘPU', 'wrong-way': 'JAZDA POD PRĄD' };
-    document.getElementById('tele-surface')!.textContent = activeCar ? surfaces[activeCar.surface] : '—';
+    document.getElementById('tele-surface')!.textContent = activeCar
+      ? surfaces[activeCar.surface] + (activeCar.surface === 'asphalt' && activeCar.surfaceFractions.kerb > 0 ? ' · TARKA' : '') : '—';
     const effectivePressure = activeCar?.effectiveDriverPressure ?? this.driverPressure;
     const targetPressure = activeCar?.driverPressure ?? this.driverPressure;
     const pressureText = (p: number) => `${p > 0 ? '+' : ''}${Math.round(p)}`;
