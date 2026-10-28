@@ -302,7 +302,8 @@ export function planDrive(car: Car, track: Track, leaderSpeeds?: number[]): Driv
   const cornerShare = Math.min(1, Math.abs(car.lateralG) * Car.GRAVITY / Math.max(1, tyreAccel));
   const driveAccel = Car.EXIT_DRIVE_SHARE * Car.REAR_WEIGHT_SHARE * tyreAccel * Math.sqrt(1 - cornerShare * cornerShare);
   const fullDriveAccel = (Car.ICE_POWER + Car.ERS_POWER) / Math.max(10, car.speed) / car.totalMass;
-  if (cornerShare > 0.25) throttle = Math.min(throttle, Math.max(0.2, driveAccel / fullDriveAccel));
+  const tractionThrottle = cornerShare > 0.25 ? Math.max(0.2, driveAccel / fullDriveAccel) : 1;
+  throttle = Math.min(throttle, tractionThrottle);
 
   // 4. Traction & Stability Control:
   if (car.isSliding) {
@@ -330,7 +331,7 @@ export function planDrive(car: Car, track: Track, leaderSpeeds?: number[]): Driv
   }
   const expert: CarControl = { steer, throttle, brake };
   return {
-    inputs, expert, idealSteer, pushing, offRoad, overspeedDelta, minCenterClearance,
+    inputs, expert, idealSteer, pushing, offRoad, overspeedDelta, minCenterClearance, tractionThrottle,
     guarded: offRoad || minCenterClearance <= Car.CLEAR_LIFT || Math.max(carUrgency, sideUrgency) > Car.CAR_AVOID_GUARD || car.yellowFlag || car.isPitting || car.recoveryTimer > 0,
   };
 }

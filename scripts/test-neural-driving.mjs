@@ -80,8 +80,9 @@ try {
   assert.ok(solo.cars[0].brain.layerSizes.at(-1) === 3);
 
   // 4. Dynamic single-track model: over-limit cornering, with power or lifting off, does not spin
-  //    the car at any point of the run (the limit balance is understeer).
-  for (const [speed, steer, throttle] of [[30, 0.3, 1], [50, 0.15, 1], [70, 0.3, 1], [70, 0.15, 0], [70, 0.08, 0]]) {
+  //    the car at any point of the run (the limit balance is understeer). There is no traction
+  //    control: full power in a slow corner takes the rear's grip and spins it, half power holds.
+  const sideslip = (speed, steer, throttle) => {
     const c = new Car(new Vector2(0, 0), 0); c.vel = new Vector2(speed, 0); c.speed = speed;
     c.lapPowerFactor = c.lapGripFactor = c.lapDragFactor = 1;
     let beta = 0;
@@ -90,9 +91,14 @@ try {
       const b = Math.atan2(c.vel.dot(Vector2.fromAngle(c.heading).normal()), c.vel.dot(Vector2.fromAngle(c.heading)));
       if (Math.abs(b) > Math.abs(beta)) beta = b;
     }
-    assert.ok(Math.abs(beta) < 0.6, `car spun at ${speed} m/s, steer ${steer}, throttle ${throttle}: peak beta ${beta}`);
     assert.ok(Math.abs(c.lateralG) < 6 && Number.isFinite(c.pos.x));
+    return beta;
+  };
+  for (const [speed, steer, throttle] of [[30, 0.3, 0.5], [50, 0.15, 1], [70, 0.3, 1], [70, 0.15, 0], [70, 0.08, 0]]) {
+    const beta = sideslip(speed, steer, throttle);
+    assert.ok(Math.abs(beta) < 0.6, `car spun at ${speed} m/s, steer ${steer}, throttle ${throttle}: peak beta ${beta}`);
   }
+  { const beta = sideslip(30, 0.3, 1); assert.ok(Math.abs(beta) > 0.6, `full power in a slow corner must break the rear loose: peak beta ${beta}`); }
   // Skid marks follow the distance slid: the same marks at 30, 60 and 120 Hz, and no draw from the random stream.
   { const marks = [30, 60, 120].map(hz => { const c = new Car(new Vector2(0, 0), 0); c.vel = new Vector2(0, 40); c.speed = 40;
       c.lapPowerFactor = c.lapGripFactor = c.lapDragFactor = 1;

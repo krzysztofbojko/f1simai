@@ -95,6 +95,8 @@ export interface DrivePlan {
   overspeedDelta: number;
   /** Forward clearance in units of the track width, scaled so 1 ≈ RAY_MAX_DIST / CLEARANCE_REF_WIDTH widths. */
   minCenterClearance: number;
+  /** Most throttle the driver gives on a corner exit: what the rear tyres put down beside their cornering force. */
+  tractionThrottle: number;
   guarded: boolean;
 }
 
@@ -162,8 +164,12 @@ export class Car {
   public static readonly STEERING_LAG: number = 0.09; // s
   /** The front axle saturates slightly before the rear: a stable, understeer-biased balance at the limit. */
   public static readonly FRONT_GRIP_BIAS: number = 0.89;
-  /** Fraction of the lateral force in use that drive/brake may not take from the friction circle. */
-  public static readonly STABILITY_RESERVE: number = 1.1;
+  /**
+   * Multiple of each axle's cornering force (last step) that braking may not take from its friction
+   * circle: brake torque beyond the rest locks the wheel (front) or is held back by brake-by-wire
+   * (rear). The drive has no such reserve (no traction control): it may take the whole circle.
+   */
+  public static readonly BRAKE_LATERAL_RESERVE: number = 1.1;
   public static readonly YAW_FEEDBACK: number = 0.1;
   /**
    * Tyre relaxation length (m): a tyre builds its slip angle over this much rolling, so the slip
@@ -799,7 +805,7 @@ export class Car {
   public longitudinalG: number = 0;  // Acceleration / Braking G-force
   public pitchAngle: number = 0;     // Nose dive (braking) or squat (accel) in radians
   public rollAngle: number = 0;      // Body roll into outside tires in radians
-  private frontLateralInUse = 0;     // N of lateral tyre force used last step (stability reserve)
+  private frontLateralInUse = 0;     // N of lateral tyre force used last step (brake reserve)
   private rearLateralInUse = 0;
   public wheelAngle: number = 0;     // Actual road-wheel angle (rad), lagging the steering command
   private steeringHands = 0;         // First stage of the steering lag (rad of road-wheel angle)
@@ -1411,6 +1417,8 @@ export class Car {
     this.aiSteps++;
     if (intervened) this.aiInterventions++;
     if (this.isSliding) throttle = Math.min(throttle, 0.55);
+    // The driver's right foot: no more throttle than the rear tyres can take beside the corner.
+    throttle = Math.min(throttle, plan.tractionThrottle);
     const control: CarControl = { steer, throttle, brake };
     this.currentControl = control;
 
@@ -1650,15 +1658,15 @@ export class Car {
     // Rolling resistance and braking share each axle's longitudinal tire budget.
     const rollingFront = Math.min(frontLimit, 0.012 * frontLoad);
     const rollingRear = Math.min(rearLimit, 0.012 * rearLoad + engineBrakeForce);
-    // Stability priority (traction control / brake-by-wire): each axle keeps the lateral
-    // force it was using last step, so power or braking never silently removes the grip
-    // that is holding the car on its line. Drive and brake use the rest of the friction circle.
-    const longitudinalBudget = (limit: number, lateralInUse: number) => {
-      const reserve = Math.min(limit, Car.STABILITY_RESERVE * lateralInUse);
+    // Braking keeps the lateral force each axle was using last step; drive and brakes share the
+    // rest of the friction circle. Power is not held back: too much throttle in a corner takes the
+    // rear's cornering force (power oversteer), and the driver has to meter it.
+    const brakeBudget = (limit: number, lateralInUse: number) => {
+      const reserve = Math.min(limit, Car.BRAKE_LATERAL_RESERVE * lateralInUse);
       return Math.sqrt(Math.max(0, limit * limit - reserve * reserve));
     };
-    const frontLongLimit = longitudinalBudget(frontLimit, this.frontLateralInUse);
-    const rearLongLimit = longitudinalBudget(rearLimit, this.rearLateralInUse);
+    const frontBrakeLimit = brakeBudget(frontLimit, this.frontLateralInUse);
+    const rearBrakeLimit = brakeBudget(rearLimit, this.rearLateralInUse);
     // Hybrid power: MGU-K torque fill on a wide-open throttle, harvesting under braking and lift-and-coast.
     let ersPower = 0;
     this.ersDeploying = false;
@@ -1678,9 +1686,9 @@ export class Car {
       const socScale = Math.max(0, Math.min(1, (soc - Car.ERS_CLIP_SOC) / (Car.ERS_LOW_SOC - Car.ERS_CLIP_SOC)));
       const taper = Math.max(0, Math.min(1, (Car.ERS_TAPER_END - forwardSpeed) / (Car.ERS_TAPER_END - Car.ERS_TAPER_START)));
       if (socScale > 0) {
-        // Traction control meters the MGU-K torque: it adds only what the rear tyres can put down
-        // beyond the ICE, so a traction-limited launch or corner exit does not drain the battery.
-        const drivePower = Math.max(0, rearLongLimit - rollingRear) * Math.max(12, Math.abs(forwardSpeed)) / this.lapPowerFactor;
+        // The MGU-K adds only what the rear tyres can put down beyond the ICE (their whole friction
+        // circle), so a wheelspinning launch does not drain the battery.
+        const drivePower = Math.max(0, rearLimit - rollingRear) * Math.max(12, Math.abs(forwardSpeed)) / this.lapPowerFactor;
         const usable = Math.max(0, drivePower - Car.ICE_POWER * actualThrottle * icePower);
         const joules = Math.min(Math.min(Car.ERS_POWER * actualThrottle * taper * socScale, usable) * dt, this.ersEnergy);
         ersPower = joules / dt;
@@ -1696,14 +1704,14 @@ export class Car {
     const harvesting = !this.ersDeploying && forwardSpeed > 8 && (control.brake > 0.05 || (actualThrottle < 0.02 && forwardSpeed > 30));
     const engineForce = (actualThrottle > 0.005 || ersPower > 0)
       ? Math.max(0, Car.ICE_POWER * actualThrottle * icePower + ersPower) * this.lapPowerFactor / Math.max(12, Math.abs(forwardSpeed)) : 0;
-    const driveForce = Math.min(Math.max(0, rearLongLimit - rollingRear), engineForce);
+    const driveForce = Math.min(Math.max(0, rearLimit - rollingRear), engineForce);
     const brakeDemand = control.brake * (frontLimit + rearLimit);
     // The discs turn the pedal into torque by their temperature; torque beyond what the tyre can
     // transmit (by more than LOCK_MARGIN) locks the axle, which then slides at LOCKED_GRIP.
     const airTemp = Car.config.weather.airTemp;
     const torqueFront = brakeDemand * Car.BRAKE_BIAS * Car.brakeEfficiency(this.brakeTempFront, airTemp);
     const torqueRear = brakeDemand * (1 - Car.BRAKE_BIAS); // brake-by-wire meets the rear target
-    const roomFront = Math.max(0, frontLongLimit - rollingFront), roomRear = Math.max(0, rearLongLimit - rollingRear);
+    const roomFront = Math.max(0, frontBrakeLimit - rollingFront), roomRear = Math.max(0, rearBrakeLimit - rollingRear);
     // What each tyre can transmit along the road on its friction circle, with the lateral force it carries.
     const gripAlong = (limit: number, lateral: number, rollingForce: number) => Math.max(0, Math.sqrt(Math.max(0, limit * limit - lateral * lateral)) - rollingForce);
     const rolling = forwardSpeed > Car.LOCK_MIN_SPEED;
@@ -1834,7 +1842,7 @@ export class Car {
       slipRatio = Math.max(frontSlip, rearSlip);
     } else this.slipAngleFront = this.slipAngleRear = 0; // the kinematic model has no slip angles to carry over
     // The front's lateral grip is FRONT_GRIP_BIAS of its friction circle (an ellipse): its force in
-    // use is kept as the share of that ellipse, so the drive, brake and lock budgets see a saturated front as saturated.
+    // use is kept as the share of that ellipse, so the brake and lock budgets see a saturated front as saturated.
     if (dynamicWeight > 0) { this.frontLateralInUse = Math.abs(dynamicFrontForce) / Car.FRONT_GRIP_BIAS; this.rearLateralInUse = Math.abs(dynamicRearForce); }
     else { const share = frontLoad / Math.max(1, frontLoad + rearLoad); this.frontLateralInUse = Math.abs(lateralForce) * share; this.rearLateralInUse = Math.abs(lateralForce) * (1 - share); }
     // Longitudinal creep heats the driven / braked axles too. A locked axle slides at the full road
