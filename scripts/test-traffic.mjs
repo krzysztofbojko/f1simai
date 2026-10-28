@@ -67,7 +67,7 @@ try {
    maxOffset=Math.max(maxOffset,Math.abs(a.pos.y));
    assert.ok(a.isAlive&&b.isAlive,'overtaking caused a collision');
    assert.equal(a.surface,'asphalt','overtaking left the asphalt');
-   if(a.pos.x>b.pos.x+12 && Math.abs(a.raceLineOffset)<.05) {passed=true;break;}
+   if(a.pos.x>b.pos.x+12 && a.lineDeviation<.05) {passed=true;break;}
  }
  assert.ok(passed,'driver failed to complete an actual pass and return to the racing line');
  // LiDAR sees other cars' bodies (not cars in the pits); the planner brakes and steers round a car

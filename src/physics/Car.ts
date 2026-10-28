@@ -174,8 +174,8 @@ export class Car {
   public static DYNAMIC_FROM = 8;
   /** Slip demand above which the car counts as sliding rather than working the tyres at their limit. */
   public static readonly SLIDE_SLIP: number = 0.38;
-  /** Tyre cornering stiffness in N per N of vertical load per radian of slip angle. */
-  public static readonly CORNERING_STIFFNESS: number = 22;
+  /** Tyre cornering stiffness in N per N of vertical load per radian of slip angle (the force peaks at about 3°). */
+  public static readonly CORNERING_STIFFNESS: number = 30;
   /** Yaw inertia in kg·m² per kg of total mass (≈1170 kg·m² for a 900 kg car). */
   public static readonly YAW_INERTIA_FACTOR: number = 1.3;
   /**
