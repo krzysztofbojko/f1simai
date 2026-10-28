@@ -212,6 +212,7 @@ export class TrackMesh {
     this.buildBarriers(track);
     this.buildStartLine(track);
     this.buildTimingGates(track);
+    this.buildActiveAeroZones(track);
     this.buildPitLane(track);
     this.buildScenery(track);
     this.buildCheckpoints(track);
@@ -321,6 +322,18 @@ export class TrackMesh {
     g.setAttribute('uv', new THREE.Float32BufferAttribute([0, 0, len / 2.4, 0, len / 2.4, 1, 0, 1], 2));
     g.setIndex([0, 1, 2, 0, 2, 3]);
     this.add(g, this.checker);
+  }
+
+  /** A painted line across the asphalt where each active aero (X-Mode) zone starts, with its label. */
+  private buildActiveAeroZones(track: Track): void {
+    const zones = track.activeAeroZones, n = zones.length;
+    for (let i = 0; i < n; i++) {
+      if (!zones[i] || zones[(i - 1 + n) % n]) continue;
+      const pt = track.points[i], t = pt.tangent.mul(0.2);
+      this.add(stripGeometry([pt.left.sub(t), pt.right.sub(t)], [pt.left.add(t), pt.right.add(t)], H.paint, false, false), this.paint);
+      const badge = pt.left.add(pt.normal.mul(6));
+      this.staticLabels.push({ text: 'X-MODE', x: badge.x, y: badge.y, color: '#7fd4ff', className: 'sector' });
+    }
   }
 
   /** Sector beams across the asphalt and lit posts on both sides, colour-coded like the timing screens. */

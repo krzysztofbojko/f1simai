@@ -529,6 +529,20 @@ export class Car {
    */
   /** Downforce lost when the floor flow is fully stalled in the porpoising model (a choked diffuser). */
   public static PORPOISING_STALL_LOSS = 0.4;
+  /**
+   * 2026 active aero: on the track's straight-line zones (Track.activeAeroZones) the front and rear
+   * wings flatten (X-Mode), cutting drag and downforce; braking, a cornering load, a wet track or the
+   * end of the zone closes them (Z-Mode). A throttle threshold made a network's pedal near it flap the wings. The actuators open in about ACTIVE_AERO_OPEN and close in
+   * ACTIVE_AERO_CLOSE. The same in training, qualifying and the race.
+   */
+  public static ACTIVE_AERO_DRAG_CUT = 0.3;
+  public static ACTIVE_AERO_DOWNFORCE_CUT = 0.5;
+  public static readonly ACTIVE_AERO_OPEN = 0.12;   // s
+  public static readonly ACTIVE_AERO_CLOSE = 0.06;  // s
+  public static readonly ACTIVE_AERO_MAX_LATERAL_G = 1;
+  public static readonly ACTIVE_AERO_MAX_WETNESS = 0.25;
+  /** Wing position: 0 = cornering (Z-Mode), 1 = straight-line (X-Mode). */
+  public activeAero = 0;
   /** Share of the drag that is induced by the floor's downforce (it scales with rideHeightLift). */
   public static INDUCED_DRAG_SHARE = 0.2;
   /** Stalled share of the floor flow, 0..1. */
@@ -1079,6 +1093,7 @@ export class Car {
     this.heading = startHeading;
     this.angularVelocity = 0;
     this.slipAngleFront = this.slipAngleRear = 0;
+    this.activeAero = 0;
     this.speed = 0;
     this.speedKmh = 0;
     this.maxSpeedInLap = 0;
@@ -1555,7 +1570,13 @@ export class Car {
 
     // 3. Gravity and Aerodynamics Normal Load (Fz)
     const gravityForce = currentMass * Car.GRAVITY; // Gravity F = m * g
-    let downforceMag = 0.5 * this.airDensity * this.downforceCoeff * (1 - 0.35 * this.damage) * (airSpeed * airSpeed) * (1 - crosswindLoss);
+    // Active aero: the wings open on a straight-line zone and close for braking, cornering or the wet.
+    const zones = track.activeAeroZones, zonePoint = zones?.length && track.sampleSurface ? track.sampleSurface(this.pos).index : -1;
+    const wingsOpen = zonePoint >= 0 && zones[zonePoint] === 1 && control.brake <= 0.02
+      && Math.abs(this.lateralG) < Car.ACTIVE_AERO_MAX_LATERAL_G && this.wetness < Car.ACTIVE_AERO_MAX_WETNESS && !this.isPitting;
+    const wingTime = wingsOpen ? Car.ACTIVE_AERO_OPEN : Car.ACTIVE_AERO_CLOSE;
+    this.activeAero += ((wingsOpen ? 1 : 0) - this.activeAero) * (1 - Math.exp(-dt / wingTime));
+    let downforceMag = 0.5 * this.airDensity * this.downforceCoeff * (1 - Car.ACTIVE_AERO_DOWNFORCE_CUT * this.activeAero) * (1 - 0.35 * this.damage) * (airSpeed * airSpeed) * (1 - crosswindLoss);
     // The floor works at the height its airflow sees; the body then moves under that load. Its
     // flow stalls and reattaches with hysteresis, which can set up porpoising near the stall height.
     const low = this.floorStall > 0.5
@@ -1580,7 +1601,7 @@ export class Car {
     // Induced drag: part of the drag comes with the floor's downforce, so it follows the ride height
     // and falls when the floor stalls.
     const inducedDrag = 1 + Car.INDUCED_DRAG_SHARE * (floorLift - 1);
-    const aeroDrag = 0.5 * this.airDensity * this.dragCoeff * inducedDrag * this.lapDragFactor * this.wakeDrag * (1 + 0.15 * this.damage) * airSpeed * airSpeed;
+    const aeroDrag = 0.5 * this.airDensity * this.dragCoeff * (1 - Car.ACTIVE_AERO_DRAG_CUT * this.activeAero) * inducedDrag * this.lapDragFactor * this.wakeDrag * (1 + 0.15 * this.damage) * airSpeed * airSpeed;
     const aeroScale = airSpeed > 0 ? Math.min(aeroDrag / airSpeed, currentMass / dt) : 0;
     const plankScale = speedMag > 0 ? Math.min(plankDrag / speedMag, currentMass / dt) : 0;
     const sideForce = 0.5 * this.airDensity * Car.SIDE_FORCE_AREA * airSpeed * windLat;

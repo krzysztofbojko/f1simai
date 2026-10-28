@@ -89,6 +89,11 @@ export class Track {
   static readonly KERB_WIDTH = 1.2;
   /** 1 where the point's edges carry kerbs (in corners), else 0. */
   public kerbs: Uint8Array = new Uint8Array(0);
+  /** Straights where the 2026 active aero may open its wings: radius above 1 / ACTIVE_AERO_CURVATURE for ACTIVE_AERO_MIN_LENGTH. */
+  static readonly ACTIVE_AERO_CURVATURE = 0.003; // the bend from which a corner carries kerbs
+  static readonly ACTIVE_AERO_MIN_LENGTH = 300;
+  /** 1 on the points of an active aero zone, else 0. */
+  public activeAeroZones: Uint8Array = new Uint8Array(0);
   /** For every track point, the checkpoint (gate) at or before it. */
   private pointGate: Int32Array = new Int32Array(0);
 
@@ -256,6 +261,7 @@ export class Track {
     this.smoothedCurvature = this.boxFilter(this.boxFilter(curvature, Track.CURVATURE_WINDOW), Track.CURVATURE_WINDOW);
     this.localCurvature = this.boxFilter(this.boxFilter(curvature, Track.GATE_SPACING), Track.GATE_SPACING);
     this.kerbs = Uint8Array.from(this.localCurvature, c => Math.abs(c) > Track.KERB_CURVATURE ? 1 : 0);
+    this.activeAeroZones = this.findActiveAeroZones();
 
     // Gates: evenly spaced points, the first on the start/finish line (point 0).
     const gates = Math.min(n, Math.max(4, Math.round(this.totalLength / Track.GATE_SPACING)));
@@ -445,6 +451,22 @@ export class Track {
       }
     }
     this.surfaceCache = new WeakMap();
+  }
+
+  /** Runs of points flatter than ACTIVE_AERO_CURVATURE that are at least ACTIVE_AERO_MIN_LENGTH long (wrapping across the line). */
+  private findActiveAeroZones(): Uint8Array {
+    const n = this.points.length, zones = new Uint8Array(n);
+    const straight = (i: number) => Math.abs(this.localCurvature[i]) < Track.ACTIVE_AERO_CURVATURE;
+    const minPoints = Math.ceil(Track.ACTIVE_AERO_MIN_LENGTH / Math.max(1e-6, this.spacing));
+    const start = this.points.findIndex((_, i) => !straight(i));
+    if (start < 0) return zones.fill(n >= minPoints ? 1 : 0); // an oval of straights only
+    for (let k = 0; k < n;) {
+      if (!straight((start + k) % n)) { k++; continue; }
+      const from = k;
+      while (k < n && straight((start + k) % n)) k++;
+      if (k - from >= minPoints) for (let j = from; j < k; j++) zones[(start + j) % n] = 1;
+    }
+    return zones;
   }
 
   /** Callers treat samples as read-only, so repeated queries for the same unmoved position reuse one. */

@@ -42,6 +42,7 @@ export interface CarView {
   plankForce: number;
   porpoisingHz: number;
   wakeDownforce: number;
+  activeAero: number;
   engineRpm: number;
   tyreTempFront: number;
   tyreTempRear: number;
@@ -133,6 +134,7 @@ export function toCarView(car: Car, ctrl?: CarControl, isHeadless: boolean = fal
     plankForce: Math.round(car.plankForce),
     porpoisingHz: Math.round(car.porpoisingHz * 10) / 10,
     wakeDownforce: Math.round(car.wakeDownforce * 100) / 100,
+    activeAero: Math.round(car.activeAero * 100) / 100,
     engineRpm: Math.round(car.engineRpm),
     tyreTempFront: Math.round(car.tyreTempFront),
     tyreTempRear: Math.round(car.tyreTempRear),
@@ -234,6 +236,7 @@ export function applyCarView(car: Car, view: CarView): void {
   car.wheelAngle = view.wheelAngle ?? 0;
   car.wakeDrag = view.wakeDrag ?? 1;
   car.wakeDownforce = view.wakeDownforce ?? 1;
+  car.activeAero = view.activeAero ?? 0;
   car.plankForce = view.plankForce ?? 0;
   car.porpoisingHz = view.porpoisingHz ?? 0;
   car.tyreTempFront = view.tyreTempFront ?? 100;

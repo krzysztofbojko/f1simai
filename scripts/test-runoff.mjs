@@ -89,6 +89,27 @@ try {
     assert.notEqual(gp.sampleSurface(beyond(kerbAt, Track.KERB_WIDTH + 0.4)).surface, 'kerb', 'the kerb ends KERB_WIDTH beyond the line');
     assert.equal(gp.sampleSurface(beyond(plainAt, 0.6)).surface, 'grass', 'no kerb on a straight');
   }
+  // 2026 active aero: straight-line zones on the GP open the wings at full throttle, braking closes
+  // them; the actuators move the same at any step.
+  assert.ok(gp.activeAeroZones.some(z => z === 1) && gp.activeAeroZones.every((z, i) => !z || !gp.kerbs[i]), 'active aero zones lie on the straights');
+  const zoneAt = gp.activeAeroZones.findIndex((z, i) => z === 1 && gp.activeAeroZones[(i + 150) % gp.activeAeroZones.length] === 1);
+  const aeroRun = (dt, brakeAt) => {
+    const pt = gp.points[zoneAt], c = new Car(pt.center.clone(), pt.tangent.heading());
+    c.vel = pt.tangent.mul(70); c.speed = 70; c.lapGripFactor = c.lapPowerFactor = c.lapDragFactor = 1; c.mistakesEnabled = false;
+    c.currentCheckpointIdx = gp.gateIndexOf(zoneAt);
+    const states = [];
+    for (let t = 0; t < 0.6 - 1e-9; t += dt) {
+      c.timeSinceCheckpoint = 0;
+      c.updatePhysics(t < brakeAt ? { throttle: 1, brake: 0, steer: 0 } : { throttle: 0, brake: 0.6, steer: 0 }, dt, gp);
+      if ([0.3, 0.45, 0.6].some(at => Math.abs(t + dt - at) < dt / 2)) states.push(c.activeAero);
+    }
+    return states;
+  };
+  // Braking starts at 0.35 s.
+  const aeroRuns = [1 / 30, 1 / 60, 1 / 120].map(dt => aeroRun(dt, 0.35));
+  const aeroReport = aeroRuns.map(r => r.map(a => a.toFixed(3)).join('/')).join(' | ');
+  assert.ok(aeroRuns[2][0] > 0.5 && aeroRuns[2][1] < 0.3 && aeroRuns[2][2] < 0.03, `the wings open on the zone and close under braking: ${aeroReport}`);
+  for (const r of aeroRuns) for (let k = 0; k < 3; k++) assert.ok(Math.abs(r[k] - aeroRuns[2][k]) < 0.06, `active aero step independence: ${aeroReport}`);
   assert.ok(Car.kerbGrip(0) > 0.45 / 1.85 && Car.kerbGrip(0) < 1 && Car.kerbGrip(1) < Car.kerbGrip(0), 'a kerb grips less than asphalt, more than grass, and less again in the wet');
   const idle = { throttle:0, brake:0, steer:0 };
   const make = (y=0, vx=0, vy=0) => {
