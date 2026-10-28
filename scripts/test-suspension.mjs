@@ -161,6 +161,17 @@ try {
     }
   }
 
+  // The yaw response to steering (with and without braking) barely depends on the step: the tyres'
+  // yaw damping is integrated implicitly.
+  for (const ctrl of [{ throttle: 0.3, brake: 0, steer: 0.03 }, { throttle: 0, brake: 0.8, steer: 0.03 }, { throttle: 0.3, brake: 0, steer: 0.1 }]) {
+    const headings = [1 / 30, 1 / 60, 1 / 120].map(dt => {
+      const car = planeCar(40);
+      for (let t = 0; t < 0.5 - 1e-9; t += dt) { car.timeSinceCheckpoint = 0; car.updatePhysics(ctrl, dt, tyrePlane); }
+      return car.heading;
+    });
+    assert.ok(Math.max(...headings) - Math.min(...headings) < 0.06 * Math.abs(headings[2]), `yaw step independence ${JSON.stringify(ctrl)}: ${headings.map(h => h.toFixed(4)).join(' / ')} rad`);
+  }
+
   // A locked axle's sliding work heats its tread (the discs no longer take it), at any step size.
   // Trail braking on hot discs: the cornering load leaves the fronts too little grip for a full pedal.
   const lockRun = (dt, brake) => {

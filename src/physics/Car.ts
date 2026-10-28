@@ -1729,7 +1729,17 @@ export class Car {
       dynamicFrontForce = frontForce; dynamicRearForce = rearForce;
       frontSlipPower = Car.TYRE_LAT_HEAT * Math.abs(frontForce * u * Math.tan(alphaFront));
       rearSlipPower = Car.TYRE_LAT_HEAT * Math.abs(rearForce * u * Math.tan(alphaRear));
-      const dynamicYaw = Math.max(-3.5, Math.min(3.5, yawPrevious + yawAcceleration * dt));
+      // The tyres damp the yaw rate (a faster yaw turns the slip angles against it). That damping is
+      // stiff at speed, so it is taken implicitly (linearised backward Euler): the yaw response then
+      // barely depends on the step.
+      const axleStiffness = (alpha: number, load: number, limit: number) => {
+        if (limit <= 1) return 0;
+        const sech = 1 / Math.cosh(Car.CORNERING_STIFFNESS * load * alpha / limit);
+        return Car.CORNERING_STIFFNESS * load * sech * sech;
+      };
+      const yawDamping = (toFront * toFront * axleStiffness(alphaFront, frontLoad, frontLateral * Car.FRONT_GRIP_BIAS) * cosSteer
+        + toRear * toRear * axleStiffness(alphaRear, rearLoad, rearLateral)) / u;
+      const dynamicYaw = Math.max(-3.5, Math.min(3.5, yawPrevious + yawAcceleration * dt / (1 + dt * yawDamping / yawInertia)));
       const dynamicLateral = frontBodyLateral + rearForce;
       lateralForce = kinematicLateral * (1 - dynamicWeight) + dynamicLateral * dynamicWeight;
       this.angularVelocity = kinematicYaw * (1 - dynamicWeight) + dynamicYaw * dynamicWeight;
