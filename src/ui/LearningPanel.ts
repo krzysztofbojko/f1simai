@@ -36,7 +36,17 @@ const lap = (t: number | null) => t === null ? '—' : formatLapTime(t);
 const pct = (v: number | null, digits = 0) => v === null ? '—' : `${(v * 100).toFixed(digits).replace('.', ',')}%`;
 const num = (v: number | null, digits = 2) => v === null ? '—' : v.toFixed(digits).replace('.', ',');
 const slope = (v: number | null) => v === null ? '—' : `${v > 0 ? '+' : v < 0 ? '−' : ''}${Math.abs(v).toFixed(2).replace('.', ',')} s/gen`;
+const today = () => new Date().toISOString().slice(0, 10);
 const crashTotal = (g: GenerationStats) => Object.values(g.crashes).reduce((sum, n) => sum + n, 0);
+
+function saveFile(content: string, type: string, name: string): void {
+  const url = URL.createObjectURL(new Blob([content], { type }));
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = name;
+  a.click();
+  URL.revokeObjectURL(url);
+}
 
 function loadState(): PanelState {
   const fallback: PanelState = { open: false, tab: 'overview', x: 80, y: 90, w: 720, h: 560, supervisorMode: 'auto' };
@@ -63,6 +73,7 @@ export class LearningPanel {
   private readonly insightsTab: HTMLButtonElement;
   private readonly supervisorTab: HTMLButtonElement;
   private supervisorMarkup = '';
+  private insightsMarkup = '';
   private readonly downloadButton: HTMLButtonElement;
 
   constructor(private readonly fetchReport: () => Promise<LearningReport>, private readonly fetchLog: () => Promise<LearningLog>,
@@ -178,13 +189,7 @@ export class LearningPanel {
     this.status.textContent = 'przygotowuję log…';
     try {
       const log = await this.fetchLog();
-      const blob = new Blob([stringifyLearningLog(log)], { type: 'application/json' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `f1-diagnostyka-uczenia-gen${log.generation}-${new Date().toISOString().slice(0, 10)}.json`;
-      a.click();
-      URL.revokeObjectURL(url);
+      saveFile(stringifyLearningLog(log), 'application/json', `f1-diagnostyka-uczenia-gen${log.generation}-${today()}.json`);
       this.status.textContent = `log: ${log.generations.length} generacji`;
     } catch {
       this.status.textContent = 'nie udało się pobrać logu';
@@ -218,7 +223,11 @@ export class LearningPanel {
     this.renderInsightsTab(report.insights);
     this.renderSupervisorTab(report.supervisor.actions);
     if (this.state.tab === 'overview') this.body.innerHTML = this.overviewHtml(report);
-    else if (this.state.tab === 'insights') this.body.innerHTML = this.insightsHtml(report.insights);
+    else if (this.state.tab === 'insights') {
+      // Rebuilt only when it changes, so the export button is not replaced under the pointer every second.
+      const html = this.insightsHtml(report.insights);
+      if (html !== this.insightsMarkup || !this.body.querySelector('[data-export-insights]')) this.body.innerHTML = this.insightsMarkup = html;
+    }
     else if (this.state.tab === 'supervisor') {
       // Rebuilt only when it changes, so its buttons are not replaced under the pointer every second.
       const html = this.supervisorHtml(report);
@@ -294,7 +303,8 @@ export class LearningPanel {
   }
 
   private insightsHtml(insights: readonly Insight[]): string {
-    return `<p class="lp-note">Automatyczne uwagi do wykresów: od kiedy trwa objaw i co można zrobić. Kliknij uwagę, aby zobaczyć jej wykres.</p>
+    return `<div class="lp-note-row"><p class="lp-note">Automatyczne uwagi do wykresów: od kiedy trwa objaw i co można zrobić. Kliknij uwagę, aby zobaczyć jej wykres.</p>
+      <button class="f1-btn" data-export-insights title="Zapisz werdykty i uwagi do pliku tekstowego (Markdown)">${icon('download')} Eksportuj uwagi</button></div>
       <div class="lp-verdicts">${insights.map(i => this.insightHtml(i, true)).join('')}</div>`;
   }
 
@@ -440,8 +450,32 @@ export class LearningPanel {
         : 'Warstwy ukryte pracują w zakresie liniowym — sieć ma jeszcze pole do nauki.'}</p>`;
   }
 
+  /** Verdicts and insights of the current report as a Markdown note. */
+  private exportInsights(): void {
+    const r = this.report;
+    if (!r) return;
+    const item = (level: VerdictLevel, title: string, detail: string, meta = '') =>
+      `- **${LEVEL_LABEL[level]}: ${title}**${meta ? ` (${meta})` : ''}\n  ${detail}`;
+    const lines = [
+      `# Uwagi z diagnostyki uczenia, generacja ${r.generation}`,
+      '',
+      `${new Date().toLocaleString('pl-PL')} · ${SESSION_LABEL[r.sessionState] ?? r.sessionState} · rekord sesji ${lap(r.sessionBest)} · najlepsza ocena ${lap(r.current.bestRating)} · trend mediany ${slope(r.trend.medianSlope)}`,
+      '',
+      '## Werdykty',
+      '',
+      ...(r.verdicts.length ? r.verdicts.map(v => item(v.level, v.title, v.detail)) : ['Brak.']),
+      '',
+      '## Uwagi',
+      '',
+      ...(r.insights.length ? r.insights.map(i => item(i.level, i.title, i.detail, `od gen. ${i.since} · ${CHART_LABEL[i.chart]}`)) : ['Brak.']),
+      '',
+    ];
+    saveFile(lines.join('\n'), 'text/markdown', `f1-uwagi-gen${r.generation}-${today()}.md`);
+  }
+
   private onBodyClick(e: MouseEvent): void {
     const target = e.target as HTMLElement;
+    if (target.closest('[data-export-insights]')) { this.exportInsights(); return; }
     const goto = target.closest<HTMLElement>('[data-goto]')?.dataset.goto;
     if (goto) {
       this.showTab(goto === 'network' ? 'network' : 'trends');

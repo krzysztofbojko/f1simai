@@ -1877,6 +1877,9 @@ input[type="checkbox"] {
 .lp-body { flex: 1; overflow: auto; padding: 12px 14px 16px; display: flex; flex-direction: column; gap: 12px; }
 .lp-empty, .lp-note { color: var(--text-muted); font-size: 12px; text-wrap: pretty; }
 .lp-verdicts { display: flex; flex-direction: column; gap: 6px; }
+.lp-note-row { display: flex; align-items: flex-start; gap: 10px; }
+.lp-note-row .lp-note { flex: 1; margin: 0; }
+.lp-note-row .f1-btn { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
 .lp-segmented { display: flex; gap: 6px; }
 .lp-segmented .f1-btn[aria-pressed="true"] { border-color: var(--f1-cyan); color: var(--f1-cyan); }
 .lp-verdict .f1-btn[data-apply] { margin-top: 6px; }
