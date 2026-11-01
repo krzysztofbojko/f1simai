@@ -11,6 +11,7 @@ import { Overlays } from './Overlays';
 import { CameraRig } from './Cameras';
 import { Labels } from './Labels';
 import { RaceHud } from './Hud';
+import { Dashboard } from './Dashboard';
 import { Textures } from './Textures';
 import { Rain } from './Rain';
 import type { WeatherState } from '../../physics/Weather';
@@ -78,6 +79,7 @@ export class SceneRenderer {
   private readonly overlays = new Overlays();
   private readonly labels: Labels;
   private readonly hud: RaceHud;
+  private readonly dashboard: Dashboard;
   private sky: THREE.Texture = Textures.sky();
   private readonly groundColor = new THREE.Color(0x26331f);
   private readonly fog = new THREE.Fog(0xc4d0d7, 300, 2600);
@@ -119,6 +121,7 @@ export class SceneRenderer {
     overlayRoot.appendChild(labelLayer);
     this.labels = new Labels(labelLayer);
     this.hud = new RaceHud(overlayRoot);
+    this.dashboard = new Dashboard(overlayRoot);
   }
 
   resize(width: number, height: number): void {
@@ -174,6 +177,8 @@ export class SceneRenderer {
     }
     const focus = f.selected ?? (f.player?.isAlive ? f.player : null) ?? f.leader ?? f.cars[0] ?? null;
     rig.update(dt, f.drawMode ? null : focus);
+    const cockpit = rig.mode === 'cockpit' && !f.drawMode ? focus : null;
+    for (const view of this.views) view.isCockpit = view.car === cockpit;
 
     this.fleet.group.visible = !f.drawMode;
     this.fleet.update(this.views, f.frozen ? 0 : dt, rig.pixelsPerMetre);
@@ -184,7 +189,8 @@ export class SceneRenderer {
     this.overlays.setRacingLine(this.showRacingLine && !f.drawMode ? f.racingLine : null);
     this.overlays.setPlannedLine(this.showRacingLine && !f.drawMode ? f.track : null, f.plannedLine);
     const sensorCar = this.showSensors && !f.drawMode ? (f.selected ?? f.leader) : null;
-    this.overlays.setSensors(sensorCar && sensorCar.isAlive ? sensorCar : null);
+    // From the cockpit the car's own sensor rays would fill the windscreen.
+    this.overlays.setSensors(sensorCar && sensorCar.isAlive && sensorCar !== cockpit ? sensorCar : null);
     const badge = this.overlays.setDrawing(f.drawMode && f.drawing ? f.drawing.points : null, f.drawing?.mouse ?? null, f.drawing?.anchor ?? null);
     this.trackMesh.checkpoints.visible = this.showCheckpoints;
 
@@ -198,6 +204,7 @@ export class SceneRenderer {
 
     this.labels.update(rig, this.views, this.showCarSpeed, f.drawMode ? [] : this.trackMesh.staticLabels, badge);
     this.hud.update(f.raceState, f.startLights, f.winner, f.drawMode, rig.pixelsPerMetre);
+    this.dashboard.update(cockpit, dt);
   }
 
   /**

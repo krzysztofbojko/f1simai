@@ -2,8 +2,9 @@ import * as THREE from 'three';
 import { Car } from '../../physics/Car';
 import { Track } from '../../track/Track';
 import { Vector2 } from '../../math/Vector2';
+import { carPose } from './CarFleet';
 
-export type CameraMode = 'top' | 'chase' | 'tv';
+export type CameraMode = 'top' | 'chase' | 'tv' | 'cockpit';
 
 const MIN_ZOOM = 0.25, MAX_ZOOM = 40;
 /** Elevation of the top camera: tilted for depth, straight down while drawing a track. */
@@ -12,19 +13,27 @@ const DRAW_TILT = Math.PI / 2;
 const TOP_DISTANCE = 3000;
 /** One broadcast camera per this much track (m). */
 const TV_SPACING = 140;
+/** Driver's eye and a point straight ahead, in the car model's frame (x forward, y up; helmet at 0.3, 0.7). */
+const EYE = new THREE.Vector3(0.28, 0.8, 0);
+const AHEAD = new THREE.Vector3(30, 0.55, 0);
+const COCKPIT_FOV_MIN = 55, COCKPIT_FOV_MAX = 100;
+/** Near plane: the cockpit camera sits a few centimetres from the halo. */
+const NEAR = 0.5, COCKPIT_NEAR = 0.05;
 
 /**
  * Camera rig. The top view is orthographic and keeps the 2D view's controls (zoom at the cursor,
  * drag to pan, fit, follow): `zoom` is pixels per metre and `target` the ground point at the
- * screen centre. Chase and TV are perspective cameras that track one car.
+ * screen centre. Chase and TV are perspective cameras that track one car; the cockpit camera rides
+ * in it at the driver's eye, pitching and rolling with the body.
  */
 export class CameraRig {
   mode: CameraMode = 'top';
   readonly ortho = new THREE.OrthographicCamera(-1, 1, 1, -1, 1, 8000);
-  readonly persp = new THREE.PerspectiveCamera(55, 1, 0.5, 6000);
+  readonly persp = new THREE.PerspectiveCamera(55, 1, NEAR, 6000);
   zoom = 1;
   readonly target = new THREE.Vector2(0, 0);
   chaseDistance = 10;
+  cockpitFov = 75;
 
   private tilt = TOP_TILT;
   private width = 1;
@@ -42,6 +51,8 @@ export class CameraRig {
   private stations: THREE.Vector3[] = [];
   private station = -1;
   private tvFov = 30;
+  private readonly ground4 = new THREE.Matrix4();
+  private readonly body4 = new THREE.Matrix4();
 
   get active(): THREE.Camera { return this.mode === 'top' ? this.ortho : this.persp; }
   get isPerspective(): boolean { return this.mode !== 'top'; }
@@ -129,6 +140,15 @@ export class CameraRig {
       this.persp.position.copy(this.chasePos);
       this.persp.up.set(0, 1, 0);
       this.persp.lookAt(this.chaseLook);
+    } else if (this.mode === 'cockpit') {
+      // Rigid to the body: no smoothing, the view moves exactly as the car does.
+      carPose(focus, this.ground4, this.body4);
+      this.chaseCar = focus;
+      this.persp.fov = this.cockpitFov;
+      this.persp.position.copy(EYE).applyMatrix4(this.body4);
+      this.chaseLook.copy(AHEAD).applyMatrix4(this.body4);
+      this.persp.up.set(0, 1, 0).transformDirection(this.body4);
+      this.persp.lookAt(this.chaseLook);
     } else {
       if (!this.stations.length) { this.mode = 'chase'; return; }
       const car = this.v.set(px, 0.6, pz);
@@ -152,6 +172,7 @@ export class CameraRig {
       this.persp.up.set(0, 1, 0);
       this.persp.lookAt(this.chaseLook);
     }
+    this.persp.near = this.mode === 'cockpit' ? COCKPIT_NEAR : NEAR;
     this.persp.updateProjectionMatrix();
     this.persp.updateMatrixWorld();
   }
@@ -173,6 +194,7 @@ export class CameraRig {
 
   zoomAt(factor: number, sx = this.width / 2, sy = this.height / 2): void {
     if (this.mode === 'chase') { this.chaseDistance = THREE.MathUtils.clamp(this.chaseDistance / factor, 4, 60); return; }
+    if (this.mode === 'cockpit') { this.cockpitFov = THREE.MathUtils.clamp(this.cockpitFov / factor, COCKPIT_FOV_MIN, COCKPIT_FOV_MAX); return; }
     if (this.mode !== 'top') return;
     const before = this.screenToWorld(sx, sy);
     this.zoom = THREE.MathUtils.clamp(this.zoom * factor, MIN_ZOOM, MAX_ZOOM);

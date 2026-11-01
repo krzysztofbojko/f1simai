@@ -124,7 +124,7 @@ CI (`.github/workflows/ci.yml`) przy każdym pushu i pull requeście uruchamia `
 
 Projekt pierwotnie rozwijano przy użyciu Gemini Antigravity.
 
-Widok toru: przyciski +/− lub kółko myszy zmieniają zoom (25–800%). Przeciągnięcie przesuwa widok i wyłącza śledzenie. „Cały tor” dopasowuje trasę do okna. Wybierz zawodnika w tabeli lub kliknij auto, następnie włącz „Śledź zawodnika”; kamera podąża za wybranym autem także po zmianie generacji. Bez wcześniejszego wyboru przycisk wybiera aktualnego lidera.
+Widok toru: przyciski +/− lub kółko myszy zmieniają zoom (25–800%). Przeciągnięcie przesuwa widok i wyłącza śledzenie. „Cały tor” dopasowuje trasę do okna. Wybierz zawodnika w tabeli lub kliknij auto, następnie włącz „Śledź zawodnika”; kamera podąża za wybranym autem także po zmianie generacji. Bez wcześniejszego wyboru przycisk wybiera aktualnego lidera. Kamera „Kokpit” pokazuje widok z oczu wybranego kierowcy (kołysze się razem z nadwoziem; kółko myszy zmienia pole widzenia 55–100°) z analogową deską rozdzielczą: obrotomierz z biegiem i światłami zmiany biegów, prędkościomierz, paliwo, bateria ERS, temperatury opon i hamulców (wskazówka biała: przód, pomarańczowa: tył) oraz kontrolki blokady kół, żółtej flagi, alei serwisowej i rezerwy paliwa.
 
 Wyjazd poza asfalt nie eliminuje bolidu: trawa zmniejsza przyczepność, a żwir dodatkowo wyhamowuje ruch. Lekki kontakt z bandą wygasza ruch w jej kierunku i zmniejsza prędkość wzdłuż bandy. Uderzenie z prędkością prostopadłą co najmniej 12 m/s powoduje DNF w wyścigu. W treningu auto też zostaje 15 s wrakiem z żółtą flagą, a dopiero po jego usunięciu wraca na tor. Samochód zatrzymany głęboko w żwirze może ugrzęznąć i zakończyć jazdę z powodu braku postępu.
 

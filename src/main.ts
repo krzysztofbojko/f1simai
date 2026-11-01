@@ -289,13 +289,13 @@ class App {
       cameras.mode = 'top';
       cameras.fit(this.renderer.trackBounds);
     });
-    const cameraModes: CameraMode[] = ['top', 'chase', 'tv'];
+    const cameraModes: CameraMode[] = ['top', 'chase', 'tv', 'cockpit'];
     document.querySelectorAll<HTMLButtonElement>('[data-camera-mode]').forEach(button => {
       button.addEventListener('click', () => {
         const mode = button.dataset.cameraMode as CameraMode;
         if (!cameraModes.includes(mode)) return;
         cameras.mode = mode;
-        // Chase and TV need a car: default to the leader, as the follow button does.
+        // Chase, TV and cockpit need a car: default to the leader, as the follow button does.
         if (mode !== 'top' && !this.selectedCar) {
           this.selectedCar = this.population.currentLeader || this.population.cars[0] || null;
           this.bridge.setActiveCarColor(this.selectedCar?.color || null);
@@ -1514,10 +1514,12 @@ class App {
       button.setAttribute('aria-pressed', String(active));
     });
     document.getElementById('camera-zoom-value')!.textContent = cameras.mode === 'top' ? `${Math.round(cameras.zoom * 100)}%`
-      : cameras.mode === 'chase' ? `${Math.round(cameras.chaseDistance)} m` : 'TV';
+      : cameras.mode === 'chase' ? `${Math.round(cameras.chaseDistance)} m`
+      : cameras.mode === 'cockpit' ? `FOV ${Math.round(cameras.cockpitFov)}°` : 'TV';
     const focusName = this.selectedCar?.driverName ?? this.population.currentLeader?.driverName ?? '';
     document.getElementById('camera-status')!.textContent = cameras.mode === 'chase' ? `Kamera pościgowa: ${focusName} • Kółko: odległość`
       : cameras.mode === 'tv' ? `Kamery TV: ${focusName}`
+      : cameras.mode === 'cockpit' ? `Kokpit: ${focusName} • Kółko: pole widzenia`
       : this.followSelected && this.selectedCar ? `Śledzenie: ${this.selectedCar.driverName}` : 'Kółko: zoom • Przeciągnij: przesuń • Kliknij zawodnika w tabeli';
 
     this.renderer.render({

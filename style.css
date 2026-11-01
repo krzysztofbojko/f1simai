@@ -1832,6 +1832,66 @@ input[type="checkbox"] {
   border-top: none;
 }
 
+/* Cockpit dashboard: analogue dials (SVG, viewBox ±100) on a carbon panel. */
+.dashboard {
+  position: absolute;
+  left: 50%;
+  bottom: 0;
+  transform: translateX(-50%);
+  z-index: 6;
+  pointer-events: none;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  gap: clamp(4px, 1vw, 14px);
+  width: min(980px, calc(100% - 16px));
+  padding: clamp(6px, 1vw, 12px) clamp(8px, 2vw, 28px) clamp(6px, 0.8vw, 10px);
+  background:
+    repeating-linear-gradient(45deg, rgba(255, 255, 255, 0.025) 0 2px, transparent 2px 4px),
+    repeating-linear-gradient(-45deg, rgba(255, 255, 255, 0.025) 0 2px, transparent 2px 4px),
+    linear-gradient(180deg, #1c1f25, #0b0c0f);
+  border: 1px solid #2c313a;
+  border-bottom: 0;
+  border-radius: 46% 46% 0 0 / 38% 38% 0 0;
+  box-shadow: 0 -6px 24px rgba(0, 0, 0, 0.55), inset 0 1px 0 rgba(255, 255, 255, 0.08);
+}
+.dashboard[hidden] { display: none; }
+.dash-side { display: flex; align-items: flex-end; gap: clamp(2px, 0.6vw, 8px); }
+.dash-centre { display: flex; flex-direction: column; align-items: center; gap: 4px; }
+.dash-gauge { display: block; overflow: visible; }
+.dash-large { width: clamp(130px, 17vw, 230px); }
+.dash-medium { width: clamp(100px, 12.5vw, 170px); }
+.dash-small { width: clamp(66px, 8vw, 112px); }
+.dash-bezel { fill: #3a3f47; stroke: #8a929e; stroke-width: 2; }
+.dash-face { fill: #0a0b0d; stroke: #000; stroke-width: 2; }
+.dash-zone { fill: none; stroke-width: 7; opacity: 0.9; }
+.dash-tick { stroke: #cfd5dd; stroke-width: 1.5; }
+.dash-tick.major { stroke: #fff; stroke-width: 3; }
+.dash-num { fill: #f2f4f7; font: 700 15px var(--font-racing); text-anchor: middle; dominant-baseline: central; }
+.dash-small .dash-num { font-size: 19px; }
+.dash-label { fill: #c9ced6; font: 700 12px var(--font-racing); letter-spacing: 0.06em; text-anchor: middle; }
+.dash-small .dash-label { font-size: 17px; }
+.dash-unit { fill: #8b929c; font: 600 10px var(--font-racing); text-anchor: middle; }
+.dash-small .dash-unit { font-size: 14px; }
+.dash-hub { fill: #23272e; stroke: #6b7280; stroke-width: 2; }
+.dash-hub-text { fill: #fff; font: 700 30px var(--font-mono); text-anchor: middle; dominant-baseline: central; }
+.dash-needle polygon { filter: drop-shadow(0 0 2px rgba(0, 0, 0, 0.9)); }
+.dash-shift { display: flex; gap: clamp(2px, 0.4vw, 5px); }
+.dash-shift span { width: clamp(7px, 1vw, 12px); height: clamp(7px, 1vw, 12px); border-radius: 50%; background: #1d2026; box-shadow: inset 0 1px 2px #000; }
+.dash-shift .green.on { background: #00e676; box-shadow: 0 0 8px #00e676; }
+.dash-shift .red.on { background: #ff1801; box-shadow: 0 0 8px #ff1801; }
+.dash-shift .blue.on { background: #3d8bff; box-shadow: 0 0 8px #3d8bff; }
+.dash-lamps { display: flex; flex-wrap: wrap; justify-content: center; gap: 4px; }
+.dash-lamp { padding: 1px 5px; border-radius: 3px; font: 700 9px var(--font-racing); letter-spacing: 0.05em; color: #3a3f47; background: #15171b; border: 1px solid #262a31; }
+.dash-lamp.on.amber { color: #1a1000; background: #ffab00; box-shadow: 0 0 8px #ffab00; }
+.dash-lamp.on.yellow { color: #1a1600; background: #ffe600; box-shadow: 0 0 8px #ffe600; }
+.dash-lamp.on.blue { color: #fff; background: #2f6fe0; box-shadow: 0 0 8px #2f6fe0; }
+.dash-lamp.on.red { color: #fff; background: #e10600; box-shadow: 0 0 8px #e10600; }
+@media (max-width: 640px) {
+  .dash-side .dash-small:not(:first-child) { display: none; }
+  .dash-side:first-child .dash-small { display: none; }
+}
+
 /* Learning diagnostics: a floating window that never blocks the simulation */
 .learning-panel {
   position: fixed;

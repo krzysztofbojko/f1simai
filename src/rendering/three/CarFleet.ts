@@ -19,7 +19,26 @@ const PIVOT = 0.32;
  */
 const BODY_MOTION_GAIN = 2;
 
-export interface CarView { car: Car; isLeader: boolean; isPlayer: boolean; isSelected: boolean }
+/** `isCockpit`: the camera sits in this car's cockpit, so its helmet is not drawn. */
+export interface CarView { car: Car; isLeader: boolean; isPlayer: boolean; isSelected: boolean; isCockpit?: boolean }
+
+const pose = { q: new THREE.Quaternion(), e: new THREE.Euler(), v: new THREE.Vector3(), s: new THREE.Vector3(), tmp: new THREE.Matrix4() };
+
+/**
+ * Model pose of a car: `ground` places the scaled model at its heading, `body` adds pitch (+ nose
+ * down) and roll (leans away from the turn) about the pivot and heave down. Model axes: x forward, y up.
+ */
+export function carPose(car: Car, ground: THREE.Matrix4, body: THREE.Matrix4): void {
+  const { q, e, v, s, tmp } = pose, scale = car.length / MODEL_LENGTH;
+  q.setFromAxisAngle(v.set(0, 1, 0), -car.heading);
+  ground.compose(v.set(car.pos.x, 0, car.pos.y), q, s.set(scale, scale, scale));
+  const g = car.isAlive ? BODY_MOTION_GAIN : 0;
+  e.set(-(car.roll || 0) * g, 0, -(car.pitch || 0) * g);
+  body.makeRotationFromEuler(e);
+  body.premultiply(tmp.makeTranslation(0, PIVOT, 0));
+  body.multiply(tmp.makeTranslation(0, -PIVOT - (car.heave || 0) * g, 0));
+  body.premultiply(ground);
+}
 
 function indexed(list: THREE.BufferGeometry[]): THREE.BufferGeometry {
   return mergeGeometries(list.map(g => g.index ? g.toNonIndexed() : g));
@@ -112,7 +131,6 @@ export class CarFleet {
   // Scratch objects: the update allocates nothing per frame.
   private readonly m = { ground: new THREE.Matrix4(), body: new THREE.Matrix4(), part: new THREE.Matrix4(), tmp: new THREE.Matrix4() };
   private readonly q = new THREE.Quaternion();
-  private readonly e = new THREE.Euler();
   private readonly v = new THREE.Vector3();
   private readonly s = new THREE.Vector3();
   private readonly c = new THREE.Color();
@@ -177,20 +195,10 @@ export class CarFleet {
     for (const view of views) {
       const car = view.car;
       if (car.wreckRemoved || n >= CAPACITY) continue;
-      const scale = car.length / MODEL_LENGTH;
-      this.q.setFromAxisAngle(this.v.set(0, 1, 0), -car.heading);
-      ground.compose(this.v.set(car.pos.x, 0, car.pos.y), this.q, this.s.set(scale, scale, scale));
-
-      // Body: pitch (+ nose down) and roll (leans away from the turn) about the pivot, heave down.
-      const g = car.isAlive ? BODY_MOTION_GAIN : 0;
-      this.e.set(-(car.roll || 0) * g, 0, -(car.pitch || 0) * g);
-      body.makeRotationFromEuler(this.e);
-      body.premultiply(tmp.makeTranslation(0, PIVOT, 0));
-      body.multiply(tmp.makeTranslation(0, -PIVOT - (car.heave || 0) * g, 0));
-      body.premultiply(ground);
+      carPose(car, ground, body);
       this.body.setMatrixAt(n, body);
       this.carbon.setMatrixAt(n, body);
-      this.helmet.setMatrixAt(n, body);
+      this.helmet.setMatrixAt(n, view.isCockpit ? part.makeScale(0, 0, 0) : body);
 
       const team = this.teamColor(car.color);
       this.body.setColorAt(n, car.isAlive ? team : this.c.copy(team).multiplyScalar(0.25));
@@ -219,12 +227,12 @@ export class CarFleet {
       if (car.isAlive && (car.speedKmh < 90 || car.isSkidding || braking)) this.lights.setMatrixAt(lit++, body);
 
       const ring = view.isLeader ? 0x00d2be : view.isPlayer ? 0xff8000 : null;
-      if (car.isAlive && ring !== null && !view.isSelected) {
+      if (car.isAlive && ring !== null && !view.isSelected && !view.isCockpit) {
         part.compose(this.v.set(car.pos.x, 0, car.pos.y), this.q.identity(), this.s.setScalar(markerRadius));
         this.rings.setMatrixAt(ringCount, part);
         this.rings.setColorAt(ringCount++, this.c.set(ring));
       }
-      if (view.isSelected) {
+      if (view.isSelected && !view.isCockpit) {
         const sel = this.selection;
         sel.visible = true;
         sel.position.set(car.pos.x, 0.05, car.pos.y);

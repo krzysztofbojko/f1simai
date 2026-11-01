@@ -89,7 +89,7 @@ export class Labels {
     for (const view of views) {
       const car = view.car;
       const pitInfo = car.isPitting || car.pitShowTimer > 0;
-      if (car.wreckRemoved || (!showSpeed && car.isAlive && !pitInfo)) continue;
+      if (car.wreckRemoved || view.isCockpit || (!showSpeed && car.isAlive && !pitInfo)) continue;
       if (!rig.worldToScreen(car.pos.x, car.pos.y, 1.2, this.p)) continue;
       const { text, kind } = labelText(view);
       const strong = view.isLeader || view.isPlayer || view.isSelected || pitInfo;
