@@ -15,7 +15,7 @@ import { Weather, isWeatherScenario, type WeatherScenario, type WeatherState } f
 import { applyDriverModel, exportDriver, mergeBetterDrivers, serializeTrack } from '../ai/Islands';
 import type { LearningStatsView } from '../ai/LearningStats';
 import { insights, type Insight } from '../ai/LearningInsights';
-import { learningLog, type LearningLog } from '../ai/LearningLog';
+import { learningLog, type CornerLogRow, type LearningLog } from '../ai/LearningLog';
 import type { SupervisorMode } from '../ai/TrainingSupervisor';
 
 export type { TopologySpecifier, RaceState, RaceStanding, QualifyingSnapshot };
@@ -129,6 +129,22 @@ export interface IslandStatus {
   stepsPerSecond: number;
   /** Driver models taken over from islands since they were started. */
   adopted: number;
+}
+
+/** The track's corners with the champion's per-corner limit search, for the session log. */
+function cornerLog(): CornerLogRow[] {
+  const record = population.championRecord();
+  const car = (record && population.cars.find(c => c.color === record.color)) ?? population.cars[0];
+  const report = car?.pace.cornerReport() ?? [];
+  const metres = (i: number) => Math.round(i * track.spacing);
+  return track.corners.corners.map((c, i) => ({
+    corner: i + 1, brakeAt: metres(c.brakeStart), arcFrom: metres(c.arcStart), arcTo: metres(c.arcEnd),
+    apexRadius: Math.round(1 / Math.max(1e-6, Math.abs(track.localCurvature[c.apex]))),
+    cornerMargin: report[i]?.corner ?? 1, brakeMargin: report[i]?.brake ?? 1,
+    cleanPasses: report[i]?.clean ?? 0, problems: report[i]?.problems ?? 0,
+    reasons: report[i]?.reasons ?? {}, cleanSlide: report[i]?.cleanSlide ?? 0,
+    stepBacks: report[i]?.stepBacks ?? 0, probeFails: report[i]?.probeFails ?? 0, timeReverts: report[i]?.timeReverts ?? 0,
+  }));
 }
 
 // Compute Profile State (Defaults to 'balanced' - fully preserving legacy behavior)
@@ -919,6 +935,7 @@ self.onmessage = (e: MessageEvent) => {
           weather: { scenario: weather.scenario, state: { ...weather.state } },
         },
         supervisorActions: population.learningStats.supervisorActions,
+        corners: cornerLog(),
       });
       self.postMessage({ type: 'LEARNING_LOG_RESULT', requestId: data.requestId, log });
       break;

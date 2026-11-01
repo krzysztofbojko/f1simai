@@ -72,17 +72,23 @@ export function planDrive(car: Car, track: Track, leaderSpeeds?: number[]): Driv
   // Planned grip: friction coefficient (tyre state, pressure, learned pace) acting on weight plus downforce.
   const pressure = pressureProfile(car.yellowFlag || car.isPitting || car.recoveryTimer > 0 || !car.withinTrackLimits
     ? Math.min(0, car.effectiveDriverPressure) : car.effectiveDriverPressure);
-  const paceMargin = car.pace.value(car.isRaceMode);
   const pushing = car.battlePush.remaining > 0;
+  car.pace.bind(track.corners.corners.length);
   const tyreMu = car.baseTireGrip * Math.min(car.tyreGripFront, car.tyreGripRear);
-  const muCorner = tyreMu * (Car.PLAN_CORNER_GRIP + (pressure.cornerGrip - 0.45) * 0.25) * paceMargin;
+  // Each corner is budgeted, for its arc and the braking into it, with the margin learned for its own
+  // section of the lap (PaceSearch): a probe in one corner leaves the plan everywhere else unchanged.
+  const muCornerBase = tyreMu * (Car.PLAN_CORNER_GRIP + (pressure.cornerGrip - 0.45) * 0.25);
   // Cold or fading discs cap the deceleration below the tyres' grip: plan the braking with them.
   const brakeEfficiency = car.brakeEfficiency;
-  const muBrake = tyreMu * Math.min(0.9 * brakeEfficiency, (Car.PLAN_BRAKE_GRIP + (pressure.braking - 1) * 0.15) * car.brakingAggression * (1 + (paceMargin - 1) * 0.5) * (pushing ? 1.08 : 1));
+  const brakeBudget = (Car.PLAN_BRAKE_GRIP + (pressure.braking - 1) * 0.15) * car.brakingAggression * (pushing ? 1.08 : 1);
   const aeroPerV2 = 0.5 * car.airDensity * car.downforceCoeff * car.wakeDownforce * (1 - 0.35 * car.damage) * Car.PLAN_AERO_SHARE / car.totalMass;
   const dragPerV2 = 0.5 * car.airDensity * car.dragCoeff / car.totalMass;
   // Braking from v to w (both squared) at a = muBrake·(g + aero·v²) + drag·v²: d(v²)/ds = 2(A + B·v²).
-  const brakeA = muBrake * Car.GRAVITY, brakeB = muBrake * aeroPerV2 + dragPerV2;
+  let brakeA = 0, brakeB = 1;
+  const brakeFor = (margin: number) => {
+    const muBrake = tyreMu * Math.min(0.9 * brakeEfficiency, brakeBudget * (1 + (margin - 1) * 0.5));
+    brakeA = muBrake * Car.GRAVITY; brakeB = muBrake * aeroPerV2 + dragPerV2;
+  };
   const brakingDistance = (v2: number, w2: number) => v2 <= w2 ? 0 : Math.log((v2 + brakeA / brakeB) / (w2 + brakeA / brakeB)) / (2 * brakeB);
   const entrySpeedSq = (w2: number, d: number) => (w2 + brakeA / brakeB) * Math.exp(2 * brakeB * d) - brakeA / brakeB;
 
@@ -119,6 +125,8 @@ export function planDrive(car: Car, track: Track, leaderSpeeds?: number[]): Driv
     }
 
     if (curK > 0.002) {
+      const corner = track.corners.zone[pointIndex] ?? -1;
+      const muCorner = muCornerBase * car.pace.cornerMargin(corner, car.isRaceMode);
       // Steady-state limit v²·κ = μ(g + aero·v²); below the aero threshold the corner is flat out.
       const room = curK - muCorner * aeroPerV2;
       const gripV = room > 0 ? Math.min(Car.PLAN_MAX_SPEED, Math.sqrt(muCorner * Car.GRAVITY / room)) : Car.PLAN_MAX_SPEED;
@@ -127,6 +135,7 @@ export function planDrive(car: Car, track: Track, leaderSpeeds?: number[]): Driv
       const push = underCar ? 1 + Car.PLAN_PUSH_MAX * car.cornerPush : 1;
       const safeV = Math.max(5, gripV * push * (pushing ? 1.04 : 1) * (car.lineDeviation > .8 ? .88 : 1));
       if (safeV >= Car.PLAN_MAX_SPEED) continue;
+      brakeFor(car.pace.brakeMargin(corner, car.isRaceMode));
 
       // A hairpin sampled at its apex is entered well before it: reach the safe speed where
       // the arc starts (about half of a hairpin's arc before the apex), while still braking straight.
@@ -149,6 +158,7 @@ export function planDrive(car: Car, track: Track, leaderSpeeds?: number[]): Driv
 
   const curvatureInput = Math.min(1.0, maxUpcomingCurvature * 25.0);
   const overspeedDelta = Math.max(-1.0, Math.min(1.0, maxOverspeed));
+  if (!car.isRaceMode && !car.isManual) observeCornerPass(car, track, here.index, overspeedDelta);
 
   const inputs: number[] = [
     ...(car.stressLap ? car.noisyRayDistances() : car.rayDistances),
@@ -334,4 +344,26 @@ export function planDrive(car: Car, track: Track, leaderSpeeds?: number[]): Driv
     inputs, expert, idealSteer, pushing, offRoad, overspeedDelta, minCenterClearance, tractionThrottle,
     guarded: offRoad || minCenterClearance <= Car.CLEAR_LIFT || Math.max(carUrgency, sideUrgency) > Car.CAR_AVOID_GUARD || car.yellowFlag || car.isPitting || car.recoveryTimer > 0,
   };
+}
+
+/** Within this gap (m) a car ahead in the lane makes the corner pass say nothing about the limit. */
+const PASS_TRAFFIC_DISTANCE = 40;
+
+/** Feeds the per-corner limit search (PaceSearch) with what the car felt on this step. */
+function observeCornerPass(car: Car, track: Track, index: number, overspeed: number): void {
+  const traffic = car.gapAhead < PASS_TRAFFIC_DISTANCE;
+  car.pace.observe(track, index, {
+    dt: car.lastStepDt,
+    fuelKg: car.fuelKg,
+    sliding: car.isSliding,
+    locked: car.wheelLockFront || car.wheelLockRear,
+    utilization: car.tireUtilization,
+    guarded: car.lastGuarded,
+    emergencyBrake: car.lastEmergencyBrake,
+    excursion: car.stepExcursion,
+    overspeed,
+    void: traffic || car.stepContact || car.stressLap || car.incidentActive || car.yellowFlag || car.isPitting,
+  });
+  car.stepExcursion = false;
+  car.stepContact = false;
 }

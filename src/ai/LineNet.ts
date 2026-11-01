@@ -2,6 +2,7 @@ import { NeuralNetwork } from './NeuralNetwork';
 import { random } from '../math/Random';
 import type { Track, SurfaceSample } from '../track/Track';
 import type { Vector2 } from '../math/Vector2';
+import { SECTIONS, SectionClock } from './SectionClock';
 
 /** Signed, saturating curvature of the track `distance` metres ahead (negative = behind) of a sample index. */
 export function signedCurvature(track: Track, index: number, distance: number): number {
@@ -41,7 +42,7 @@ type Mode = 'champion' | 'trim' | 'network';
  * - a team-mate's better line can be proposed and is then evaluated like a network candidate.
  */
 export class LineNet {
-  static readonly SECTIONS = 32;
+  static readonly SECTIONS = SECTIONS;
   static readonly MAX_DELTA = 1.5;
   static readonly MAX_TRIM = 1.5;
   static readonly CANDIDATE_LAPS = 2;
@@ -67,9 +68,7 @@ export class LineNet {
   private proposal: { net: NeuralNetwork; trim: Float32Array<ArrayBuffer> } | null = null;
   private evaluatingProposal = false;
   /** Section timing of the lap in progress. */
-  private readonly lapSections = new Float64Array(LineNet.SECTIONS).fill(NaN);
-  private section = -1;
-  private sectionStart = 0;
+  private readonly clock = new SectionClock();
 
   constructor(base: NeuralNetwork) { this.current = base.clone(); this.best = base.clone(); }
 
@@ -130,27 +129,14 @@ export class LineNet {
   }
 
   /** The car was reset (respawn, grid): the lap in progress has no comparable section times. */
-  resetTiming(): void {
-    this.lapSections.fill(NaN);
-    this.section = -1;
-    this.sectionStart = 0;
-  }
+  resetTiming(): void { this.clock.reset(); }
 
-  /** The car cleared track point `index` at `lapTime` seconds into its lap: times each section. */
-  passPoint(index: number, pointCount: number, lapTime: number): void {
-    const section = Math.min(LineNet.SECTIONS - 1, Math.floor(index / Math.max(1, pointCount) * LineNet.SECTIONS));
-    if (section === this.section) return;
-    const consecutive = this.section >= 0 && section === (this.section + 1) % LineNet.SECTIONS;
-    if (consecutive && Number.isFinite(lapTime)) this.lapSections[this.section] = lapTime - this.sectionStart;
-    else if (this.section >= 0) this.lapSections.fill(NaN); // skipped part of the lap: no fair comparison
-    this.section = section;
-    this.sectionStart = section === 0 ? 0 : lapTime;
-  }
+  /** The car cleared track point `index` at `lapTime` seconds into its lap: times each section (corrected to the reference fuel load with `fuelKg`). */
+  passPoint(index: number, pointCount: number, lapTime: number, fuelKg?: number): void { this.clock.pass(index, pointCount, lapTime, fuelKg); }
 
   /** Lap finished. Returns true when the line improved. */
   finish(time: number, clean: boolean): boolean {
-    const sections = this.lapSections.slice();
-    this.lapSections.fill(NaN);
+    const sections = this.clock.take();
     if (!clean || !Number.isFinite(time) || time <= 0) return false;
     this.laps++;
     let improved = false;

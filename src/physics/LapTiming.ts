@@ -110,7 +110,7 @@ export function checkTrackProgress(car: Car, track: Track): LapFinishEvent | nul
       car.currentCheckpointIdx = (clearedCpIdx + missed) % cpCount;
       car.timeSinceCheckpoint = 0;
       car.lapCompromised = true;
-      car.lapExcursion = true;
+      car.markExcursion();
       return null;
     }
   }
@@ -140,7 +140,7 @@ export function passGate(car: Car, track: Track, gateT: number | null): LapFinis
 
   car.timeSinceCheckpoint = 0;
   car.currentCheckpointIdx = (clearedCpIdx + 1) % cpCount;
-  car.lineNet?.passPoint(clearedCpIdx, cpCount, car.lapTime);
+  car.lineNet?.passPoint(clearedCpIdx, cpCount, car.lapTime, car.fuelKg);
 
   // Check 4 timing checkpoints (CP1, CP2, CP3)
   if (track.timingGates && track.timingGates.length === 4) {
@@ -199,7 +199,6 @@ export function passGate(car: Car, track: Track, gateT: number | null): LapFinis
       const compromised = car.lapCompromised || car.pressureLearningBlocked || offConditions || afterFlag;
       // Only the network's own excursions probe the limit: a stress lap (less grip, noisy sensors)
       // or a scripted mistake says nothing about the pace the car can hold.
-      if (!car.isManual) car.pace.finishLap(finishedLapTime, !compromised, car.lapExcursion && !car.lapContact && !car.lapIncident && !car.stressLap);
       car.lapExcursion = false;
       car.lapContact = false;
       car.lapIncident = car.incidentActive;

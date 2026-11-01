@@ -39,6 +39,29 @@ export interface LearningLog {
   drivers: LearningStatsView['drivers'];
   network: LearningStatsView['network'];
   supervisor: { mode: SupervisorMode; actions: SupervisorAction[] };
+  corners: CornerLogRow[];
+}
+
+/** One corner of the track with the champion's learned budgets. */
+export interface CornerLogRow {
+  corner: number;
+  /** Distance of the braking zone start, arc start and arc end from the start/finish line (m). */
+  brakeAt: number;
+  arcFrom: number;
+  arcTo: number;
+  /** Radius at the apex (m). */
+  apexRadius: number;
+  cornerMargin: number;
+  brakeMargin: number;
+  cleanPasses: number;
+  problems: number;
+  /** Judged problem passes by cause (a pass may count under several). */
+  reasons: Record<string, number>;
+  /** Mean sliding (s) of the corner's passes without a problem. */
+  cleanSlide: number;
+  stepBacks: number;
+  probeFails: number;
+  timeReverts: number;
 }
 
 /** What each field means: times in seconds, shares in 0..1, weight distances as RMS. */
@@ -82,10 +105,17 @@ export const LEARNING_LOG_SCHEMA = {
     lapsSincePB: 'Clean laps since the last accepted brain (8 starts an exploration trial)', mutationRate: 'Team mutation rate',
     interventionRate: 'Share of steps the guardian overrode', crashes: 'Crashes in the session',
     distanceToChampion: 'RMS weight distance from the champion brain',
-    lineBest: 'Best time of the racing-line network (s), current drivers only', paceMargin: 'Grip margin from the pace search, current drivers only',
+    lineBest: 'Best time of the racing-line network (s), current drivers only', paceMargin: 'Mean grip margin of the pace search over the 32 sections of the lap (planner corner budget multiplier, 0.9..1.15), current drivers only', paceRange: 'Lowest and highest proven section margin [min, max]',
   },
   summary: 'sessionBest (s); trend: slopes in s/generation over the last 10 generations (negative = faster), gensSinceRecord, trialSuccess; '
     + 'verdicts and insights: automatic diagnoses (level bad/warn/info/good, since = first generation of the symptom).',
+  corners: 'The track split into corners (braking zone → arc → exit) with the champion\'s per-corner limit search: cornerMargin multiplies the '
+    + 'planner\'s corner grip budget and brakeMargin its braking budget into the corner (0.9..1.15, proven values). Two clean passes with room '
+    + 'raise a budget, a slide/excursion/guardian takeover (arc) or locked wheels/emergency braking/arriving too fast (braking) steps it back. '
+    + 'cleanPasses and problems count judged passes of the session; reasons splits the problems by cause (slide: sliding clearly longer than '
+    + 'the corner usually slides, lock: locked wheels, guard: guardian took over, offArc/offBrake: left the track in the arc/braking zone, '
+    + 'entry: arrived too fast, emergency: emergency braking, crash); cleanSlide is the normal sliding (s) of a clean pass; stepBacks, '
+    + 'probeFails and timeReverts count budgets stepped back after repeated problems, probes ended by a problem and probes ended by a slower corner time.',
   network: 'Champion network: layer sizes, parameter count, mean |weight| and tanh saturation per layer.',
   supervisor: 'Training supervisor. mode: auto (acts) or suggest (waits for the user). actions: every action and suggestion of the session, '
     + 'with generation (whose end triggered it), kind (pace-reset: pace search back to margin 1; mutation-reset: team mutation rates back to the floor; '
@@ -94,7 +124,7 @@ export const LEARNING_LOG_SCHEMA = {
 } as const;
 
 export function learningLog(view: LearningStatsView, generations: GenerationLogEntry[], insights: Insight[],
-  meta: { sessionState: string; simTime: number; config: LearningLogConfig; supervisorActions: SupervisorAction[] }): LearningLog {
+  meta: { sessionState: string; simTime: number; config: LearningLogConfig; supervisorActions: SupervisorAction[]; corners: CornerLogRow[] }): LearningLog {
   return {
     type: 'F1_LEARNING_LOG',
     version: 2,
@@ -111,6 +141,7 @@ export function learningLog(view: LearningStatsView, generations: GenerationLogE
     drivers: view.drivers,
     network: view.network,
     supervisor: { mode: view.supervisor.mode, actions: meta.supervisorActions },
+    corners: meta.corners,
   };
 }
 

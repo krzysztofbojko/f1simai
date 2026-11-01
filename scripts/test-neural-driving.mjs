@@ -222,18 +222,97 @@ try {
   const graze = probe(1.5), hit = probe(8);
   assert.ok(graze.alive && graze.along > 0.8, 'a graze keeps most speed: ' + graze.along);
   assert.ok(hit.along < graze.along);
-  // Limit probing: a probe that improves the median raises the margin, an excursion backs off and caps it.
-  const pace = new PaceSearch();
-  [60, 60, 60, 59.5, 59.5, 59.5, 59, 59, 59, 59].forEach(t => pace.finishLap(t, true, false));
-  assert.ok(pace.bestMargin > 1.05, 'margin grows on clean faster laps: ' + pace.bestMargin);
-  pace.finishLap(59, true, false);
-  assert.ok(pace.margin > pace.bestMargin, 'and probes on');
-  const before = pace.margin;
-  pace.finishLap(61, false, true);
-  assert.ok(pace.margin < before && pace.ceiling <= before, 'excursion backs off');
-  for (let i = 0; i < 40; i++) pace.finishLap(60, true, false);
-  assert.ok(pace.margin <= pace.ceiling + 1e-9 && pace.margin <= PaceSearch.MAX);
-  assert.equal(pace.value(true), pace.bestMargin);
+  // Limit probing per corner: clean passes with room raise a budget, a problem steps it back and caps it.
+  {
+    // A synthetic corner: braking zone (points 0-9), arc (10-19), exit (20-24), straight (25-29).
+    const phase = Uint8Array.from({ length: 30 }, (_, i) => i < 10 ? 1 : i < 20 ? 2 : i < 25 ? 3 : 0);
+    const one = { corners: { corners: [{ id: 0, brakeStart: 0, arcStart: 10, arcEnd: 20, exitEnd: 25, apex: 15 }],
+      zone: Int16Array.from(phase, p => p ? 0 : -1), phase } };
+    const step = { dt: 0.05, fuelKg: 50, sliding: false, locked: false, utilization: 0.5, guarded: false, emergencyBrake: false, excursion: false, overspeed: -1, void: false };
+    /** One pass through the corner; `at(i)` overrides the step at point i. */
+    const drive = (p, at = () => ({}), from = 0) => { for (let i = from; i < 30; i++) p.observe(one, i, { ...step, ...at(i) }); };
+    const pace = new PaceSearch();
+    drive(pace); drive(pace);
+    assert.ok(pace.cornerMargin(0, false) > 1 && pace.cornerMargin(0, true) === 1, 'two clean passes with room start a probe; racing keeps the proven budget');
+    const probed = pace.cornerMargin(0, false);
+    drive(pace); drive(pace); drive(pace);
+    assert.equal(pace.cornerMargin(0, true), probed, 'a probe passed cleanly and no slower becomes the proven budget');
+    // The braking budget takes its turn (one budget of a corner is probed at a time), then the arc again.
+    for (let k = 0; k < 10 && pace.cornerMargin(0, false) === probed; k++) drive(pace);
+    assert.ok(pace.brakeMargin(0, true) > 1, 'clean braking zones raise the braking budget');
+    const tried = pace.cornerMargin(0, false);
+    assert.ok(tried > probed);
+    drive(pace, i => i >= 12 && i < 20 ? { sliding: true } : {}); // 0.4 s of sliding in the arc
+    assert.ok(pace.cornerMargin(0, false) === probed && pace.cornerMargin(0, true) === probed, 'a slide on the probe ends it');
+    assert.ok(pace.ceiling < tried, 'and caps the corner below it');
+    // A raise that is cleaner but slower through the corner goes back too.
+    const slow = new PaceSearch();
+    for (let k = 0; k < 4; k++) drive(slow);
+    const raised = slow.cornerMargin(0, false);
+    assert.ok(raised > 1);
+    for (let k = 0; k < 3; k++) drive(slow, i => i >= 10 ? { dt: 0.1 } : {});
+    assert.equal(slow.cornerMargin(0, true), 1, 'a raise that costs corner time is discarded');
+    // At the proven budget two problems in a few passes step the corner back; one is no verdict.
+    const back = new PaceSearch();
+    drive(back, i => i === 15 ? { guarded: true } : {});
+    assert.equal(back.cornerMargin(0, true), 1);
+    drive(back, i => i === 22 ? { excursion: true } : {});
+    assert.ok(back.cornerMargin(0, true) < 1, 'repeated problems step the corner back');
+    // Braking: locked wheels or arriving too fast step the braking budget back, not the arc's.
+    const brake = new PaceSearch();
+    drive(brake, i => i < 6 ? { locked: true } : {}); drive(brake, i => i === 10 ? { overspeed: 0.5 } : {});
+    assert.ok(brake.brakeMargin(0, true) < 1 && brake.cornerMargin(0, true) === 1, 'braking problems move the braking budget');
+    // Passes with nothing to say about the limit, joined halfway or pushed near the limit raise nothing.
+    const quiet = new PaceSearch();
+    for (let k = 0; k < 6; k++) drive(quiet, () => ({ void: true }));
+    for (let k = 0; k < 6; k++) drive(quiet, () => ({}), 12);
+    for (let k = 0; k < 6; k++) drive(quiet, i => i >= 10 ? { utilization: 0.95 } : {});
+    assert.ok(quiet.cornerMargin(0, false) === 1 && quiet.brakeMargin(0, false) === 1, 'void, partial and near-limit passes raise nothing');
+    // A crash in the arc counts against the corner.
+    const crash = new PaceSearch();
+    drive(crash); drive(crash);
+    for (let i = 0; i < 14; i++) crash.observe(one, i, step);
+    crash.crash();
+    assert.equal(crash.cornerMargin(0, false), 1, 'a crash on the probe ends it');
+    // Budgets survive a save; another track (corner count) starts from the uniform budget; old saves fill every corner.
+    const saved = new PaceSearch(); saved.fromJSON({ corners: 1, corner: [1.08], cornerCeilings: [1.12], brake: [0.97], brakeCeilings: [1.1] });
+    saved.bind(1);
+    assert.ok(saved.cornerMargin(0, true) === 1.08 && saved.brakeMargin(0, true) === 0.97);
+    const restored = new PaceSearch(); restored.fromJSON(JSON.parse(JSON.stringify(saved.toJSON()))); restored.bind(1);
+    assert.deepEqual(restored.toJSON(), saved.toJSON());
+    restored.bind(3);
+    assert.equal(restored.cornerMargin(2, true), restored.toJSON().bestMargin);
+    const legacy = new PaceSearch();
+    legacy.fromJSON({ margin: 1.05, bestMargin: 1.05, ceiling: 1.1, step: 0.03, provenLaps: [60] });
+    legacy.bind(4);
+    assert.ok([0, 1, 2, 3].every(c => legacy.cornerMargin(c, true) === 1.05) && legacy.ceiling === 1.1);
+    // The planner budgets each corner with its own learned margin: a raise ahead lets the car carry
+    // more speed into that corner, a raise in another corner changes nothing.
+    const n = gp.points.length, zone = gp.corners.zone, count = gp.corners.corners.length;
+    let apex = 0;
+    for (let i = 0; i < n; i++) if (zone[i] >= 0 && gp.smoothedCurvature[i] > gp.smoothedCurvature[apex]) apex = i;
+    const at = (apex - gp.pointsFor(120) + n) % n, road = gp.points[at];
+    const planned = (margins, speed) => {
+      const c = new Car(road.center.clone(), road.tangent.heading(), null, '#fff', 'plan', 60, 25);
+      c.vel = road.tangent.mul(speed); c.speed = speed;
+      // Every new car draws its own style and lap variation: the compared cars must not differ.
+      c.brakingAggression = 1.2; c.stressLap = false; c.lapPowerFactor = c.lapGripFactor = c.lapDragFactor = 1;
+      c.apexStyle = 0.6; // the racing line style follows the random car id
+      c.isRaceMode = true; // drives the proven budgets and learns nothing
+      c.pace.fromJSON({ corners: count, corner: margins, brake: new Array(count).fill(1) });
+      c.updateSensors(gp);
+      return c.planDrive(gp).overspeedDelta;
+    };
+    // A speed that is over the corner's limit but not off the scale (overspeed saturates at 1).
+    const speed = Array.from({ length: 40 }, (_, i) => 20 + 2 * i).find(v => { const o = planned(new Array(count).fill(1), v); return o > 0.05 && o < 0.9; });
+    assert.ok(speed, 'a speed over the corner limit');
+    const flat = planned(new Array(count).fill(1), speed);
+    const raisedAhead = new Array(count).fill(1); raisedAhead[zone[apex]] = 1.1;
+    // The corner before it lies behind the car: out of the planning horizon.
+    const raisedElsewhere = new Array(count).fill(1); raisedElsewhere[(zone[apex] - 1 + count) % count] = 1.1;
+    assert.ok(planned(raisedAhead, speed) < flat, `a raised corner ahead allows more speed: ${planned(raisedAhead, speed)} vs ${flat} at ${speed} m/s`);
+    assert.equal(planned(raisedElsewhere, speed), flat, 'a raise in another corner leaves the plan alone');
+  }
   // Line search: new candidates alter individual lap sections.
   const search = new LineSearch(0);
   for (let i = 0; i < 14; i++) search.finish(60 + i * 0.01, true);
@@ -303,8 +382,8 @@ try {
   assert.ok(Number.isFinite(racingTarget) && Math.abs(racingTarget) <= LineNet.MAX_DELTA + LineNet.MAX_TRIM);
   assert.ok(lineInputs(gp, { pos: gp.startPosition, heading: gp.startAngle, speed: 20, rayDistances: new Array(25).fill(1) }).length === 32);
   // Pace margin and learned line survive a save/restore round trip (browser autosave).
-  const savedPace = new PaceSearch(); [60, 59].forEach(t => savedPace.finishLap(t, true, false)); savedPace.fail();
-  const restoredPace = new PaceSearch(); restoredPace.fromJSON(JSON.parse(JSON.stringify(savedPace.toJSON())));
+  const savedPace = new PaceSearch(); savedPace.fromJSON({ corners: 2, corner: [1.08, 0.95], brake: [1, 1.02] }); savedPace.bind(2);
+  const restoredPace = new PaceSearch(); restoredPace.fromJSON(JSON.parse(JSON.stringify(savedPace.toJSON()))); restoredPace.bind(2);
   assert.deepEqual(restoredPace.toJSON(), savedPace.toJSON());
   const savedLine = new LineNet(new NeuralNetwork([32, 6, 1])); savedLine.finish(60, true);
   const restoredLine = new LineNet(new NeuralNetwork([32, 6, 1]));

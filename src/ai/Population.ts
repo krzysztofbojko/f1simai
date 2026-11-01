@@ -707,7 +707,7 @@ export class Population {
         // Individual car respawn & online team learning
         car.respawnTimer -= dt;
         // A crash on a stress lap or after a scripted mistake is no verdict on the pace.
-        if (!car.isManual && !car.stressLap && !car.lapIncident && car.respawnTimer > 0 && car.respawnTimer <= dt && (car.eliminationReason === 'barrier' || car.eliminationReason === 'stuck' || car.eliminationReason === 'wrong-way')) car.pace.fail();
+        if (!car.isManual && !car.stressLap && !car.lapIncident && car.respawnTimer > 0 && car.respawnTimer <= dt && (car.eliminationReason === 'barrier' || car.eliminationReason === 'stuck' || car.eliminationReason === 'wrong-way')) car.pace.crash();
         car.mistakes.cooldown = Math.max(0, car.mistakes.cooldown - dt);
         // The wreck stays on track (as in the race) until the marshals clear it, then the car respawns.
         if (car.respawnTimer <= 0 && car.wreckRemoved) {

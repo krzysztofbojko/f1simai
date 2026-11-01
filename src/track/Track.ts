@@ -1,4 +1,5 @@
 import { Vector2, LineSegment, raySegmentIntersection, IntersectionResult, distToSegment, segmentsIntersect } from '../math/Vector2';
+import { findCorners, type TrackCorners } from './TrackCorners';
 import { TrackPoint } from '../math/Spline';
 import { PitLane } from './PitLane';
 
@@ -94,6 +95,8 @@ export class Track {
   static readonly ACTIVE_AERO_MIN_LENGTH = 300;
   /** 1 on the points of an active aero zone, else 0. */
   public activeAeroZones: Uint8Array = new Uint8Array(0);
+  /** The lap split into corners (braking zone, arc, exit): what the driver's per-corner limit search learns on. */
+  public corners: TrackCorners = { corners: [], zone: new Int16Array(0), phase: new Uint8Array(0) };
   /** For every track point, the checkpoint (gate) at or before it. */
   private pointGate: Int32Array = new Int32Array(0);
 
@@ -262,6 +265,7 @@ export class Track {
     this.localCurvature = this.boxFilter(this.boxFilter(curvature, Track.GATE_SPACING), Track.GATE_SPACING);
     this.kerbs = Uint8Array.from(this.localCurvature, c => Math.abs(c) > Track.KERB_CURVATURE ? 1 : 0);
     this.activeAeroZones = this.findActiveAeroZones();
+    this.corners = findCorners(this.localCurvature, this.spacing);
 
     // Gates: evenly spaced points, the first on the start/finish line (point 0).
     const gates = Math.min(n, Math.max(4, Math.round(this.totalLength / Track.GATE_SPACING)));

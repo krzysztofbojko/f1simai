@@ -40,6 +40,10 @@ try {
  assert.equal(b.wakeDrag,1);assert.equal(b.wakeDownforce,1);assert.ok(beside.wakeDrag>0.99);
  const alone=car(-60,0,60);computeWake([alone,b]);assert.equal(alone.wakeDownforce,1);assert.equal(alone.wakeDrag,1);
  const racing=a.wakeDrag;a.isRaceMode=!a.isRaceMode;computeWake([a,b]);assert.equal(a.wakeDrag,racing,'training and the race share the wake');
+ // gapAhead: the nearest car ahead in the lane at any speed, not beside or behind.
+ a=car(0,0,60);b=car(35.5,0,60);computeWake([a,b,beside]);assert.ok(Math.abs(a.gapAhead-30)<1e-9,'a car 30 m ahead in the lane');assert.equal(b.gapAhead,Infinity,'a car behind does not count');
+ const side=car(30,10,60);computeWake([a,side]);assert.equal(a.gapAhead,Infinity,'a car 10 m beside does not count');
+ const stopped=car(25.5,0,0);computeWake([a,stopped]);assert.ok(Math.abs(a.gapAhead-20)<1e-9,'a stopped car ahead counts');assert.equal(a.wakeDrag,1,'a stopped car gives no tow');
  // Crossing trajectories collide even when neither endpoint overlaps.
  a=car(-10,0,30);b=car(0,-10);b.heading=Math.PI/2;b.vel=new Vector2(0,30);m=captureMotion([a,b]);a.pos=new Vector2(10,0);b.pos=new Vector2(0,10);resolveTraffic([a,b],m);assert.equal(a.eliminationReason,'car');
  // Lapped and stopped traffic are obstacles; manual input remains under user control.

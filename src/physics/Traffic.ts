@@ -52,22 +52,27 @@ export function avoidTraffic(car: Car, cars: Car[], control: CarControl, track?:
  * dirty air cuts downforce up to 20% (fading out by 30 m). The wake is ±1.6 m wide and weakens
  * when the car ahead is slower. Sets `wakeDrag` / `wakeDownforce` on every car, the same in
  * training and the race: a model trained in the pack meets the same air in a race.
+ * Also sets `gapAhead`, the gap to the nearest car ahead in the car's lane, at any speed.
  */
 export function computeWake(cars: Car[], track?: Track): void {
   for (const car of cars) {
     car.wakeDrag = 1;
     car.wakeDownforce = 1;
-    if (!car.isAlive || car.isPitting || car.isFinishedRace || car.speed < 20) continue;
+    car.gapAhead = Infinity;
+    if (!car.isAlive || car.isPitting || car.isFinishedRace) continue;
     const forward = Vector2.fromAngle(car.heading);
     const road = track?.sampleSurface(car.pos);
+    const wake = car.speed >= 20;
     let tow = 0, dirty = 0;
     for (const other of cars) {
-      if (other === car || !other.isAlive || other.isPitting || other.isFinishedRace || other.speed < 20) continue;
+      if (other === car || !other.isAlive || other.isPitting || other.isFinishedRace) continue;
       const offset = other.pos.sub(car.pos);
       if (offset.magSq() > 60 * 60) continue;
       const ahead = (track ? trackGap(track, car.pos, other.pos) : offset.dot(forward)) - 5.5;
-      if (ahead <= 0 || ahead > 50) continue;
+      if (ahead <= -5.5 || ahead > 50) continue;
       const lateral = track && road ? track.sampleSurface(other.pos).lateral - road.lateral : offset.cross(forward);
+      if (Math.abs(lateral) < LANE_HALF_WIDTH) car.gapAhead = Math.min(car.gapAhead, Math.max(0, ahead));
+      if (!wake || ahead <= 0 || other.speed < 20) continue;
       const strength = Math.exp(-((lateral / 1.6) ** 2)) * Math.min(1, other.speed / car.speed);
       tow = Math.max(tow, strength * Math.min(1, (50 - ahead) / 45));
       dirty = Math.max(dirty, strength * Math.max(0, Math.min(1, (30 - ahead) / 25)));
@@ -76,6 +81,9 @@ export function computeWake(cars: Car[], track?: Track): void {
     car.wakeDownforce = 1 - 0.2 * dirty;
   }
 }
+
+/** Half width (m) of the lane in which a car ahead counts for `gapAhead`. */
+const LANE_HALF_WIDTH = 4;
 
 // Continuous separating-axis test for oriented 5.5 × 1.9 m physical bodies.
 // Angular substeps bound rotational motion; translation is swept analytically.
@@ -190,6 +198,7 @@ export function resolveTraffic(cars: Car[], motion: Map<Car, Motion>, onlyCar?: 
     for (const car of [a, b]) {
       car.lapCompromised = true;
       car.lapContact = true;
+      car.stepContact = true;
       car.recoveryTimer = 2;
       car.incidentActive = false;
       car.replayBuffer = [];

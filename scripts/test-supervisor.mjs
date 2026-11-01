@@ -23,49 +23,17 @@ try {
 
   const track = Presets.createGrandPrixTrack(14);
 
-  // Pace search: only the network's own excursions count against it.
+  // The incident flag ends with its lap; the supervisor's pace reset starts the corner budgets afresh.
   {
-    const finishLap = (car, setup) => {
-      car.currentCheckpointIdx = 0;
-      car.checkpointsCleared = track.checkpoints.length;
-      car.lapTime = 100;
-      car.lapExcursion = true;
-      car.lapCompromised = true;
-      car.lapContact = false;
-      car.stressLap = false; // rolled at random after each lap; the cases below set what they test
-      setup(car);
-      return passGate(car, track, null);
-    };
     const population = new Population(3, track);
-    const [own, stress, mistake] = population.cars;
-    finishLap(own, () => {});
-    assert.equal(own.pace.margin, 1, 'one excursion of its own is no verdict yet');
-    finishLap(own, () => {});
-    assert.ok(Math.abs(own.pace.margin - (1 - PaceSearch.BACK_OFF)) < 1e-9, 'repeated excursions of its own step the pace back');
-    for (let i = 0; i < 2; i++) finishLap(stress, car => { car.stressLap = true; });
-    assert.equal(stress.pace.margin, 1, 'stress lap excursions leave the pace alone');
-    for (let i = 0; i < 2; i++) finishLap(mistake, car => { car.lapIncident = true; });
-    assert.equal(mistake.pace.margin, 1, 'excursions after a scripted mistake leave the pace alone');
+    const [own, , mistake] = population.cars;
+    mistake.currentCheckpointIdx = 0;
+    mistake.checkpointsCleared = track.checkpoints.length;
+    mistake.lapTime = 100;
+    mistake.lapIncident = true;
+    passGate(mistake, track, null);
     assert.equal(mistake.lapIncident, false, 'the incident flag ends with its lap');
-    // Probing compares medians of a few laps, never one lap against the fastest.
-    const probe = new PaceSearch();
-    for (const t of [100, 104, 102]) probe.finishLap(t, true, false);
-    assert.ok(probe.margin > probe.bestMargin, 'a few clean laps at the proven margin start a probe');
-    const probed = probe.margin;
-    probe.finishLap(99, true, false);
-    assert.equal(probe.bestMargin, 1, 'one fast lap proves nothing');
-    for (const t of [101, 103]) probe.finishLap(t, true, false);
-    assert.equal(probe.bestMargin, probed, 'a probe whose median beats the proven median is kept');
-    probe.finishLap(101, true, false);
-    assert.ok(probe.probing);
-    for (const t of [104, 105, 106]) probe.finishLap(t, true, false);
-    assert.equal(probe.margin, probed, 'a slower probe returns to the proven margin');
-    probe.finishLap(101, true, false);
-    const capped = probe.margin;
-    assert.ok(probe.probing);
-    probe.finishLap(100, true, true);
-    assert.equal(probe.margin, probed, 'an excursion on a probe drives the proven margin again');
-    assert.ok(probe.ceiling < capped, 'and caps the search below the failed margin');
+    own.pace.bestMargin = own.pace.margin = 0.95;
     own.pace.resetProbe();
     assert.deepEqual([own.pace.margin, own.pace.bestMargin, own.pace.ceiling], [1, 1, PaceSearch.MAX]);
   }

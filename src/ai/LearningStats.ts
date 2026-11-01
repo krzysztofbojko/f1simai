@@ -69,7 +69,10 @@ export interface DriverStats {
   mutationRate: number;
   exploring: boolean;
   interventionRate: number | null;
+  /** Mean grip margin driven now over the sections of the lap (PaceSearch). */
   paceMargin: number;
+  /** Lowest and highest proven section margin. */
+  paceRange: [number, number];
   lineBest: number | null;
   distanceToChampion: number | null;
   crashes: number;
@@ -77,7 +80,7 @@ export interface DriverStats {
 
 /** A driver at the end of a generation, as the session log keeps it. */
 export type DriverLogRow = Pick<DriverStats, 'name' | 'color' | 'champion' | 'bestLap' | 'rating' | 'lastLap' | 'laps' | 'lapsSincePB'
-  | 'mutationRate' | 'interventionRate' | 'crashes' | 'distanceToChampion' | 'paceMargin'>;
+  | 'mutationRate' | 'interventionRate' | 'crashes' | 'distanceToChampion' | 'paceMargin' | 'paceRange'>;
 
 /** One finished generation in the session log: its summary and where every driver stood. */
 export interface GenerationLogEntry extends GenerationStats {
@@ -326,7 +329,7 @@ export class LearningStats {
     this.fullHistory.push({ ...summary, crashes: { ...summary.crashes }, causes: { ...summary.causes },
       drivers: this.drivers(population).map(d => ({ name: d.name, color: d.color, champion: d.champion, bestLap: d.bestLap, rating: d.rating,
         lastLap: d.lastLap, laps: d.laps, lapsSincePB: d.lapsSincePB, mutationRate: d.mutationRate,
-        interventionRate: d.interventionRate, crashes: d.crashes, distanceToChampion: d.distanceToChampion, paceMargin: d.paceMargin })) });
+        interventionRate: d.interventionRate, crashes: d.crashes, distanceToChampion: d.distanceToChampion, paceMargin: d.paceMargin, paceRange: d.paceRange })) });
     const stale = this.fullHistory.length - 1 - LOG_DRIVER_GENERATIONS;
     if (stale >= 0) this.fullHistory[stale].drivers = [];
     if (this.history.length > MAX_HISTORY) {
@@ -388,6 +391,7 @@ export class LearningStats {
         exploring: car.explorationTrial,
         interventionRate: car.aiSteps >= 600 ? car.aiInterventions / car.aiSteps : this.lastRateByColor.get(car.color) ?? (car.aiSteps ? car.aiInterventions / car.aiSteps : null),
         paceMargin: car.pace.margin,
+        paceRange: car.pace.range(),
         lineBest: typeof lineBest === 'number' && Number.isFinite(lineBest) ? lineBest : null,
         distanceToChampion: championBest && car.brain ? weightDistance(car.brain, championBest) : null,
         crashes: this.crashesByColor.get(car.color) ?? 0,

@@ -397,7 +397,7 @@ export class LearningPanel {
       <tr data-color="${escapeHtml(d.color)}" class="${d.alive ? '' : 'dead'}">
         <td class="lp-driver"><span class="team-dot" style="background-color:${escapeHtml(d.color)}"></span>${escapeHtml(d.name)}${d.champion ? ' <span class="lp-badge gold">mistrz</span>' : ''}${d.exploring ? ' <span class="lp-badge cyan">próba</span>' : ''}</td>
         <td>${lap(d.bestLap)}</td><td>${lap(d.rating)}</td><td>${lap(d.lastLap)}</td><td>${d.laps}</td><td>${d.lapsSincePB}</td>
-        <td>${num(d.mutationRate, 3)}</td><td>${pct(d.interventionRate, 1)}</td><td>${num(d.paceMargin, 3)}</td>
+        <td>${num(d.mutationRate, 3)}</td><td>${pct(d.interventionRate, 1)}</td><td title="Odcinki: ${num(d.paceRange[0], 2)}–${num(d.paceRange[1], 2)}">${num(d.paceMargin, 3)}</td>
         <td>${lap(d.lineBest)}</td><td>${num(d.distanceToChampion, 4)}</td><td>${d.crashes}</td>
       </tr>`;
     return `<p class="lp-note">Kliknij wiersz, aby śledzić kierowcę na torze.</p>
@@ -410,7 +410,7 @@ export class LearningPanel {
           ${head('Od PB', 'lapsSincePB', 'Czyste okrążenia od ostatniego przyjętego mózgu (8 = próba eksploracji)')}
           ${head('Mutacja', 'mutationRate', 'Bieżąca stopa mutacji zespołu (wyżarzanie)')}
           ${head('Interw.', 'interventionRate', 'Udział kroków poprawionych przez strażnika')}
-          ${head('Tempo', 'paceMargin', 'Margines przyczepności z wyszukiwania tempa')}
+          ${head('Tempo', 'paceMargin', 'Średni margines przyczepności z wyszukiwania tempa po 32 odcinkach okrążenia; najedź na wartość, aby zobaczyć najniższy i najwyższy')}
           ${head('Linia', 'lineBest', 'Najlepszy czas sieci linii jazdy')}
           ${head('Δ mistrz', 'distanceToChampion', 'Odległość wag od mózgu mistrza (RMS)')}
           ${head('Wypadki', 'crashes', 'Wypadki w sesji')}

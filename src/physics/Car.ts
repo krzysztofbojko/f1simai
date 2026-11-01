@@ -217,6 +217,8 @@ export class Car {
    */
   public wakeDrag = 1;
   public wakeDownforce = 1;
+  /** Gap (m, bumper to bumper, along the track) to the nearest car ahead within ±4 m of this car's lane; Infinity beyond 50 m (Traffic.computeWake). */
+  public gapAhead = Infinity;
 
   /**
    * Planner grip budget at driver pressure 0: shares of the tyre friction (with downforce) the
@@ -921,6 +923,13 @@ export class Car {
   public pace = new PaceSearch();
   /** The car left the asphalt or touched a barrier by itself during the current lap. */
   public lapExcursion = false;
+  /** Left the track or hit the barrier since the last planner step (read by the per-corner limit search). */
+  public stepExcursion = false;
+  /** Touched another car since the last planner step: the corner pass in progress says nothing about the limit. */
+  public stepContact = false;
+  /** The guardian drove, or braked in an emergency, on the last AI step (read by the per-corner limit search). */
+  public lastGuarded = false;
+  public lastEmergencyBrake = false;
   /** Touched another car this lap: an excursion may have been forced and says nothing about the pace. */
   public lapContact = false;
   /** A scripted driver mistake (see `DriverMistakes.ts`) hit this lap: its excursion is not the pace's fault. */
@@ -1139,6 +1148,7 @@ export class Car {
     this.offRoadStillTime = 0;
     this.offTrackTime = 0;
     this.lapExcursion = false;
+    this.stepExcursion = false;
     this.lapContact = false;
     this.lapIncident = false;
     this.cornerPush = 0;
@@ -1151,6 +1161,7 @@ export class Car {
     this.timeAlive = 0;
     this.lapTime = 0;
     this.lineNet?.resetTiming();
+    this.pace.resetTiming();
     this.currentLap = 0;
     this.currentCheckpointIdx = startCheckpointIdx;
     this.checkpointsCleared = 0;
@@ -1372,6 +1383,12 @@ export class Car {
     return planDrive(this, track, leaderSpeeds);
   }
 
+  /** The car left the track or hit something by itself: the lap and the corner pass in progress note it. */
+  markExcursion(): void {
+    this.lapExcursion = true;
+    this.stepExcursion = true;
+  }
+
   /**
    * Neural driving. The network's three outputs are the actual steering, throttle
    * and brake demand. The rule-based expert only overrides inside hard safety
@@ -1403,17 +1420,20 @@ export class Car {
     const roadHeading = track.sampleSurface?.(this.pos).tangent.heading();
     const headingError = roadHeading === undefined ? 0 : Math.atan2(Math.sin(this.heading - roadHeading), Math.cos(this.heading - roadHeading));
     const unstable = this.speed > 12 && Math.abs(headingError) > 0.22 && headingError * this.angularVelocity > 0;
+    let emergency = false;
     if (plan.guarded || unstable) {
       steer = expert.steer; throttle = expert.throttle; brake = expert.brake; intervened = true; causes.guard++;
     } else if (plan.overspeedDelta > 0.2 && brake < expert.brake * 0.8) {
       // Far beyond the planned braking envelope: emergency braking.
-      throttle = 0; brake = expert.brake; intervened = true; causes.brake++;
+      throttle = 0; brake = expert.brake; intervened = true; causes.brake++; emergency = true;
     } else if (this.speed < 8 && expert.throttle > 0.15 && throttle < expert.throttle * 0.8) {
       // Launch / crawl assist: a stalled car must never wait for the network to move it.
       throttle = expert.throttle; brake = 0; intervened = true; causes.launch++;
     } else if (plan.minCenterClearance < Car.CLEAR_CAP && throttle > 0.3) {
       throttle = 0.3; intervened = true; causes.clearance++;
     }
+    this.lastGuarded = plan.guarded || unstable;
+    this.lastEmergencyBrake = emergency;
     this.aiSteps++;
     if (intervened) this.aiInterventions++;
     if (this.isSliding) throttle = Math.min(throttle, 0.55);
@@ -1529,7 +1549,7 @@ export class Car {
     this.updateSurface(track);
     if (!this.withinTrackLimits) {
       this.lapCompromised = true;
-      this.lapExcursion = true;
+      this.markExcursion();
       this.recoveryTimer = 2;
       this.replayBuffer = [];
       this.replayStepTimer = 0;
@@ -1925,7 +1945,7 @@ export class Car {
       }
       this.pos.addMut(hit.normal.mul(0.03));
       this.lapCompromised = true;
-      this.lapExcursion = true;
+      this.markExcursion();
       this.recoveryTimer = 2;
       this.replayBuffer = [];
       const collisionAcceleration = this.vel.sub(previousVelocity).div(dt);
@@ -1937,7 +1957,7 @@ export class Car {
     if (fullyOff && !this.fullyOffTrack) this.trackLimitExits++;
     this.fullyOffTrack = fullyOff;
     this.offTrackTime = this.surface !== 'asphalt' ? this.offTrackTime + dt : 0;
-    if (!this.withinTrackLimits) { this.lapCompromised = true; this.lapExcursion = true; this.recoveryTimer = 2; }
+    if (!this.withinTrackLimits) { this.lapCompromised = true; this.markExcursion(); this.recoveryTimer = 2; }
     this.speed = this.vel.mag();
     this.speedKmh = this.speed * 3.6;
     this.maxSpeedInLap = Math.max(this.maxSpeedInLap, this.speed);
