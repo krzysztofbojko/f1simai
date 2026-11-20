@@ -38,6 +38,27 @@ try {
   run(a, 900); run(b, 900);
   assert.deepEqual(a.state, b.state, 'same seed, same weather');
 
+  // 2b. A forecast changed during a session takes effect at once in the sky (rain starts) but the
+  //     track keeps its state: the rain soaks it over a minute or two, giving the cars on slicks time
+  //     to come in, and the sun does not dry a wet track at once either. A reset starts wet.
+  {
+    const w = new Weather('sunny', 4);
+    run(w, 120);
+    w.changeForecast('rain', 4);
+    assert.ok(w.state.rain > 0.3 && w.state.wetness === 0 && w.conditions === 'dry', `rain on a dry track: rain ${w.state.rain.toFixed(2)}, wetness ${w.state.wetness}`);
+    const wetness = [];
+    run(w, 240, (s, i) => { if ((i + 1) % 30 === 0) wetness.push(s.wetness); });
+    assert.ok(wetness[0] > 0.15 && wetness[0] < 0.5, `30 s of rain: wetness ${wetness[0].toFixed(2)}`);
+    assert.ok(wetness[1] > wetness[0] && wetness[3] > wetness[1] && wetness.at(-1) > 0.7 && w.conditions === 'wet', `soaked after 4 min: ${wetness.map(x => x.toFixed(2)).join(' ')}`);
+    w.changeForecast('sunny', 4);
+    assert.ok(w.state.rain === 0 && w.state.wetness > 0.7, 'the sun does not dry the track at once');
+    run(w, 60);
+    assert.ok(w.state.wetness > 0.6, `a minute of sun: wetness ${w.state.wetness.toFixed(2)}`);
+    const fresh = new Weather('sunny', 4);
+    fresh.reset('rain', 4);
+    assert.ok(fresh.state.wetness === 0.75 && fresh.conditions === 'wet', 'a session starts from the conditions of its forecast');
+  }
+
   // 3. A shower: the track gets wet and cooler under the rain, then the sun dries it.
   const shower = new Weather('shower', 5);
   let maxRain = 0, maxWet = 0, coolest = Infinity;

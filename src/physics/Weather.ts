@@ -108,6 +108,26 @@ export class Weather {
 
   /** Starts the forecast again: the session's first conditions, a new wind direction and shower. */
   reset(scenario: WeatherScenario, seed: number): void {
+    this.startForecast(scenario, seed);
+    const spec = SCENARIO_SPECS[scenario], s = this.state;
+    s.airTemp = spec.airTemp - 4 * s.rain;
+    s.wetness = spec.startWetness;
+    s.trackTemp = equilibriumTrackTemp(s.airTemp, spec.sun, s.cloud, s.wetness, s.rain);
+    this.conditions = conditionsOf(s.wetness);
+  }
+
+  /**
+   * A new forecast during a session: its sky, rain, wind and shower take effect at once, but the
+   * track and the air keep their state and change as the weather does. Rain soaks the track over a
+   * minute or two (time for the cars on slicks to come in for treaded tyres) and the sun dries it
+   * over several minutes. A session or a race starts from the forecast's own conditions (`reset`).
+   */
+  changeForecast(scenario: WeatherScenario, seed: number): void {
+    this.startForecast(scenario, seed);
+  }
+
+  /** The forecast's sky, rain and wind, a new wind direction and shower window. */
+  private startForecast(scenario: WeatherScenario, seed: number): void {
     const spec = SCENARIO_SPECS[scenario];
     this.scenario = scenario;
     this.seed = (seed >>> 0) || 1;
@@ -118,14 +138,10 @@ export class Weather {
     const s = this.state;
     s.cloud = spec.cloud;
     s.rain = this.rainFrom(s.cloud);
-    s.airTemp = spec.airTemp - 4 * s.rain;
-    s.wetness = spec.startWetness;
-    s.trackTemp = equilibriumTrackTemp(s.airTemp, spec.sun, s.cloud, s.wetness, s.rain);
     s.windSpeed = spec.wind;
     s.windDir = this.meanDir;
     s.gust = 1;
     this.updateWind();
-    this.conditions = conditionsOf(s.wetness);
   }
 
   /** Advances the weather by `dt` simulated seconds. */

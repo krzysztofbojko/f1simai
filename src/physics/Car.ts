@@ -1079,6 +1079,9 @@ export class Car {
     this.rayDistances = new Array(this.rayAngles.length).fill(1);
     this.rayWallDistances = new Array(this.rayAngles.length).fill(1);
     this.rayCars = new Array(this.rayAngles.length).fill(null);
+    // A new car gets the tyres for the conditions, as a reset does: a field created on a wet track
+    // (another circuit or field size in the rain) does not start on slicks.
+    this.tyreCompound = weatherCompound(Car.config.weather.wetness, 'medium');
     this.rollLapPerformanceVariation();
   }
 

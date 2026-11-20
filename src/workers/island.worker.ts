@@ -92,7 +92,7 @@ self.onmessage = (e: MessageEvent) => {
       population.startingFuelKg = data.startingFuelKg;
       Car.config.stressLapShare = clampStressShare(data.stressLapShare);
       if (isWeatherScenario(data.weatherScenario) && data.weatherScenario !== weather.scenario) {
-        weather.reset(data.weatherScenario, (Math.random() * 0x7fffffff) | 0);
+        weather.changeForecast(data.weatherScenario, (Math.random() * 0x7fffffff) | 0);
         population.setConditions(weather.conditions);
       }
       break;
