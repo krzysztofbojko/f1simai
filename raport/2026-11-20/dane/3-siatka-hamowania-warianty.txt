@@ -1,0 +1,15 @@
+stara zasada:
+budget 0.5 wet 0.7 wet: sum 553.81 s [54.33 103.70 98.35 93.31 85.82 118.30] locks 0.26% slides 6.31% off 0.12% offLaps 2 wrecks 0
+budget 0.5 wet 0.3 intermediate: sum 530.25 s [53.01 99.33 94.89 87.90 82.26 112.87] locks 0.24% slides 6.65% off 0.66% offLaps 2 wrecks 0
+czysta krzywa planu:
+budget 0.5 wet 0 medium: sum 502.30 s [50.11 93.73 90.08 82.25 78.33 107.80] locks 0.15% slides 5.00% off 0.00% offLaps 0 wrecks 0
+budget 0.55 wet 0 medium: sum 500.29 s [50.21 93.65 89.37 81.18 77.48 108.40] locks 0.25% slides 6.82% off 0.00% offLaps 0 wrecks 0
+budget 0.6 wet 0 medium: sum 499.47 s [50.75 93.56 88.81 80.72 76.90 108.73] locks 0.35% slides 8.81% off 0.06% offLaps 3 wrecks 0
+budget 0.65 wet 0 medium: sum 502.68 s [50.81 93.60 88.60 81.64 76.53 111.50] locks 0.50% slides 11.44% off 1.04% offLaps 8 wrecks 0
+budget 0.7 wet 0 medium: sum 510.11 s [51.39 94.33 88.60 82.17 77.75 115.88] locks 0.68% slides 14.16% off 1.54% offLaps 10 wrecks 0
+budget 0.5 wet 0.3 intermediate: sum 535.18 s [53.12 99.89 96.00 88.74 83.65 113.78] locks 0.17% slides 5.59% off 0.00% offLaps 0 wrecks 0
+budget 0.5 wet 0.7 wet: sum 559.78 s [54.44 104.66 99.63 94.31 87.83 118.91] locks 0.16% slides 5.15% off 0.00% offLaps 0 wrecks 0
+budget 0.55 wet 0.3 intermediate: sum 532.86 s [52.95 99.53 95.30 87.79 82.97 114.32] locks 0.27% slides 8.10% off 0.00% offLaps 0 wrecks 0
+budget 0.55 wet 0.7 wet: sum 554.49 s [54.20 103.64 98.80 93.03 86.99 117.83] locks 0.27% slides 7.51% off 0.00% offLaps 0 wrecks 0
+budget 0.6 wet 0.3 intermediate: sum 533.36 s [53.52 99.36 94.78 86.48 82.32 116.91] locks 0.43% slides 10.68% off 0.51% offLaps 2 wrecks 0
+budget 0.6 wet 0.7 wet: sum 553.03 s [54.27 103.17 98.11 91.89 85.86 119.73] locks 0.43% slides 10.51% off 0.67% offLaps 2 wrecks 0

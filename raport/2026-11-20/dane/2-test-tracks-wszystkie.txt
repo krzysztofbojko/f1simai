@@ -1,0 +1,85 @@
+== przed (55b341e)
+PODSUMOWANIE
+tracks\ae-2009-yas-marina.json        5281 m  sym  49 min  okr  494  best 1:45.356  śr 180 km/h  max 334 km/h  poza 1.3%  tor 100%
+tracks\ar-1952-buenos-aires.json      4259 m  sym  39 min  okr  403  best 1:35.442  śr 161 km/h  max 329 km/h  poza 1.6%  tor 100%
+tracks\at-1969-spielberg.json         4318 m  sym  46 min  okr  613  best 1:18.709  śr 197 km/h  max 324 km/h  poza 0.1%  tor 100%
+tracks\au-1953-melbourne.json         5278 m  sym  38 min  okr  426  best 1:35.316  śr 199 km/h  max 321 km/h  poza 0.5%  tor 100%
+tracks\az-2016-baku.json              6003 m  sym  22 min  okr  197  best 1:56.299  śr 186 km/h  max 336 km/h  poza 0.4%  tor 100%
+tracks\be-1925-spa-francorchamps.json  7004 m  sym  45 min  okr  389  best 2:07.219  śr 198 km/h  max 332 km/h  poza 0.1%  tor 100%
+tracks\bh-2002-sakhir.json            5412 m  sym  21 min  okr  201  best 1:50.987  śr 176 km/h  max 330 km/h  poza 0.5%  tor 100%
+tracks\br-1940-sao-paulo.json         4309 m  sym  39 min  okr  462  best 1:28.592  śr 175 km/h  max 337 km/h  poza 1.6%  tor 100%
+tracks\br-1977-jacarepagua.json       5031 m  sym  46 min  okr  497  best 1:42.471  śr 177 km/h  max 341 km/h  poza 0.1%  tor 100%
+tracks\ca-1978-montreal.json          4361 m  sym  39 min  okr  503  best 1:24.304  śr 186 km/h  max 334 km/h  poza 0.3%  tor 100%
+tracks\cn-2004-shanghai.json          5451 m  sym  52 min  okr  468  best 1:59.130  śr 165 km/h  max 344 km/h  poza 0.3%  tor 100%
+tracks\de-1927-nurburg.json           5148 m  sym  25 min  okr  228  best 1:50.492  śr 168 km/h  max 330 km/h  poza 0.9%  tor 100%
+tracks\de-1932-hockenheim.json        4574 m  sym  47 min  okr  529  best 1:32.699  śr 178 km/h  max 328 km/h  poza 1.2%  tor 100%
+tracks\es-1991-barcelona.json         4657 m  sym  48 min  okr  532  best 1:35.247  śr 176 km/h  max 340 km/h  poza 0.2%  tor 100%
+tracks\fr-1960-magny-cours.json       4414 m  sym  44 min  okr  456  best 1:30.511  śr 176 km/h  max 338 km/h  poza 2.9%  tor 100%
+tracks\fr-1969-le-castellet.json      5842 m  sym  46 min  okr  437  best 1:53.773  śr 185 km/h  max 347 km/h  poza 0.2%  tor 100%
+tracks\gb-1948-silverstone.json       5891 m  sym  50 min  okr  479  best 1:49.378  śr 194 km/h  max 337 km/h  poza 1.5%  tor 100%
+tracks\hu-1986-budapest.json          4381 m  sym  46 min  okr  492  best 1:37.016  śr 163 km/h  max 328 km/h  poza 1.0%  tor 100%
+tracks\it-1914-scarperia-e-san-piero.json  5245 m  sym  22 min  okr  230  best 1:36.828  śr 195 km/h  max 336 km/h  poza 0.1%  tor 100%
+tracks\it-1922-monza.json             5793 m  sym  28 min  okr  321  best 1:31.657  śr 228 km/h  max 334 km/h  poza 0.1%  tor 100%
+tracks\it-1953-imola.json             4909 m  sym  32 min  okr  372  best 1:29.903  śr 197 km/h  max 338 km/h  poza 0.2%  tor 100%
+tracks\mc-1929-monaco.json            3337 m  sym  47 min  okr  592  best 1:23.147  śr 144 km/h  max 317 km/h  poza 0.8%  tor 100%
+tracks\mx-1962-mexico-city.json       4304 m  sym  47 min  okr  542  best 1:32.067  śr 168 km/h  max 343 km/h  poza 0.3%  tor 100%
+tracks\my-1999-sepang.json            5543 m  sym  52 min  okr  468  best 1:56.045  śr 172 km/h  max 333 km/h  poza 0.8%  tor 100%
+tracks\nl-1948-zandvoort.json         4259 m  sym  50 min  okr  542  best 1:33.594  śr 164 km/h  max 327 km/h  poza 2.2%  tor 100%
+tracks\pt-1972-estoril.json           4360 m  sym  45 min  okr  545  best 1:30.251  śr 174 km/h  max 340 km/h  poza 0.5%  tor 100%
+tracks\pt-2008-portimao.json          4653 m  sym  44 min  okr  449  best 1:38.738  śr 170 km/h  max 328 km/h  poza 0.9%  tor 100%
+tracks\qa-2004-lusail.json            5419 m  sym  44 min  okr  415  best 1:48.697  śr 179 km/h  max 338 km/h  poza 0.7%  tor 100%
+tracks\ru-2014-sochi.json             5848 m  sym  50 min  okr  464  best 1:53.795  śr 185 km/h  max 336 km/h  poza 0.4%  tor 100%
+tracks\sa-2021-jeddah.json            6174 m  sym  21 min  okr  194  best 1:49.987  śr 202 km/h  max 323 km/h  poza 0.3%  tor 100%
+tracks\sg-2008-singapore.json         4940 m  sym  37 min  okr  347  best 1:48.838  śr 163 km/h  max 322 km/h  poza 0.8%  tor 100%
+tracks\tr-2005-istanbul.json          5338 m  sym  34 min  okr  324  best 1:48.663  śr 177 km/h  max 316 km/h  poza 0.7%  tor 100%
+tracks\us-1909-indianapolis.json      4192 m  sym  39 min  okr  489  best 1:19.092  śr 191 km/h  max 337 km/h  poza 0.3%  tor 100%
+tracks\us-1956-dix.json               5435 m  sym  49 min  okr  551  best 1:33.771  śr 209 km/h  max 342 km/h  poza 0.2%  tor 100%
+tracks\us-2012-austin.json            5513 m  sym  20 min  okr  159  best 2:00.147  śr 165 km/h  max 344 km/h  poza 1.5%  tor 100%
+tracks\us-2022-miami.json             5410 m  sym  39 min  okr  372  best 1:44.674  śr 186 km/h  max 339 km/h  poza 2.1%  tor 100%
+tracks\us-2023-las-vegas.json         6201 m  sym  42 min  okr  437  best 1:44.405  śr 214 km/h  max 342 km/h  poza 0.1%  tor 100%
+tracks\za-1961-johannesburg.json      4521 m  sym  48 min  okr  493  best 1:32.818  śr 175 km/h  max 336 km/h  poza 4.9%  tor 100%
+
+Wszystkie tory bez problemów.
+
+== po etapach 1-2
+PODSUMOWANIE
+tracks\ae-2009-yas-marina.json        5281 m  sym  48 min  okr  480  best 1:44.973  śr 181 km/h  max 343 km/h  poza 0.5%  tor 100%
+tracks\ar-1952-buenos-aires.json      4259 m  sym  38 min  okr  398  best 1:37.651  śr 157 km/h  max 330 km/h  poza 0.9%  tor 100%
+tracks\at-1969-spielberg.json         4318 m  sym  45 min  okr  614  best 1:19.879  śr 195 km/h  max 324 km/h  poza 0.2%  tor 100%
+tracks\au-1953-melbourne.json         5278 m  sym  34 min  okr  384  best 1:36.247  śr 197 km/h  max 320 km/h  poza 0.1%  tor 100%
+tracks\az-2016-baku.json              6003 m  sym  22 min  okr  190  best 1:56.231  śr 186 km/h  max 342 km/h  poza 0.3%  tor 100%
+tracks\be-1925-spa-francorchamps.json  7004 m  sym  44 min  okr  374  best 2:03.313  śr 204 km/h  max 334 km/h  poza 0.4%  tor 100%
+tracks\bh-2002-sakhir.json            5412 m  sym  22 min  okr  209  best 1:48.355  śr 180 km/h  max 334 km/h  poza 0.8%  tor 100%
+tracks\br-1940-sao-paulo.json         4309 m  sym  37 min  okr  438  best 1:26.499  śr 179 km/h  max 339 km/h  poza 1.3%  tor 100%
+tracks\br-1977-jacarepagua.json       5031 m  sym  45 min  okr  485  best 1:41.175  śr 179 km/h  max 340 km/h  poza 0.1%  tor 100%
+tracks\ca-1978-montreal.json          4361 m  sym  34 min  okr  427  best 1:24.086  śr 187 km/h  max 338 km/h  poza 0.4%  tor 100%
+tracks\cn-2004-shanghai.json          5451 m  sym  51 min  okr  450  best 1:57.942  śr 166 km/h  max 341 km/h  poza 1.1%  tor 100%
+tracks\de-1927-nurburg.json           5148 m  sym  24 min  okr  219  best 1:49.526  śr 169 km/h  max 328 km/h  poza 1.4%  tor 100%
+tracks\de-1932-hockenheim.json        4574 m  sym  45 min  okr  519  best 1:32.762  śr 178 km/h  max 325 km/h  poza 1.1%  tor 100%
+tracks\es-1991-barcelona.json         4657 m  sym  48 min  okr  531  best 1:32.679  śr 181 km/h  max 340 km/h  poza 0.9%  tor 100%
+tracks\fr-1960-magny-cours.json       4414 m  sym  42 min  okr  443  best 1:31.155  śr 174 km/h  max 334 km/h  poza 2.9%  tor 100%
+tracks\fr-1969-le-castellet.json      5842 m  sym  46 min  okr  421  best 1:51.526  śr 189 km/h  max 340 km/h  poza 0.6%  tor 100%
+tracks\gb-1948-silverstone.json       5891 m  sym  49 min  okr  464  best 1:49.561  śr 194 km/h  max 335 km/h  poza 1.4%  tor 100%
+tracks\hu-1986-budapest.json          4381 m  sym  45 min  okr  460  best 1:36.654  śr 163 km/h  max 336 km/h  poza 1.9%  tor 100%
+tracks\it-1914-scarperia-e-san-piero.json  5245 m  sym  23 min  okr  239  best 1:38.914  śr 191 km/h  max 333 km/h  poza 0.2%  tor 100%
+tracks\it-1922-monza.json             5793 m  sym  30 min  okr  362  best 1:30.816  śr 230 km/h  max 332 km/h  poza 0.1%  tor 100%
+tracks\it-1953-imola.json             4909 m  sym  27 min  okr  329  best 1:30.696  śr 195 km/h  max 334 km/h  poza 0.2%  tor 100%
+tracks\mc-1929-monaco.json            3337 m  sym  48 min  okr  637  best 1:22.678  śr 145 km/h  max 310 km/h  poza 0.9%  tor 100%
+tracks\mx-1962-mexico-city.json       4304 m  sym  44 min  okr  515  best 1:28.704  śr 175 km/h  max 346 km/h  poza 0.1%  tor 100%
+tracks\my-1999-sepang.json            5543 m  sym  49 min  okr  432  best 1:54.421  śr 174 km/h  max 334 km/h  poza 0.5%  tor 100%
+tracks\nl-1948-zandvoort.json         4259 m  sym  46 min  okr  507  best 1:33.768  śr 164 km/h  max 318 km/h  poza 2.5%  tor 100%
+tracks\pt-1972-estoril.json           4360 m  sym  45 min  okr  517  best 1:29.980  śr 174 km/h  max 339 km/h  poza 0.3%  tor 100%
+tracks\pt-2008-portimao.json          4653 m  sym  45 min  okr  452  best 1:40.321  śr 167 km/h  max 336 km/h  poza 1.1%  tor 100%
+tracks\qa-2004-lusail.json            5419 m  sym  44 min  okr  442  best 1:47.258  śr 182 km/h  max 331 km/h  poza 0.5%  tor 100%
+tracks\ru-2014-sochi.json             5848 m  sym  50 min  okr  477  best 1:54.195  śr 184 km/h  max 338 km/h  poza 0.4%  tor 100%
+tracks\sa-2021-jeddah.json            6174 m  sym  21 min  okr  203  best 1:49.948  śr 202 km/h  max 318 km/h  poza 0.3%  tor 100%
+tracks\sg-2008-singapore.json         4940 m  sym  37 min  okr  340  best 1:52.168  śr 159 km/h  max 310 km/h  poza 0.8%  tor 100%
+tracks\tr-2005-istanbul.json          5338 m  sym  35 min  okr  353  best 1:47.815  śr 178 km/h  max 318 km/h  poza 0.3%  tor 100%
+tracks\us-1909-indianapolis.json      4192 m  sym  38 min  okr  495  best 1:21.274  śr 186 km/h  max 330 km/h  poza 0.1%  tor 100%
+tracks\us-1956-dix.json               5435 m  sym  46 min  okr  520  best 1:32.933  śr 211 km/h  max 341 km/h  poza 0.3%  tor 100%
+tracks\us-2012-austin.json            5513 m  sym  21 min  okr  169  best 1:59.581  śr 166 km/h  max 337 km/h  poza 1.5%  tor 100%
+tracks\us-2022-miami.json             5410 m  sym  37 min  okr  370  best 1:46.687  śr 183 km/h  max 338 km/h  poza 3.1%  tor 100%
+tracks\us-2023-las-vegas.json         6201 m  sym  41 min  okr  422  best 1:43.917  śr 215 km/h  max 342 km/h  poza 0.5%  tor 100%
+tracks\za-1961-johannesburg.json      4521 m  sym  44 min  okr  483  best 1:32.702  śr 176 km/h  max 330 km/h  poza 2.5%  tor 100%
+
+Wszystkie tory bez problemów.

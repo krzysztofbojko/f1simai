@@ -1,0 +1,4 @@
+seed 145: 830 µs/step, 20.1x real time, state 4d5b1d7422f1cc5a
+seed 456: 746 µs/step, 22.4x real time, state 3012e44e28464093
+seed 789: 728 µs/step, 22.9x real time, state f4684d5fe70b9c5c
+mean: 768 µs/step, 21.7x real time

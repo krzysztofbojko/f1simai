@@ -1,0 +1,10 @@
+budget 0.5 wet 0 medium: sum 501.87 s [50.03 93.60 89.97 82.05 78.33 107.89] locks 0.16% slides 5.18% off 0.00% offLaps 0 wrecks 0
+budget 0.55 wet 0 medium: sum 500.57 s [50.12 93.61 89.30 81.06 77.45 109.03] locks 0.25% slides 6.80% off 0.00% offLaps 0 wrecks 0
+budget 0.5 wet 0.7 wet: sum 559.27 s [54.45 104.56 99.53 94.17 87.75 118.81] locks 0.17% slides 5.26% off 0.00% offLaps 0 wrecks 0
+budget 0.55 wet 0.7 wet: sum 554.52 s [54.15 103.76 98.80 93.02 86.71 118.08] locks 0.29% slides 7.86% off 0.00% offLaps 0 wrecks 0
+budget 0.5 wet 0.3 intermediate: sum 535.06 s [53.04 99.91 95.98 88.70 83.64 113.78] locks 0.18% slides 5.77% off 0.00% offLaps 0 wrecks 0
+budget 0.55 wet 0.3 intermediate: sum 532.48 s [52.97 99.42 95.31 87.45 82.65 114.68] locks 0.25% slides 7.76% off 0.00% offLaps 0 wrecks 0
+budget 0.5 wet 0 medium: sum 500.48 s [50.00 93.38 89.54 81.36 77.71 108.50] locks 0.20% slides 5.92% off 0.00% offLaps 0 wrecks 0
+budget 0.5 wet 0 medium: sum 498.85 s [50.10 92.99 89.12 80.94 77.41 108.29] locks 0.25% slides 6.25% off 0.00% offLaps 0 wrecks 0
+budget 0.5 wet 0.7 wet: sum 598.31 s [57.59 112.37 104.71 101.31 93.67 128.66] locks 0.23% slides 6.39% off 0.00% offLaps 0 wrecks 0
+budget 0.5 wet 0.7 wet: sum 594.91 s [57.31 111.93 104.21 100.82 93.44 127.19] locks 0.22% slides 6.49% off 0.00% offLaps 0 wrecks 0

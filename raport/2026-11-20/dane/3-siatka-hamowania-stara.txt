@@ -1,0 +1,1 @@
+budget 0.5 wet 0 medium: sum 497.64 s [50.00 93.18 88.91 81.56 77.08 106.91] locks 0.24% slides 6.08% off 0.68% offLaps 3 wrecks 0

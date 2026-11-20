@@ -1,0 +1,4 @@
+{"seed":145,"best":49.93,"medianBest":52.47,"timed":20,"lateMedian":54.64,"laps":619,"widthP90":0.77,"widthMean":0.46,"cornerKmh":132,"offRoadPct":0.27}
+{"seed":456,"best":51.37,"medianBest":53.33,"timed":20,"lateMedian":56.88,"laps":635,"widthP90":0.75,"widthMean":0.45,"cornerKmh":130,"offRoadPct":0.09}
+{"seed":789,"best":52.03,"medianBest":53.37,"timed":20,"lateMedian":55.81,"laps":638,"widthP90":0.75,"widthMean":0.45,"cornerKmh":131,"offRoadPct":0.08}
+MEAN {"track":"gp","seconds":1800,"best":51.11,"medianBest":53.06,"lateMedian":55.78,"laps":630.67,"widthP90":0.76,"cornerKmh":131,"offRoadPct":0.15}
