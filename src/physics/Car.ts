@@ -809,6 +809,12 @@ export class Car {
   public rollAngle: number = 0;      // Body roll into outside tires in radians
   private frontLateralInUse = 0;     // N of lateral tyre force used last step (brake reserve)
   private rearLateralInUse = 0;
+  /**
+   * The last step's tyre forces for diagnostics and tests; the physics never reads it back.
+   * Fx is along the wheel (the front one is steered), Fy across it from the slip-angle model; the
+   * kinematic response has one lateral force for the whole car, bounded by `lateralLimit`.
+   */
+  public readonly lastAxleForces = { frontFx: 0, frontFy: 0, rearFx: 0, rearFy: 0, frontLimit: 0, rearLimit: 0, kinematicLateral: 0, lateralLimit: 0, dynamicWeight: 0 };
   public wheelAngle: number = 0;     // Actual road-wheel angle (rad), lagging the steering command
   private steeringHands = 0;         // First stage of the steering lag (rad of road-wheel angle)
   public weightFrontRatio: number = 0.46; // Dynamic front weight distribution
@@ -1879,6 +1885,10 @@ export class Car {
     const kinematicWeight = 1 - dynamicWeight;
     this.frontLateralInUse = Math.abs(kinematicLateral) * loadShare * kinematicWeight + Math.abs(dynamicFrontForce) / Car.FRONT_GRIP_BIAS * dynamicWeight;
     this.rearLateralInUse = Math.abs(kinematicLateral) * (1 - loadShare) * kinematicWeight + Math.abs(dynamicRearForce) * dynamicWeight;
+    const forces = this.lastAxleForces;
+    forces.frontFx = frontFx; forces.frontFy = dynamicFrontForce; forces.rearFx = rearFx; forces.rearFy = dynamicRearForce;
+    forces.frontLimit = frontLimit; forces.rearLimit = rearLimit;
+    forces.kinematicLateral = kinematicLateral; forces.lateralLimit = lateralLimit; forces.dynamicWeight = dynamicWeight;
     // Longitudinal creep heats the driven / braked axles too. A locked axle slides at the full road
     // speed: its braking work, which the discs no longer take, goes into the tread and the road.
     const lockHeat = (locked: boolean, fx: number) => locked ? Car.LOCKED_TYRE_HEAT * Math.abs(fx) * speedMag : 0;
