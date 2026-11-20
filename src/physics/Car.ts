@@ -769,6 +769,8 @@ export class Car {
    */
   get airDensity(): number { return Car.AIR_DENSITY_REF * (273.15 + Car.TYRE_AMBIENT) / (273.15 + Car.config.weather.airTemp); }
   public readonly downforceCoeff: number = 4.30; // Cl * A [m^2]: closed-wing (Z-Mode) downforce, about 15% below a 2025 car's ~5
+  /** Share of the downforce a damaged car keeps (wings and floor); the physics and the planner use the same. */
+  static downforceDamage(damage: number): number { return 1 - 0.35 * damage; }
   public readonly baseTireGrip: number = 1.85; // Peak friction coefficient mu
 
   // Organic Performance Variations
@@ -1620,7 +1622,7 @@ export class Car {
       && Math.abs(this.lateralG) < Car.ACTIVE_AERO_MAX_LATERAL_G && this.wetness < Car.ACTIVE_AERO_MAX_WETNESS && !this.isPitting;
     const wingTime = wingsOpen ? Car.ACTIVE_AERO_OPEN : Car.ACTIVE_AERO_CLOSE;
     this.activeAero += ((wingsOpen ? 1 : 0) - this.activeAero) * (1 - Math.exp(-dt / wingTime));
-    let downforceMag = 0.5 * this.airDensity * this.downforceCoeff * (1 - Car.ACTIVE_AERO_DOWNFORCE_CUT * this.activeAero) * (1 - 0.35 * this.damage) * (airSpeed * airSpeed) * (1 - crosswindLoss);
+    let downforceMag = 0.5 * this.airDensity * this.downforceCoeff * (1 - Car.ACTIVE_AERO_DOWNFORCE_CUT * this.activeAero) * Car.downforceDamage(this.damage) * (airSpeed * airSpeed) * (1 - crosswindLoss);
     // The floor works at the height its airflow sees; the body then moves under that load. Its
     // flow stalls and reattaches with hysteresis, which can set up porpoising near the stall height.
     const low = this.floorStall > 0.5

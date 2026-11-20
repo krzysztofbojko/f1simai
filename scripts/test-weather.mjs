@@ -9,7 +9,8 @@ const dir = await mkdtemp(join(tmpdir(), 'f1-weather-'));
 try {
   await build({ configFile: false, logLevel: 'silent', build: { outDir: dir, lib: { entry: {
     car: resolve('src/physics/Car.ts'), weather: resolve('src/physics/Weather.ts'), vector: resolve('src/math/Vector2.ts'),
-    presets: resolve('src/track/Presets.ts'), network: resolve('src/ai/NeuralNetwork.ts'), population: resolve('src/ai/Population.ts') },
+    presets: resolve('src/track/Presets.ts'), network: resolve('src/ai/NeuralNetwork.ts'), population: resolve('src/ai/Population.ts'),
+    planner: resolve('src/physics/DrivePlanner.ts') },
     formats: ['es'], fileName: (_, name) => name + '.mjs' } } });
   const load = async name => import(pathToFileURL(join(dir, name + '.mjs')));
   const { Car, driverInputCount } = await load('car');
@@ -18,6 +19,7 @@ try {
   const { Presets } = await load('presets');
   const { NeuralNetwork } = await load('network');
   const { Population } = await load('population');
+  const { cornerLimitSpeed, brakingDistanceSq, brakingEntrySq } = await load('planner');
   let state = 7;
   Math.random = () => { state = (Math.imul(state, 1664525) + 1013904223) >>> 0; return state / 4294967296; };
   const run = (weather, seconds, each = () => {}) => { for (let i = 0; i < seconds; i++) { weather.step(1); each(weather.state, i); } };
@@ -156,6 +158,60 @@ try {
   };
   assert.ok(aquaplane('soft') > 0.1 && aquaplane('wet') === 0, 'a slick at 270 km/h on a soaked track aquaplanes, a full wet does not');
 
+  // 9b. The planner knows the mean wind along the road and aquaplaning. A corner's limit with a
+  //     headwind h solves v²κ = μ(g + aero·(v + h)²): a tailwind lowers it, a headwind raises it,
+  //     still air keeps the closed form bit for bit, and an aero-bound corner stays flat out.
+  const mu = 1.3, aero = 0.5 * Car.AIR_DENSITY_REF * 4.3 * Car.PLAN_AERO_SHARE / 850;
+  const kappa = mu * (Car.GRAVITY + aero * 40 * 40) / (40 * 40); // a 40 m/s corner in still air
+  const still40 = cornerLimitSpeed(kappa, mu, aero, 0);
+  assert.equal(still40, Math.min(Car.PLAN_MAX_SPEED, Math.sqrt(mu * Car.GRAVITY / (kappa - mu * aero))), 'still air: the closed form');
+  assert.ok(Math.abs(still40 - 40) < 1e-9, `still-air corner at ${still40} m/s`);
+  const tail40 = cornerLimitSpeed(kappa, mu, aero, -11), head40 = cornerLimitSpeed(kappa, mu, aero, 11);
+  for (const [v, h] of [[tail40, -11], [head40, 11]]) {
+    assert.ok(Math.abs(v * v * kappa - mu * (Car.GRAVITY + aero * (v + h) ** 2)) < 1e-9 * mu * Car.GRAVITY, `the limit with ${h} m/s headwind balances the grip`);
+  }
+  assert.ok(tail40 < still40 - 1 && head40 > still40 + 1, `11 m/s of wind: ${tail40.toFixed(2)} / ${still40.toFixed(2)} / ${head40.toFixed(2)} m/s tail / still / head`);
+  assert.ok(Math.abs(cornerLimitSpeed(kappa, mu, aero, 1e-9) - still40) < 1e-6 && Math.abs(cornerLimitSpeed(kappa, mu, aero, -1e-9) - still40) < 1e-6, 'continuous through still air');
+  assert.equal(cornerLimitSpeed(mu * aero * 0.9, mu, aero, -13), Car.PLAN_MAX_SPEED, 'an aero-bound sweeper stays flat out');
+  const hairpin = cornerLimitSpeed(0.2, mu, aero, -13);
+  assert.ok(Math.abs(hairpin - Math.sqrt(mu * Car.GRAVITY / 0.2)) < 1e-9, `a hairpin slower than the tailwind counts no downforce: ${hairpin.toFixed(2)} m/s`);
+  // Aquaplaning in the plan: on a soaked track at 290 km/h on slicks the plan sees more overspeed
+  // (it must brake earlier) somewhere on the lap, and never less, than a plan blind to it.
+  Car.config.weather = { ...neutralWeather(), wetness: 0.95, rain: 0.8 };
+  const realAquaplane = Car.aquaplaneLoss;
+  const overspeedAt = (index, blind) => {
+    const p = gp.points[index];
+    car.reset(p.center, p.tangent.heading(), true, 1); car.tyreCompound = 'medium';
+    car.vel = p.tangent.mul(80); car.speed = 80; car.speedKmh = 288;
+    car.updateSensors(gp);
+    if (blind) Car.aquaplaneLoss = () => 0;
+    try { return car.planDrive(gp).overspeedDelta; } finally { Car.aquaplaneLoss = realAquaplane; }
+  };
+  let earlier = 0;
+  for (let i = 0; i < gp.points.length; i += 50) {
+    const seen = overspeedAt(i, false), blind = overspeedAt(i, true);
+    assert.ok(seen >= blind - 1e-12, `point ${i}: overspeed ${seen.toFixed(3)} with aquaplaning, ${blind.toFixed(3)} blind`);
+    if (seen > blind + 0.05) earlier++;
+  }
+  assert.ok(earlier > 3, `aquaplaning moves the braking earlier at ${earlier} points of the lap`);
+  // The braking zone splits at the aquaplaning speed: the distance and the entry speed invert each
+  // other, still air on any tyre keeps the single closed form, and the split braking lies between
+  // full grip all the way and the aquaplaning grip all the way.
+  const muWet = Car.PLAN_BRAKE_GRIP * 1.85 * 0.456, dragB = 0.5 * Car.AIR_DENSITY_REF * 1.0 / 850;
+  const [fullA, fullB] = [muWet * Car.GRAVITY, muWet * aero + dragB];
+  const [aquaA, aquaB] = [0.7 * muWet * Car.GRAVITY, 0.7 * muWet * aero + dragB];
+  const split2 = Car.AQUAPLANE_SPEED ** 2;
+  for (const w of [30, 50, 60, 70]) for (const d of [10, 100, 300, 600]) {
+    const v2 = brakingEntrySq(w * w, d, fullA, fullB, aquaA, aquaB, split2);
+    assert.ok(Math.abs(brakingDistanceSq(v2, w * w, fullA, fullB, aquaA, aquaB, split2) - d) < 1e-6 * d, `round trip from ${w} m/s over ${d} m`);
+    const dry = brakingEntrySq(w * w, d, fullA, fullB, fullA, fullB, Infinity), soaked = brakingEntrySq(w * w, d, aquaA, aquaB, aquaA, aquaB, Infinity);
+    assert.equal(dry, (w * w + fullA / fullB) * Math.exp(2 * fullB * d) - fullA / fullB, 'no aquaplaning: the closed form');
+    assert.ok(v2 <= dry + 1e-9 && v2 >= soaked - 1e-9, `split braking from ${w} m/s over ${d} m between full and aquaplaning grip`);
+  }
+  const atSplit = brakingDistanceSq(split2, 900, fullA, fullB, aquaA, aquaB, split2), aboveSplit = brakingDistanceSq(split2 * (1 + 1e-12), 900, fullA, fullB, aquaA, aquaB, split2);
+  assert.ok(Math.abs(atSplit - aboveSplit) < 1e-6, 'continuous at the aquaplaning speed');
+  Car.config.weather = neutralWeather();
+
   // 10. Brakes: the work of a stop heats the discs, the airflow cools them, the window sets the
   //     torque, and torque beyond the tyre locks the wheels. The same in training and the race.
   Car.config.weather = neutralWeather();
@@ -225,7 +281,7 @@ try {
   population.setConditions('dry');
   population.recordLap(lap(61), driver, false, gp);
   assert.equal(record.bestLapTime, 61, 'back in the dry a new reference is set again');
-  console.log(`weather tests passed (top speed ${(head * 3.6).toFixed(0)} / ${(still * 3.6).toFixed(0)} / ${(tail * 3.6).toFixed(0)} km/h head/still/tail 8 m/s; 15 m/s crosswind: ${gusty.lateral.toFixed(2)} m, ${(gusty.heading * 180 / Math.PI).toFixed(2)}° in 2 s; tyres ${mild.temp.toFixed(0)}° -> ${baked.temp.toFixed(0)}° on a 55° track; air ${coldAir.toFixed(3)} / ${hotAir.toFixed(3)} kg/m³ at 5 / 35 °C; brakes ${warm.peak.toFixed(0)} °C after a stop from 300 km/h, cold discs +${(cold.distance - warm.distance).toFixed(1)} m)`);
+  console.log(`weather tests passed (top speed ${(head * 3.6).toFixed(0)} / ${(still * 3.6).toFixed(0)} / ${(tail * 3.6).toFixed(0)} km/h head/still/tail 8 m/s; 15 m/s crosswind: ${gusty.lateral.toFixed(2)} m, ${(gusty.heading * 180 / Math.PI).toFixed(2)}° in 2 s; tyres ${mild.temp.toFixed(0)}° -> ${baked.temp.toFixed(0)}° on a 55° track; air ${coldAir.toFixed(3)} / ${hotAir.toFixed(3)} kg/m³ at 5 / 35 °C; brakes ${warm.peak.toFixed(0)} °C after a stop from 300 km/h, cold discs +${(cold.distance - warm.distance).toFixed(1)} m; planner: a 40 m/s corner at ${tail40.toFixed(1)} / ${head40.toFixed(1)} m/s with 11 m/s tail / head wind, aquaplaning brakes earlier at ${earlier} points)`);
 } finally {
   await rm(dir, { recursive: true, force: true });
 }
