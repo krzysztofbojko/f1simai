@@ -100,8 +100,15 @@ Odrzucone warianty: czysta krzywa planu (1–2 wypadki na 48), budżet 0,55 (3 n
 
 Skróty `bench:step -- 60` po rundzie 2: `851b267dad2d3bec`, `0a297de3174bbee5`, `2a49fb4c22d6689e`, koszt kroku 764 µs.
 
+## Runda 3: opony na mokrym, pogoda w trakcie sesji, okna na suchym
+
+- **Opony nowych aut.** Konstruktor `Car` zostawiał domyślne medium. Stawka utworzona na mokrym torze startowała więc na slickach; to dawało 40 z 42 wypadków w pierwszej próbie kalibracji na mokrym. Teraz nowe auto dostaje opony dobrane do pogody, a na suchym nic się nie zmienia (te same skróty `bench:step`).
+- **Zmiana prognozy w trakcie sesji** (wybór w panelu i wyspy) działa stopniowo: `Weather.changeForecast` zostawia stan toru i powietrza. Decyzja użytkownika: „Stopniowo”.
+- **Kalibracja opon na mokrym** jest wprowadzona (`Tyres.ts`). Średnio 110,1% / 115,0% / 120,0% suchego czasu okrążenia, wobec Pirelli ok. 112% i 116–118%. Pomiar stawki i eksperta jest w `PHYSICS.md` („Opony: pomiar i dane referencyjne”), surowe wyniki w `dane/5-*`. Wypadków przybyło tylko przy burzy wybranej w trakcie sesji, gdy auta są na slickach (0,57 → 1,60 na minutę).
+- **Okna temperatur na suchym** nie zostały zmienione. Przód pracuje średnio o 26 °C cieplej od tyłu (mediany 117 i 92 °C na 39 torach). Mniejsze grzanie przodu poprawia temperatury, ale destabilizuje auto (soft rozbija się na GP), więc potrzebne jest przestrojenie równowagi.
+
 ## Czego nie zmierzono
 
 - `npm run diag:nn` z planu (etap 0, punkt 3) zastąpiły `diag-weather` (stawka z interwencjami strażnika według przyczyny) i `diag-lowspeed`.
 - Pełne `npm run test:tracks` uruchomiono po etapach 1–2 (runda 2), nie po zmianie hamowania.
-- Kalibracja opon (etap 4.4) nie została wprowadzona; pomiar (4.2) i dane referencyjne (4.3) są gotowe (runda 2).
+- Kalibracja opon na suchym (okna temperatur) nie została wprowadzona; na mokrym wprowadzona w rundzie 3.

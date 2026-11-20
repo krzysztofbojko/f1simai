@@ -19,6 +19,8 @@ try {
   const load = name => import(pathToFileURL(join(output, name + '.mjs')));
   const [{ Car }, { Presets }, { Track }, { Vector2 }, { Spline, pointGapFor }, { neutralWeather }, { COMPOUND_SPECS, compoundGrip }] = await Promise.all(['car', 'presets', 'track', 'vector', 'spline', 'weather', 'tyres'].map(load));
   // Calibration trials without editing Tyres.ts: GRIP='{"medium":[1,0.6,0.4]}' replaces those spec points.
+  // FRONT_HEAT=1.2: trial of Car.TYRE_FRONT_HEAT (the fronts' extra heating per unit of slip work).
+  if (process.env.FRONT_HEAT) Car.TYRE_FRONT_HEAT = Number(process.env.FRONT_HEAT);
   // WATER='0.2,0.25': trial of a grip loss every tyre suffers from water on the track, 0 dry, the
   // first value soaked, saturating over the second (wetness scale).
   if (process.env.WATER) {
@@ -34,7 +36,10 @@ try {
   }
   const args = process.argv.slice(2).filter(a => !a.startsWith('--'));
   const mode = args[0] ?? 'all';
-  const trackNames = (args[1] ?? 'gp,au-1953-melbourne,it-1922-monza').split(',');
+  // `all` as the track list: the GP preset and every circuit in tracks/.
+  const trackNames = args[1] === 'all'
+    ? ['gp', ...JSON.parse(await readFile(join('tracks', 'index.json'), 'utf8')).tracks.map(t => t.file.replace(/\.json$/, ''))]
+    : (args[1] ?? 'gp,au-1953-melbourne,it-1922-monza').split(',');
   const json = process.argv.includes('--json');
   const report = {};
   let state = 99;
@@ -72,7 +77,7 @@ try {
       const plan = car.planDrive(track);
       car.wantsToPit = false;
       const event = car.updatePhysics(plan.expert, 1 / 60, track);
-      onStep(car);
+      onStep(car, laps.length);
       if (car.surface !== 'asphalt') offAsphalt = true;
       if (event) { laps.push({ time: event.lapTime, wear: Math.max(car.tyreWearFront, car.tyreWearRear), compromised: offAsphalt }); offAsphalt = false; }
       if (event && stop(car, laps)) break;
@@ -102,6 +107,26 @@ try {
         frontTread: n ? round(frontTread / n, 1) : null, offLaps: laps.filter(l => l.compromised).length });
     }
     if (!json) { console.log('\nStint na nowych oponach (paliwo stałe 50 kg, ekspert)'); console.table(report.stint); }
+  }
+
+  if (mode === 'temps') {
+    // Where the tyres work: tread and carcass temperatures of a medium over laps 2–4 (above 20 m/s),
+    // per track, and the spread across tracks.
+    report.temps = [];
+    for (const [name, track] of tracks) {
+      const sum = { front: 0, rear: 0, carcassF: 0, carcassR: 0, n: 0 };
+      const { laps } = drive(track, 'medium', 0, 60 * 20, (c, lapsDone) => {
+        if (c.speed < 20 || lapsDone < 1) return;
+        sum.front += c.tyreSurfaceTempFront; sum.rear += c.tyreSurfaceTempRear; sum.carcassF += c.tyreTempFront; sum.carcassR += c.tyreTempRear; sum.n++;
+      }, (_, list) => list.length >= 4);
+      const flying = laps.slice(1).map(l => l.time);
+      report.temps.push({ track: name, lap: flying.length ? round(Math.min(...flying), 2) : null, treadF: round(sum.front / Math.max(1, sum.n), 1), treadR: round(sum.rear / Math.max(1, sum.n), 1),
+        carcassF: round(sum.carcassF / Math.max(1, sum.n), 1), carcassR: round(sum.carcassR / Math.max(1, sum.n), 1) });
+    }
+    const q = (v, p) => { const sorted = [...v].sort((a, b) => a - b); return round(sorted[Math.floor(p * (sorted.length - 1))], 1); };
+    const front = report.temps.map(r => r.treadF), rear = report.temps.map(r => r.treadR);
+    report.tempSpread = { front: [q(front, 0), q(front, 0.1), q(front, 0.5), q(front, 0.9), q(front, 1)], rear: [q(rear, 0), q(rear, 0.1), q(rear, 0.5), q(rear, 0.9), q(rear, 1)] };
+    if (!json) { console.log('\nTemperatury medium (bieżnik i karkas, okrążenia 2–4, powyżej 20 m/s)'); console.table(report.temps); console.log('Rozrzut bieżnika min/p10/p50/p90/max: przód', report.tempSpread.front.join(' / '), 'tył', report.tempSpread.rear.join(' / ')); }
   }
 
   if (mode === 'all' || mode === 'skidpad') {
