@@ -1787,16 +1787,22 @@ export class Car {
     const yawPrevious = this.angularVelocity;
     const requestedYaw = this.angularVelocity + (targetYaw - this.angularVelocity) * (1 - Math.exp(-dt / 0.05));
     const turnForce = currentMass * nextForwardSpeed * requestedYaw;
-    // Turning and slide correction act in the SAME axis and must be summed algebraically.
-    const slideForce = -currentMass * lateralSpeed * Math.min(12, 1 / dt);
-    const requestedLateral = turnForce + slideForce;
-    const kinematicLateral = Math.max(-lateralLimit, Math.min(lateralLimit, requestedLateral));
     const yawLimit = Math.abs(nextForwardSpeed) > 0.001 ? lateralLimit / (currentMass * Math.abs(nextForwardSpeed)) : 0;
     const kinematicYaw = Math.max(-yawLimit, Math.min(yawLimit, requestedYaw));
+    const toRear = this.wheelbase * 0.46, toFront = this.wheelbase - toRear; // CoG to axles
+    // Turning and slide correction act in the SAME axis and must be summed algebraically. The
+    // kinematic single track rolls both axles without slip, so the centre of gravity drifts towards
+    // the inside at toRear·yaw (the body slip angle atan(toRear/L·tanδ)); the correction damps the
+    // slide about that drift. Damping the CoG's own lateral speed to zero would leave both axles at
+    // about 0.46·δ of slip, which the slip-angle model below reads as a saturated, sliding car.
+    const slideForce = -currentMass * (lateralSpeed - toRear * kinematicYaw) * Math.min(12, 1 / dt);
+    const requestedLateral = turnForce + slideForce;
+    const kinematicLateral = Math.max(-lateralLimit, Math.min(lateralLimit, requestedLateral));
 
     // Dynamic single-track model: slip angles -> saturating axle forces -> yaw
     // torque on a rigid body with yaw inertia. Below ~10 m/s slip angles become
-    // ill-conditioned, so the kinematic response above takes over smoothly.
+    // ill-conditioned, so the kinematic response above takes over smoothly: the forces, the yaw,
+    // the slip flags, the force in use and the slip heating are all blended by the same weight.
     const dynamicWeight = nextForwardSpeed > 0 ? Math.max(0, Math.min(1, (nextForwardSpeed - Car.DYNAMIC_FROM) / Car.DYNAMIC_FROM)) : 0;
     let lateralForce = kinematicLateral;
     let slipRatio = Math.abs(requestedLateral) > 0 ? Math.max(0, 1 - lateralLimit / Math.abs(requestedLateral)) : 0;
@@ -1805,14 +1811,17 @@ export class Car {
     let frontSlipPower = 0, rearSlipPower = 0;
     let steeredFrontDrag = 0; // body-frame longitudinal part of the steered front tyre's forces, beyond frontFx
     this.angularVelocity = kinematicYaw;
-    if (dynamicWeight > 0) {
-      const toRear = this.wheelbase * 0.46, toFront = this.wheelbase - toRear; // CoG to axles
-      const u = Math.max(1, nextForwardSpeed);
-      const wheelAngle = this.wheelAngle;
-      // The carcass deforms over the relaxation length: exact first-order lag for a target held over the step.
-      const relax = 1 - Math.exp(-dt * Math.max(3, u) / Car.TYRE_RELAXATION_LENGTH);
+    const u = Math.max(1, nextForwardSpeed);
+    const wheelAngle = this.wheelAngle;
+    // The carcass deforms over the relaxation length: exact first-order lag for a target held over the step.
+    // The slip angles follow the motion at any forward speed, so the dynamic model blends in from the
+    // tyres' actual state (about zero in kinematic cornering) rather than from a reset.
+    const relax = 1 - Math.exp(-dt * Math.max(3, u) / Car.TYRE_RELAXATION_LENGTH);
+    if (nextForwardSpeed > 0) {
       this.slipAngleFront += (wheelAngle - Math.atan2(lateralSpeed + toFront * yawPrevious, u) - this.slipAngleFront) * relax;
       this.slipAngleRear += (-Math.atan2(lateralSpeed - toRear * yawPrevious, u) - this.slipAngleRear) * relax;
+    } else this.slipAngleFront = this.slipAngleRear = 0; // reversing or at rest: no rolling slip to carry over
+    if (dynamicWeight > 0) {
       const alphaFront = this.slipAngleFront, alphaRear = this.slipAngleRear;
       const axleForce = (alpha: number, load: number, limit: number) => {
         if (limit <= 1) return 0;
@@ -1839,8 +1848,9 @@ export class Car {
       const diffDamping = diffForce * halfTrack * 2 * halfTrack / (u * Car.DIFF_SLIP) * diffSech * diffSech;
       const yawAcceleration = (toFront * frontBodyLateral - toRear * rearForce - Car.SIDE_FORCE_LEVER * sideForce + surfaceYawMoment + diffYawMoment) / yawInertia;
       dynamicFrontForce = frontForce; dynamicRearForce = rearForce;
-      frontSlipPower = Car.TYRE_LAT_HEAT * Math.abs(frontForce * u * Math.tan(alphaFront));
-      rearSlipPower = Car.TYRE_LAT_HEAT * Math.abs(rearForce * u * Math.tan(alphaRear));
+      // Lateral sliding work heats the tread; the kinematic share of the response rolls without slip.
+      frontSlipPower = Car.TYRE_LAT_HEAT * Math.abs(frontForce * u * Math.tan(alphaFront)) * dynamicWeight;
+      rearSlipPower = Car.TYRE_LAT_HEAT * Math.abs(rearForce * u * Math.tan(alphaRear)) * dynamicWeight;
       // The tyres damp the yaw rate (a faster yaw turns the slip angles against it). That damping is
       // stiff at speed, so it is taken implicitly (linearised backward Euler): the yaw response then
       // barely depends on the step.
@@ -1857,14 +1867,18 @@ export class Car {
       this.angularVelocity = kinematicYaw * (1 - dynamicWeight) + dynamicYaw * dynamicWeight;
       const demand = (alpha: number, load: number, limit: number) => limit > 1 ? Math.max(0, 1 - limit / Math.max(1e-6, Car.CORNERING_STIFFNESS * load * Math.abs(alpha))) : 0;
       const dynFront = demand(alphaFront, frontLoad, frontLateral * Car.FRONT_GRIP_BIAS), dynRear = demand(alphaRear, rearLoad, rearLateral);
-      // Slip is only meaningful from the slip-angle model; the kinematic request mixes in slide damping.
-      frontSlip = dynFront; rearSlip = dynRear;
+      // The kinematic demand (request beyond the axles' limit) and the slip-angle one, by the blend weight.
+      frontSlip = slipRatio * (1 - dynamicWeight) + dynFront * dynamicWeight;
+      rearSlip = slipRatio * (1 - dynamicWeight) + dynRear * dynamicWeight;
       slipRatio = Math.max(frontSlip, rearSlip);
-    } else this.slipAngleFront = this.slipAngleRear = 0; // the kinematic model has no slip angles to carry over
-    // The front's lateral grip is FRONT_GRIP_BIAS of its friction circle (an ellipse): its force in
-    // use is kept as the share of that ellipse, so the brake and lock budgets see a saturated front as saturated.
-    if (dynamicWeight > 0) { this.frontLateralInUse = Math.abs(dynamicFrontForce) / Car.FRONT_GRIP_BIAS; this.rearLateralInUse = Math.abs(dynamicRearForce); }
-    else { const share = frontLoad / Math.max(1, frontLoad + rearLoad); this.frontLateralInUse = Math.abs(lateralForce) * share; this.rearLateralInUse = Math.abs(lateralForce) * (1 - share); }
+    }
+    // The kinematic response splits its lateral force by axle load. The front's lateral grip in the
+    // slip-angle model is FRONT_GRIP_BIAS of its friction circle (an ellipse): its force in use is kept
+    // as the share of that ellipse, so the brake and lock budgets see a saturated front as saturated.
+    const loadShare = frontLoad / Math.max(1, frontLoad + rearLoad);
+    const kinematicWeight = 1 - dynamicWeight;
+    this.frontLateralInUse = Math.abs(kinematicLateral) * loadShare * kinematicWeight + Math.abs(dynamicFrontForce) / Car.FRONT_GRIP_BIAS * dynamicWeight;
+    this.rearLateralInUse = Math.abs(kinematicLateral) * (1 - loadShare) * kinematicWeight + Math.abs(dynamicRearForce) * dynamicWeight;
     // Longitudinal creep heats the driven / braked axles too. A locked axle slides at the full road
     // speed: its braking work, which the discs no longer take, goes into the tread and the road.
     const lockHeat = (locked: boolean, fx: number) => locked ? Car.LOCKED_TYRE_HEAT * Math.abs(fx) * speedMag : 0;
