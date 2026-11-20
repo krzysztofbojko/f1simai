@@ -120,6 +120,12 @@ export function planDrive(car: Car, track: Track, leaderSpeeds?: number[]): Driv
   car.cornerPush = pushTarget < car.cornerPush ? pushTarget
     : car.cornerPush + (pushTarget - car.cornerPush) * Math.min(1, car.lastStepDt / Car.PUSH_RISE_TIME);
 
+  // What the tyres transmit at this speed: grip (less any aquaplaning) on weight plus the downforce
+  // of the airspeed (road speed plus the mean headwind), and the share of it cornering takes now.
+  const airSpeed = car.speed + headwindHere, airSq = airSpeed * airSpeed;
+  const tyreCapacity = car.baseTireGrip * Math.min(car.tyreGripFront, car.tyreGripRear) * (1 - aquaplaneHere) * (Car.GRAVITY + 0.5 * car.airDensity * car.downforceCoeff * car.wakeDownforce * airSq / car.totalMass);
+  const lateralShare = Math.min(1, Math.abs(car.lateralG) * Car.GRAVITY / Math.max(1, tyreCapacity));
+
   let accumulatedDist = 0;
   let prevPos = car.pos;
   // Deceleration still needed to reach the safe speed of the most demanding corner ahead,
@@ -172,8 +178,20 @@ export function planDrive(car: Car, track: Track, leaderSpeeds?: number[]): Driv
       if (car.speed > safeV) {
         // Over at least 0.4 s of travel: inside the corner a small overspeed must not read as a stop.
         const horizon = Math.max(2, brakeDist, car.speed * 0.4);
-        requiredDecel = Math.max(requiredDecel, (car.speed * car.speed - safeV * safeV) / (2 * horizon));
-        brakingNeed = Math.max(brakingNeed, brakingDistance(car.speed * car.speed, safeV * safeV) / horizon);
+        const v2 = car.speed * car.speed;
+        const need = brakingDistance(v2, safeV * safeV) / horizon;
+        brakingNeed = Math.max(brakingNeed, need);
+        // In a straight line the car keeps to the shape of the plan's braking curve, a = A + B·v²,
+        // scaled to end at the safe speed where the corner starts (scaling A and B by `need` divides
+        // the closed-form distance by it): it brakes hardest at speed, where the downforce gives the
+        // grip, instead of evenly over the zone and harder and harder near the corner, where the grip
+        // is lowest (in the wet that ran past the tyres' limit at the turn-in). While the tyres are
+        // turning the car (a fast sweeper into the corner) it brakes evenly, keeping the grip at speed
+        // for the cornering: braking hard there locked the rear. The plan's curve front-loads the
+        // braking, so it never asks for less than the even deceleration.
+        const evenDecel = (v2 - safeV * safeV) / (2 * horizon);
+        const planDecel = need * (v2 > aquaplaneSplit ? aquaA + aquaB * v2 : brakeA + brakeB * v2);
+        requiredDecel = Math.max(requiredDecel, evenDecel + Math.max(0, planDecel - evenDecel) * (1 - lateralShare));
       }
     }
   }
@@ -270,10 +288,6 @@ export function planDrive(car: Car, track: Track, leaderSpeeds?: number[]): Driv
   // 3. F1 Racing Throttle & Braking Policy:
   let throttle: number;
   let brake: number;
-  // What the tyres transmit at this speed: grip (less any aquaplaning) on weight plus the downforce
-  // of the airspeed (road speed plus the mean headwind).
-  const airSpeed = car.speed + headwindHere, airSq = airSpeed * airSpeed;
-  const tyreCapacity = car.baseTireGrip * Math.min(car.tyreGripFront, car.tyreGripRear) * (1 - aquaplaneHere) * (Car.GRAVITY + 0.5 * car.airDensity * car.downforceCoeff * car.wakeDownforce * airSq / car.totalMass);
 
   if (brakingNeed > Car.BRAKE_ONSET) {
     // Braking zone: one progressive application. The pedal asks for the deceleration still needed,
@@ -287,7 +301,6 @@ export function planDrive(car: Car, track: Track, leaderSpeeds?: number[]): Driv
     brake = Math.min(1, Math.max(0, requiredDecel * onset - dragDecel) / Math.max(1, tyreDecel * brakeEfficiency));
     // Trail braking: the tyre already turning the car keeps only the rest of its friction circle
     // for braking, so the pedal is eased to what the front axle can take without locking.
-    const lateralShare = Math.min(1, Math.abs(car.lateralG) * Car.GRAVITY / Math.max(1, tyreDecel));
     brake = Math.min(brake, Car.TRAIL_BRAKE_PEDAL * Math.sqrt(1 - lateralShare * lateralShare) / Math.max(0.5, brakeEfficiency));
   } else if (overspeedDelta > -pressure.coastMargin && holdSpeed < Infinity) {
     // Inside the corner that limits the speed: hold it with partial throttle (drag compensation

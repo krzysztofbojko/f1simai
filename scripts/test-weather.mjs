@@ -1,7 +1,7 @@
 // Weather: forecast evolution, its effect on the car (wind, track temperature) and on training records.
 import { build } from 'vite';
 import assert from 'node:assert/strict';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, rm, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -10,7 +10,7 @@ try {
   await build({ configFile: false, logLevel: 'silent', build: { outDir: dir, lib: { entry: {
     car: resolve('src/physics/Car.ts'), weather: resolve('src/physics/Weather.ts'), vector: resolve('src/math/Vector2.ts'),
     presets: resolve('src/track/Presets.ts'), network: resolve('src/ai/NeuralNetwork.ts'), population: resolve('src/ai/Population.ts'),
-    planner: resolve('src/physics/DrivePlanner.ts') },
+    planner: resolve('src/physics/DrivePlanner.ts'), track: resolve('src/track/Track.ts'), spline: resolve('src/math/Spline.ts') },
     formats: ['es'], fileName: (_, name) => name + '.mjs' } } });
   const load = async name => import(pathToFileURL(join(dir, name + '.mjs')));
   const { Car, driverInputCount } = await load('car');
@@ -20,6 +20,8 @@ try {
   const { NeuralNetwork } = await load('network');
   const { Population } = await load('population');
   const { cornerLimitSpeed, brakingDistanceSq, brakingEntrySq } = await load('planner');
+  const { Track } = await load('track');
+  const { Spline, pointGapFor } = await load('spline');
   let state = 7;
   Math.random = () => { state = (Math.imul(state, 1664525) + 1013904223) >>> 0; return state / 4294967296; };
   const run = (weather, seconds, each = () => {}) => { for (let i = 0; i < seconds; i++) { weather.step(1); each(weather.state, i); } };
@@ -210,6 +212,35 @@ try {
   }
   const atSplit = brakingDistanceSq(split2, 900, fullA, fullB, aquaA, aquaB, split2), aboveSplit = brakingDistanceSq(split2 * (1 + 1e-12), 900, fullA, fullB, aquaA, aquaB, split2);
   assert.ok(Math.abs(atSplit - aboveSplit) < 1e-6, 'continuous at the aquaplaning speed');
+  // A braking zone from 300 km/h into Albert Park's turn 3 on full wets (wetness 0.7): braking evenly
+  // over the zone left the turn-in past the tyres' grip and every run went into the gravel there.
+  // Keeping to the plan's braking curve the expert stays on the asphalt, lap after lap.
+  {
+    const data = JSON.parse(await readFile(join('tracks', 'au-1953-melbourne.json'), 'utf8'));
+    const width = Car.getDimensionsForTrackWidth(data.trackWidth).effectiveTrackWidth;
+    const albert = new Track(Spline.generateClosedTrack(data.rawPoints.map(p => new Vector2(p.x, p.y)), width, true, pointGapFor(data.pointSpacing)), width);
+    const savedRandom = Math.random;
+    try {
+      for (let seed = 1; seed <= 3; seed++) {
+        let lcg = seed;
+        Math.random = () => { lcg = (Math.imul(1664525, lcg) + 1013904223) >>> 0; return lcg / 4294967296; };
+        Car.config.weather = { ...neutralWeather(), wetness: 0.7 };
+        const slot = albert.getGridSlot(0);
+        const c = new Car(slot.pos, slot.heading, null, '#fff', 'wet', 100, 25);
+        c.currentCheckpointIdx = (slot.checkpointIdx + 1) % albert.checkpoints.length;
+        c.mistakesEnabled = false; c.lapPowerFactor = c.lapGripFactor = c.lapDragFactor = 1; c.rollLapPerformanceVariation = () => {};
+        c.isRaceMode = true; c.tyreCompound = 'wet';
+        let laps = 0, offAt = null;
+        for (let i = 0; i < 60 * 400 && laps < 2 && c.isAlive; i++) {
+          c.fuelKg = 50; c.updateSensors(albert);
+          const plan = c.planDrive(albert); c.wantsToPit = false;
+          if (c.updatePhysics(plan.expert, 1 / 60, albert)) laps++;
+          if (c.surface !== 'asphalt' && offAt === null) offAt = albert.sampleSurface(c.pos).index;
+        }
+        assert.ok(c.isAlive && laps === 2 && offAt === null, `seed ${seed}: full wets at Albert Park left the asphalt at point ${offAt} (laps ${laps}, ${c.eliminationReason ?? 'alive'})`);
+      }
+    } finally { Math.random = savedRandom; Car.config.weather = neutralWeather(); }
+  }
   Car.config.weather = neutralWeather();
 
   // 10. Brakes: the work of a stop heats the discs, the airflow cools them, the window sets the
