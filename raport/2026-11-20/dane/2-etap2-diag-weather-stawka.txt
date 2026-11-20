@@ -1,0 +1,22 @@
+{"scenario":"sunny","seed":1,"wetness":0,"laps":137,"best":51.09,"median":54.08,"offRoadPct":0.16,"lockPct":0.29,"slidePct":4.46,"wrecksPerMin":0.2,"emergencyBrakePct":0.807,"guardPct":1.79}
+{"scenario":"sunny","seed":2,"wetness":0,"laps":161,"best":51.58,"median":55.63,"offRoadPct":0.12,"lockPct":0.51,"slidePct":7.6,"wrecksPerMin":0,"emergencyBrakePct":1.513,"guardPct":1.28}
+{"scenario":"sunny","seed":3,"wetness":0,"laps":142,"best":50.49,"median":53.58,"offRoadPct":0.14,"lockPct":0.42,"slidePct":6.59,"wrecksPerMin":0,"emergencyBrakePct":1.357,"guardPct":1.66}
+{"scenario":"windy","seed":1,"wetness":0,"laps":111,"best":49.05,"median":55.53,"offRoadPct":0.66,"lockPct":0.77,"slidePct":11.19,"wrecksPerMin":0.4,"emergencyBrakePct":2.249,"guardPct":2.3}
+{"scenario":"windy","seed":2,"wetness":0,"laps":123,"best":50.7,"median":55.18,"offRoadPct":0.89,"lockPct":0.64,"slidePct":9.42,"wrecksPerMin":0.4,"emergencyBrakePct":1.64,"guardPct":2.63}
+{"scenario":"windy","seed":3,"wetness":0,"laps":128,"best":50.82,"median":54.97,"offRoadPct":0.43,"lockPct":0.55,"slidePct":8.71,"wrecksPerMin":0,"emergencyBrakePct":1.237,"guardPct":2.06}
+{"scenario":"storm","seed":1,"wetness":0.99,"laps":88,"best":54.32,"median":61.82,"offRoadPct":2.36,"lockPct":1.2,"slidePct":15.91,"wrecksPerMin":1.8,"emergencyBrakePct":1.046,"guardPct":5.29}
+{"scenario":"storm","seed":2,"wetness":0.99,"laps":95,"best":54.07,"median":62.97,"offRoadPct":1.59,"lockPct":0.82,"slidePct":12.09,"wrecksPerMin":1.4,"emergencyBrakePct":0.365,"guardPct":1.27}
+{"scenario":"storm","seed":3,"wetness":0.99,"laps":99,"best":55.31,"median":62,"offRoadPct":1.11,"lockPct":1.14,"slidePct":12.6,"wrecksPerMin":1,"emergencyBrakePct":0.503,"guardPct":1.41}
+{"scenario":"shower","seed":1,"wetness":0.48,"laps":76,"best":50.86,"median":55.84,"offRoadPct":0.04,"lockPct":0.43,"slidePct":7.5,"wrecksPerMin":0,"emergencyBrakePct":0.897,"guardPct":2.69}
+{"scenario":"shower","seed":2,"wetness":0.26,"laps":76,"best":51.11,"median":55.98,"offRoadPct":0.35,"lockPct":0.51,"slidePct":8.15,"wrecksPerMin":0.2,"emergencyBrakePct":1.346,"guardPct":31.55}
+{"scenario":"shower","seed":3,"wetness":0.37,"laps":78,"best":52.31,"median":55.23,"offRoadPct":0.49,"lockPct":0.69,"slidePct":10.63,"wrecksPerMin":0.4,"emergencyBrakePct":0.319,"guardPct":2.84}
+
+Stawka w treningu, 600 s, ziarna 1,2,3: średnie
+┌─────────┬──────────┬─────────┬─────────┬────────┬────────┬────────────┬─────────┬──────────┬──────────────┬───────────────────┬──────────┐
+│ (index) │ scenario │ wetness │ laps    │ best   │ median │ offRoadPct │ lockPct │ slidePct │ wrecksPerMin │ emergencyBrakePct │ guardPct │
+├─────────┼──────────┼─────────┼─────────┼────────┼────────┼────────────┼─────────┼──────────┼──────────────┼───────────────────┼──────────┤
+│ 0       │ 'sunny'  │ 0       │ 146.667 │ 51.053 │ 54.43  │ 0.14       │ 0.407   │ 6.217    │ 0.067        │ 1.226             │ 1.577    │
+│ 1       │ 'windy'  │ 0       │ 120.667 │ 50.19  │ 55.227 │ 0.66       │ 0.653   │ 9.773    │ 0.267        │ 1.709             │ 2.33     │
+│ 2       │ 'storm'  │ 0.99    │ 94      │ 54.567 │ 62.263 │ 1.687      │ 1.053   │ 13.533   │ 1.4          │ 0.638             │ 2.657    │
+│ 3       │ 'shower' │ 0.37    │ 76.667  │ 51.427 │ 55.683 │ 0.293      │ 0.543   │ 8.76     │ 0.2          │ 0.854             │ 12.36    │
+└─────────┴──────────┴─────────┴─────────┴────────┴────────┴────────────┴─────────┴──────────┴──────────────┴───────────────────┴──────────┘

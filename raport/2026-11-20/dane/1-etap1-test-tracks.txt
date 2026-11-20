@@ -1,0 +1,6 @@
+przed:  tracks\mc-1929-monaco.json            3337 m  sym  82 min  okr 1043  best 1:23.116  śr 145 km/h  max 320 km/h  poza 0.8%  tor 100%
+etap 1: tracks\mc-1929-monaco.json            3337 m  sym  82 min  okr 1046  best 1:23.222  śr 144 km/h  max 312 km/h  poza 0.6%  tor 100%
+przed:  tracks\hu-1986-budapest.json          4381 m  sym  81 min  okr  858  best 1:37.809  śr 161 km/h  max 332 km/h  poza 1.2%  tor 100%
+etap 1: tracks\hu-1986-budapest.json          4381 m  sym  81 min  okr  879  best 1:36.816  śr 163 km/h  max 329 km/h  poza 0.9%  tor 100%
+przed:  tracks\sg-2008-singapore.json         4940 m  sym  85 min  okr  803  best 1:49.693  śr 162 km/h  max 321 km/h  poza 0.5%  tor 100%
+etap 1: tracks\sg-2008-singapore.json         4940 m  sym  82 min  okr  760  best 1:50.656  śr 161 km/h  max 320 km/h  poza 0.3%  tor 100%

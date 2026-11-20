@@ -1,0 +1,34 @@
+{"scenario":"shower","seed":1,"wetness":0.57,"laps":9,"best":50.42,"median":59.4,"offRoadPct":0.54,"lockPct":0.51,"slidePct":9.88,"aquaplanePct":0.05,"wrecksPerMin":0}
+{"scenario":"shower","seed":2,"wetness":0.41,"laps":10,"best":50.63,"median":51.1,"offRoadPct":0,"lockPct":0.22,"slidePct":6.4,"aquaplanePct":0,"wrecksPerMin":0}
+{"scenario":"shower","seed":3,"wetness":0.48,"laps":8,"best":49.9,"median":59.75,"offRoadPct":0,"lockPct":0.16,"slidePct":5.29,"aquaplanePct":0,"wrecksPerMin":0}
+{"scenario":"shower","seed":4,"wetness":0.4,"laps":10,"best":49.73,"median":51.26,"offRoadPct":0,"lockPct":0.15,"slidePct":5.68,"aquaplanePct":0,"wrecksPerMin":0}
+{"scenario":"shower","seed":5,"wetness":0.35,"laps":9,"best":50.47,"median":51.4,"offRoadPct":0,"lockPct":0.47,"slidePct":9.33,"aquaplanePct":0.37,"wrecksPerMin":0}
+{"scenario":"shower","seed":6,"wetness":0.56,"laps":8,"best":50.51,"median":59.22,"offRoadPct":0,"lockPct":0.44,"slidePct":9.25,"aquaplanePct":0,"wrecksPerMin":0}
+{"scenario":"rain","seed":1,"wetness":0.81,"laps":12,"best":58.66,"median":61.84,"offRoadPct":0,"lockPct":0.37,"slidePct":8.49,"aquaplanePct":0,"wrecksPerMin":0}
+{"scenario":"rain","seed":2,"wetness":0.8,"laps":6,"best":58.29,"median":61.1,"offRoadPct":0,"lockPct":0.51,"slidePct":11.2,"aquaplanePct":0,"wrecksPerMin":0}
+{"scenario":"rain","seed":3,"wetness":0.77,"laps":11,"best":61.34,"median":62.36,"offRoadPct":0,"lockPct":0.23,"slidePct":7.35,"aquaplanePct":0,"wrecksPerMin":0}
+{"scenario":"rain","seed":4,"wetness":0.82,"laps":8,"best":58.94,"median":62.88,"offRoadPct":0,"lockPct":0.27,"slidePct":8.29,"aquaplanePct":0,"wrecksPerMin":0}
+{"scenario":"rain","seed":5,"wetness":0.82,"laps":10,"best":59.03,"median":62.41,"offRoadPct":0,"lockPct":0.32,"slidePct":7.8,"aquaplanePct":0,"wrecksPerMin":0}
+{"scenario":"rain","seed":6,"wetness":0.79,"laps":14,"best":59.38,"median":62.22,"offRoadPct":0,"lockPct":0.2,"slidePct":5.66,"aquaplanePct":0,"wrecksPerMin":0}
+{"scenario":"storm","seed":1,"wetness":0.99,"laps":7,"best":63.22,"median":64.05,"offRoadPct":1.35,"lockPct":0.72,"slidePct":13.67,"aquaplanePct":0,"wrecksPerMin":0.07}
+{"scenario":"storm","seed":2,"wetness":0.99,"laps":11,"best":60.18,"median":64.08,"offRoadPct":0,"lockPct":0.36,"slidePct":8.06,"aquaplanePct":0,"wrecksPerMin":0}
+{"scenario":"storm","seed":3,"wetness":0.99,"laps":11,"best":59.76,"median":63.62,"offRoadPct":0,"lockPct":0.49,"slidePct":10.22,"aquaplanePct":0,"wrecksPerMin":0}
+{"scenario":"storm","seed":4,"wetness":0.99,"laps":11,"best":59.67,"median":63.68,"offRoadPct":0.57,"lockPct":0.54,"slidePct":10.82,"aquaplanePct":0,"wrecksPerMin":0}
+{"scenario":"storm","seed":5,"wetness":0.99,"laps":13,"best":59.41,"median":62.7,"offRoadPct":0,"lockPct":0.69,"slidePct":14.3,"aquaplanePct":0,"wrecksPerMin":0}
+{"scenario":"storm","seed":6,"wetness":0.99,"laps":10,"best":61.25,"median":64.85,"offRoadPct":0,"lockPct":0.5,"slidePct":9.93,"aquaplanePct":0,"wrecksPerMin":0}
+{"scenario":"changeable","seed":1,"wetness":0.3,"laps":11,"best":51.15,"median":55.74,"offRoadPct":0.5,"lockPct":0.74,"slidePct":13.33,"aquaplanePct":0,"wrecksPerMin":0}
+{"scenario":"changeable","seed":2,"wetness":0.39,"laps":6,"best":55.11,"median":57.04,"offRoadPct":0,"lockPct":0.1,"slidePct":5.42,"aquaplanePct":0,"wrecksPerMin":0}
+{"scenario":"changeable","seed":3,"wetness":0.11,"laps":15,"best":50.16,"median":51.17,"offRoadPct":0,"lockPct":0.06,"slidePct":4.06,"aquaplanePct":0,"wrecksPerMin":0}
+{"scenario":"changeable","seed":4,"wetness":0.46,"laps":9,"best":57,"median":60.99,"offRoadPct":0.36,"lockPct":0.13,"slidePct":5.52,"aquaplanePct":0,"wrecksPerMin":0}
+{"scenario":"changeable","seed":5,"wetness":0.36,"laps":10,"best":50.66,"median":55.57,"offRoadPct":0.04,"lockPct":0.35,"slidePct":8.73,"aquaplanePct":0,"wrecksPerMin":0}
+{"scenario":"changeable","seed":6,"wetness":0.12,"laps":9,"best":49.79,"median":50.38,"offRoadPct":0,"lockPct":0.13,"slidePct":4.95,"aquaplanePct":0,"wrecksPerMin":0}
+
+Ekspert solo, 900 s, ziarna 1,2,3,4,5,6: średnie
+┌─────────┬──────────────┬─────────┬────────┬────────┬────────┬────────────┬─────────┬──────────┬──────────────┬──────────────┐
+│ (index) │ scenario     │ wetness │ laps   │ best   │ median │ offRoadPct │ lockPct │ slidePct │ aquaplanePct │ wrecksPerMin │
+├─────────┼──────────────┼─────────┼────────┼────────┼────────┼────────────┼─────────┼──────────┼──────────────┼──────────────┤
+│ 0       │ 'shower'     │ 0.462   │ 9      │ 50.277 │ 55.355 │ 0.09       │ 0.325   │ 7.638    │ 0.07         │ 0            │
+│ 1       │ 'rain'       │ 0.802   │ 10.167 │ 59.273 │ 62.135 │ 0          │ 0.317   │ 8.132    │ 0            │ 0            │
+│ 2       │ 'storm'      │ 0.99    │ 10.5   │ 60.582 │ 63.83  │ 0.32       │ 0.55    │ 11.167   │ 0            │ 0.012        │
+│ 3       │ 'changeable' │ 0.29    │ 10     │ 52.312 │ 55.148 │ 0.15       │ 0.252   │ 7.002    │ 0            │ 0            │
+└─────────┴──────────────┴─────────┴────────┴────────┴────────┴────────────┴─────────┴──────────┴──────────────┴──────────────┘

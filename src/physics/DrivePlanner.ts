@@ -81,16 +81,34 @@ export function planDrive(car: Car, track: Track, leaderSpeeds?: number[]): Driv
   // Cold or fading discs cap the deceleration below the tyres' grip: plan the braking with them.
   const brakeEfficiency = car.brakeEfficiency;
   const brakeBudget = (Car.PLAN_BRAKE_GRIP + (pressure.braking - 1) * 0.15) * car.brakingAggression * (pushing ? 1.08 : 1);
-  const aeroPerV2 = 0.5 * car.airDensity * car.downforceCoeff * car.wakeDownforce * (1 - 0.35 * car.damage) * Car.PLAN_AERO_SHARE / car.totalMass;
+  const aeroPerV2 = 0.5 * car.airDensity * car.downforceCoeff * car.wakeDownforce * Car.downforceDamage(car.damage) * Car.PLAN_AERO_SHARE / car.totalMass;
   const dragPerV2 = 0.5 * car.airDensity * car.dragCoeff / car.totalMass;
+  // The mean wind along the road (m/s, positive into the car's face): downforce and drag follow the
+  // airspeed, road speed plus headwind. The driver knows where the wind blows from, not the next
+  // gust, so the plan takes the mean wind (no gusts). Still air gives exactly 0 and the plan of old.
+  const weather = Car.config.weather;
+  const windX = weather.windSpeed * Math.cos(weather.windDir), windY = weather.windSpeed * Math.sin(weather.windDir);
+  const headwindAt = (index: number) => { const t = track.points[index].tangent; return -(windX * t.x + windY * t.y); };
+  const headwindHere = headwindAt(here.index);
+  // Slicks on standing water ride up on it above AQUAPLANE_SPEED (Car.aquaplaneLoss). A braking zone
+  // from above that speed splits there: the part above it is braked on the grip less the loss at its
+  // mean speed (from the current speed down to the threshold), the rest on the full grip.
+  const aquaplaneHere = Car.aquaplaneLoss(car.tyreCompound, car.wetness, car.speed);
+  const aquaplaneZone = aquaplaneHere > 0 ? Car.aquaplaneLoss(car.tyreCompound, car.wetness, (car.speed + Car.AQUAPLANE_SPEED) / 2) : 0;
+  const aquaplaneSplit = aquaplaneZone > 0 ? Car.AQUAPLANE_SPEED * Car.AQUAPLANE_SPEED : Infinity;
   // Braking from v to w (both squared) at a = muBrake·(g + aero·v²) + drag·v²: d(v²)/ds = 2(A + B·v²).
-  let brakeA = 0, brakeB = 1;
-  const brakeFor = (margin: number) => {
+  // A headwind h makes the aero terms (v + h)²; the closed form keeps v² and scales them by
+  // ((v_ref + h) / v_ref)² at the zone's mean speed v_ref (`airScale`, 1 in still air).
+  let brakeA = 0, brakeB = 1, aquaA = 0, aquaB = 1;
+  const brakeFor = (margin: number, airScale: number) => {
     const muBrake = tyreMu * Math.min(0.9 * brakeEfficiency, brakeBudget * (1 + (margin - 1) * 0.5));
-    brakeA = muBrake * Car.GRAVITY; brakeB = muBrake * aeroPerV2 + dragPerV2;
+    brakeA = muBrake * Car.GRAVITY; brakeB = (muBrake * aeroPerV2 + dragPerV2) * airScale;
+    const muAquaplaning = muBrake * (1 - aquaplaneZone);
+    aquaA = muAquaplaning * Car.GRAVITY; aquaB = (muAquaplaning * aeroPerV2 + dragPerV2) * airScale;
   };
-  const brakingDistance = (v2: number, w2: number) => v2 <= w2 ? 0 : Math.log((v2 + brakeA / brakeB) / (w2 + brakeA / brakeB)) / (2 * brakeB);
-  const entrySpeedSq = (w2: number, d: number) => (w2 + brakeA / brakeB) * Math.exp(2 * brakeB * d) - brakeA / brakeB;
+  const cornerSpeed = (curK: number, mu: number, h: number) => cornerLimitSpeed(curK, mu, aeroPerV2, h);
+  const brakingDistance = (v2: number, w2: number) => brakingDistanceSq(v2, w2, brakeA, brakeB, aquaA, aquaB, aquaplaneSplit);
+  const entrySpeedSq = (w2: number, d: number) => brakingEntrySq(w2, d, brakeA, brakeB, aquaA, aquaB, aquaplaneSplit);
 
   // Spare grip felt right now: rises slowly while every condition holds, drops at once otherwise.
   const turnSign = Math.sign(track.points[here.index]?.curvature ?? 0);
@@ -101,6 +119,12 @@ export function planDrive(car: Car, track: Track, leaderSpeeds?: number[]): Driv
   const pushTarget = canPush ? Math.max(0, Math.min(1, free)) : 0;
   car.cornerPush = pushTarget < car.cornerPush ? pushTarget
     : car.cornerPush + (pushTarget - car.cornerPush) * Math.min(1, car.lastStepDt / Car.PUSH_RISE_TIME);
+
+  // What the tyres transmit at this speed: grip (less any aquaplaning) on weight plus the downforce
+  // of the airspeed (road speed plus the mean headwind), and the share of it cornering takes now.
+  const airSpeed = car.speed + headwindHere, airSq = airSpeed * airSpeed;
+  const tyreCapacity = car.baseTireGrip * Math.min(car.tyreGripFront, car.tyreGripRear) * (1 - aquaplaneHere) * (Car.GRAVITY + 0.5 * car.airDensity * car.downforceCoeff * car.wakeDownforce * airSq / car.totalMass);
+  const lateralShare = Math.min(1, Math.abs(car.lateralG) * Car.GRAVITY / Math.max(1, tyreCapacity));
 
   let accumulatedDist = 0;
   let prevPos = car.pos;
@@ -127,15 +151,19 @@ export function planDrive(car: Car, track: Track, leaderSpeeds?: number[]): Driv
     if (curK > 0.002) {
       const corner = track.corners.zone[pointIndex] ?? -1;
       const muCorner = muCornerBase * car.pace.cornerMargin(corner, car.isRaceMode);
-      // Steady-state limit v²·κ = μ(g + aero·v²); below the aero threshold the corner is flat out.
-      const room = curK - muCorner * aeroPerV2;
-      const gripV = room > 0 ? Math.min(Car.PLAN_MAX_SPEED, Math.sqrt(muCorner * Car.GRAVITY / room)) : Car.PLAN_MAX_SPEED;
+      const headwind = headwindAt(pointIndex);
+      let gripV = cornerSpeed(curK, muCorner, headwind);
+      // A corner taken fast enough to aquaplane: its limit on the grip left at that speed.
+      const aquaplaneCorner = Car.aquaplaneLoss(car.tyreCompound, car.wetness, gripV);
+      if (aquaplaneCorner > 0) gripV = cornerSpeed(curK, muCorner * (1 - aquaplaneCorner), headwind);
       // Only the corner under the car is pushed: corners ahead are still braked for as planned.
       const underCar = accumulatedDist < Math.max(25, car.speed * 0.5);
       const push = underCar ? 1 + Car.PLAN_PUSH_MAX * car.cornerPush : 1;
       const safeV = Math.max(5, gripV * push * (pushing ? 1.04 : 1) * (car.lineDeviation > .8 ? .88 : 1));
       if (safeV >= Car.PLAN_MAX_SPEED) continue;
-      brakeFor(car.pace.brakeMargin(corner, car.isRaceMode));
+      const brakeRef = Math.max(5, (car.speed + safeV) / 2);
+      brakeFor(car.pace.brakeMargin(corner, car.isRaceMode),
+        headwindHere === 0 ? 1 : Math.max(0.5, Math.min(1.5, ((brakeRef + headwindHere) / brakeRef) ** 2)));
 
       // A hairpin sampled at its apex is entered well before it: reach the safe speed where
       // the arc starts (about half of a hairpin's arc before the apex), while still braking straight.
@@ -150,8 +178,20 @@ export function planDrive(car: Car, track: Track, leaderSpeeds?: number[]): Driv
       if (car.speed > safeV) {
         // Over at least 0.4 s of travel: inside the corner a small overspeed must not read as a stop.
         const horizon = Math.max(2, brakeDist, car.speed * 0.4);
-        requiredDecel = Math.max(requiredDecel, (car.speed * car.speed - safeV * safeV) / (2 * horizon));
-        brakingNeed = Math.max(brakingNeed, brakingDistance(car.speed * car.speed, safeV * safeV) / horizon);
+        const v2 = car.speed * car.speed;
+        const need = brakingDistance(v2, safeV * safeV) / horizon;
+        brakingNeed = Math.max(brakingNeed, need);
+        // In a straight line the car keeps to the shape of the plan's braking curve, a = A + B·v²,
+        // scaled to end at the safe speed where the corner starts (scaling A and B by `need` divides
+        // the closed-form distance by it): it brakes hardest at speed, where the downforce gives the
+        // grip, instead of evenly over the zone and harder and harder near the corner, where the grip
+        // is lowest (in the wet that ran past the tyres' limit at the turn-in). While the tyres are
+        // turning the car (a fast sweeper into the corner) it brakes evenly, keeping the grip at speed
+        // for the cornering: braking hard there locked the rear. The plan's curve front-loads the
+        // braking, so it never asks for less than the even deceleration.
+        const evenDecel = (v2 - safeV * safeV) / (2 * horizon);
+        const planDecel = need * (v2 > aquaplaneSplit ? aquaA + aquaB * v2 : brakeA + brakeB * v2);
+        requiredDecel = Math.max(requiredDecel, evenDecel + Math.max(0, planDecel - evenDecel) * (1 - lateralShare));
       }
     }
   }
@@ -254,21 +294,19 @@ export function planDrive(car: Car, track: Track, leaderSpeeds?: number[]): Driv
     // converted with the tyre grip (with downforce) and drag at this speed, so it eases off by
     // itself as the speed approaches the corner's safe speed instead of pulsing on and off.
     throttle = 0.0;
-    const v2 = car.speed * car.speed;
-    const tyreDecel = car.baseTireGrip * Math.min(car.tyreGripFront, car.tyreGripRear) * (Car.GRAVITY + 0.5 * car.airDensity * car.downforceCoeff * car.wakeDownforce * v2 / car.totalMass);
-    const dragDecel = 0.5 * car.airDensity * car.dragCoeff * v2 / car.totalMass;
+    const tyreDecel = tyreCapacity;
+    const dragDecel = 0.5 * car.airDensity * car.dragCoeff * airSq / car.totalMass;
     const onset = Math.min(1, (brakingNeed - Car.BRAKE_ONSET) / (1 - Car.BRAKE_ONSET));
     // Weaker discs need more pedal for the same deceleration.
     brake = Math.min(1, Math.max(0, requiredDecel * onset - dragDecel) / Math.max(1, tyreDecel * brakeEfficiency));
     // Trail braking: the tyre already turning the car keeps only the rest of its friction circle
     // for braking, so the pedal is eased to what the front axle can take without locking.
-    const lateralShare = Math.min(1, Math.abs(car.lateralG) * Car.GRAVITY / Math.max(1, tyreDecel));
     brake = Math.min(brake, Car.TRAIL_BRAKE_PEDAL * Math.sqrt(1 - lateralShare * lateralShare) / Math.max(0.5, brakeEfficiency));
   } else if (overspeedDelta > -pressure.coastMargin && holdSpeed < Infinity) {
     // Inside the corner that limits the speed: hold it with partial throttle (drag compensation
     // plus a proportional term) instead of coasting down and re-accelerating through the arc.
     brake = 0.0;
-    const dragPower = 0.5 * car.airDensity * car.dragCoeff * car.speed * car.speed * car.speed;
+    const dragPower = 0.5 * car.airDensity * car.dragCoeff * airSpeed * airSpeed * car.speed;
     throttle = Math.max(0, Math.min(0.7, dragPower / Car.ICE_POWER + 0.12 * (holdSpeed * 0.98 - car.speed)));
   } else if (overspeedDelta > -pressure.coastMargin) {
     // Transition / lift & coast zone: cut throttle, prevent violent bang-bang throttle spikes
@@ -307,8 +345,7 @@ export function planDrive(car: Car, track: Track, leaderSpeeds?: number[]): Driv
 
   // Corner exit: the rear tyres already carry their share of the cornering force, so the drive may
   // take only the rest of their friction circle; more pushes the car wide onto the outside kerb.
-  const v2 = car.speed * car.speed;
-  const tyreAccel = car.baseTireGrip * Math.min(car.tyreGripFront, car.tyreGripRear) * (Car.GRAVITY + 0.5 * car.airDensity * car.downforceCoeff * car.wakeDownforce * v2 / car.totalMass);
+  const tyreAccel = tyreCapacity;
   const cornerShare = Math.min(1, Math.abs(car.lateralG) * Car.GRAVITY / Math.max(1, tyreAccel));
   const driveAccel = Car.EXIT_DRIVE_SHARE * Car.REAR_WEIGHT_SHARE * tyreAccel * Math.sqrt(1 - cornerShare * cornerShare);
   const fullDriveAccel = (Car.ICE_POWER + Car.ERS_POWER) / Math.max(10, car.speed) / car.totalMass;
@@ -344,6 +381,45 @@ export function planDrive(car: Car, track: Track, leaderSpeeds?: number[]): Driv
     inputs, expert, idealSteer, pushing, offRoad, overspeedDelta, minCenterClearance, tractionThrottle,
     guarded: offRoad || minCenterClearance <= Car.CLEAR_LIFT || Math.max(carUrgency, sideUrgency) > Car.CAR_AVOID_GUARD || car.yellowFlag || car.isPitting || car.recoveryTimer > 0,
   };
+}
+
+/**
+ * Steady-state corner limit (m/s, at most PLAN_MAX_SPEED) of v²·κ = μ(g + aero·(v + h)²): curvature
+ * κ (1/m), grip μ, downforce per airspeed² `aeroPerV2` (m⁻¹, as an acceleration) and the mean
+ * headwind h (m/s, negative for a tailwind). Below the aero threshold (κ ≤ μ·aero) the corner is
+ * flat out. With wind the speed is the root of (κ − μ·aero)·v² − 2μ·aero·h·v − μ(g + aero·h²) = 0;
+ * still air keeps the closed form √(μg / (κ − μ·aero)) bit for bit.
+ */
+export function cornerLimitSpeed(curvature: number, mu: number, aeroPerV2: number, headwind: number): number {
+  const room = curvature - mu * aeroPerV2;
+  if (room <= 0) return Car.PLAN_MAX_SPEED;
+  if (headwind === 0) return Math.min(Car.PLAN_MAX_SPEED, Math.sqrt(mu * Car.GRAVITY / room));
+  const muAero = mu * aeroPerV2, h = headwind;
+  const v = (muAero * h + Math.sqrt(muAero * muAero * h * h + room * mu * (Car.GRAVITY + aeroPerV2 * h * h))) / room;
+  // Slower than a tailwind the wings meet no flow worth counting: the grip without downforce.
+  return Math.min(Car.PLAN_MAX_SPEED, v + h > 0 ? v : Math.sqrt(mu * Car.GRAVITY / curvature));
+}
+
+/**
+ * Braking distance (m) from v² to w² on d(v²)/ds = 2(A + B·v²): `a`, `b` on the full grip and
+ * `aquaA`, `aquaB` above `splitSq` (the aquaplaning speed squared; Infinity when the tyres do not
+ * aquaplane, which leaves the single closed form).
+ */
+export function brakingDistanceSq(v2: number, w2: number, a: number, b: number, aquaA: number, aquaB: number, splitSq: number): number {
+  if (v2 <= w2) return 0;
+  if (v2 <= splitSq) return Math.log((v2 + a / b) / (w2 + a / b)) / (2 * b);
+  const split = Math.max(w2, splitSq);
+  return Math.log((v2 + aquaA / aquaB) / (split + aquaA / aquaB)) / (2 * aquaB) + (split > w2 ? Math.log((split + a / b) / (w2 + a / b)) / (2 * b) : 0);
+}
+
+/** The highest speed² from which the car stops to w² within `d` m (the inverse of brakingDistanceSq). */
+export function brakingEntrySq(w2: number, d: number, a: number, b: number, aquaA: number, aquaB: number, splitSq: number): number {
+  const full = (w2 + a / b) * Math.exp(2 * b * d) - a / b;
+  if (full <= splitSq) return full;
+  // Full grip from the threshold down to w², the aquaplaning grip over the rest of the distance.
+  const below = w2 < splitSq ? Math.log((splitSq + a / b) / (w2 + a / b)) / (2 * b) : 0;
+  const start = Math.max(w2, splitSq);
+  return (start + aquaA / aquaB) * Math.exp(2 * aquaB * (d - below)) - aquaA / aquaB;
 }
 
 /** Within this gap (m) a car ahead in the lane makes the corner pass say nothing about the limit. */

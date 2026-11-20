@@ -1,0 +1,22 @@
+{"scenario":"sunny","seed":1,"wetness":0,"laps":12,"best":49.83,"median":50.99,"offRoadPct":0,"lockPct":0.1,"slidePct":3.49,"wrecksPerMin":0}
+{"scenario":"sunny","seed":2,"wetness":0,"laps":12,"best":49.91,"median":51.39,"offRoadPct":0.38,"lockPct":0.33,"slidePct":6.09,"wrecksPerMin":0}
+{"scenario":"sunny","seed":3,"wetness":0,"laps":15,"best":49.62,"median":50.89,"offRoadPct":0,"lockPct":0.04,"slidePct":2.54,"wrecksPerMin":0}
+{"scenario":"windy","seed":1,"wetness":0,"laps":0,"best":null,"median":null,"offRoadPct":4.02,"lockPct":0.98,"slidePct":15.76,"wrecksPerMin":0.93}
+{"scenario":"windy","seed":2,"wetness":0,"laps":7,"best":48.3,"median":50.94,"offRoadPct":7.98,"lockPct":0.98,"slidePct":18.46,"wrecksPerMin":0.33}
+{"scenario":"windy","seed":3,"wetness":0,"laps":1,"best":48.51,"median":48.51,"offRoadPct":9.6,"lockPct":1.19,"slidePct":20.32,"wrecksPerMin":0.6}
+{"scenario":"storm","seed":1,"wetness":0.99,"laps":3,"best":55.24,"median":55.43,"offRoadPct":4.92,"lockPct":0.86,"slidePct":15.35,"wrecksPerMin":0.47}
+{"scenario":"storm","seed":2,"wetness":0.99,"laps":10,"best":55.57,"median":58.24,"offRoadPct":2.53,"lockPct":1.05,"slidePct":18.92,"wrecksPerMin":0.13}
+{"scenario":"storm","seed":3,"wetness":0.99,"laps":6,"best":58.49,"median":59.01,"offRoadPct":3.19,"lockPct":0.97,"slidePct":18.03,"wrecksPerMin":0}
+{"scenario":"shower","seed":1,"wetness":0.57,"laps":8,"best":48.71,"median":55.9,"offRoadPct":0.24,"lockPct":0.32,"slidePct":7.88,"wrecksPerMin":0.07}
+{"scenario":"shower","seed":2,"wetness":0.41,"laps":6,"best":50.32,"median":51.22,"offRoadPct":1.1,"lockPct":0.67,"slidePct":12.55,"wrecksPerMin":0.07}
+{"scenario":"shower","seed":3,"wetness":0.48,"laps":9,"best":49.61,"median":50.83,"offRoadPct":0.44,"lockPct":0.45,"slidePct":9.92,"wrecksPerMin":0}
+
+Ekspert solo, 900 s, ziarna 1,2,3: średnie
+┌─────────┬──────────┬─────────┬───────┬────────┬────────┬────────────┬─────────┬──────────┬──────────────┐
+│ (index) │ scenario │ wetness │ laps  │ best   │ median │ offRoadPct │ lockPct │ slidePct │ wrecksPerMin │
+├─────────┼──────────┼─────────┼───────┼────────┼────────┼────────────┼─────────┼──────────┼──────────────┤
+│ 0       │ 'sunny'  │ 0       │ 13    │ 49.787 │ 51.09  │ 0.127      │ 0.157   │ 4.04     │ 0            │
+│ 1       │ 'windy'  │ 0       │ 2.667 │ 48.405 │ 49.725 │ 7.2        │ 1.05    │ 18.18    │ 0.62         │
+│ 2       │ 'storm'  │ 0.99    │ 6.333 │ 56.433 │ 57.56  │ 3.547      │ 0.96    │ 17.433   │ 0.2          │
+│ 3       │ 'shower' │ 0.487   │ 7.667 │ 49.547 │ 52.65  │ 0.593      │ 0.48    │ 10.117   │ 0.047        │
+└─────────┴──────────┴─────────┴───────┴────────┴────────┴────────────┴─────────┴──────────┴──────────────┘

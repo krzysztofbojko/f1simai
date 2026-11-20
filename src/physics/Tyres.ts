@@ -25,12 +25,18 @@ export interface CompoundSpec {
   wear: number;
 }
 
+/**
+ * The damp and soaked points are calibrated (20.11.2026, `scripts/diag-tyres.mjs wet`) to Pirelli's
+ * crossovers: slicks give way to intermediates at about 112% of the dry lap time, intermediates to
+ * full wets at about 116–118%, and a soaked track is slower still on full wets (the model: about 110%,
+ * 115% and 120%). The dry points are unchanged.
+ */
 export const COMPOUND_SPECS: Record<TyreCompound, CompoundSpec> = {
-  soft:         { label: 'Soft',         letter: 'S', color: '#e8222b', grip: [1.035, 0.74, 0.46], optimum: 95,  coldWidth: 20, hotWidth: 22, wear: 1.8 },
-  medium:       { label: 'Medium',       letter: 'M', color: '#f5c518', grip: [1.0,   0.72, 0.45], optimum: 100, coldWidth: 22, hotWidth: 26, wear: 1.0 },
-  hard:         { label: 'Hard',         letter: 'H', color: '#f2f2f2', grip: [0.97,  0.70, 0.44], optimum: 108, coldWidth: 24, hotWidth: 30, wear: 0.6 },
-  intermediate: { label: 'Intermediate', letter: 'I', color: '#2fb54a', grip: [0.88,  0.86, 0.68], optimum: 80,  coldWidth: 22, hotWidth: 20, wear: 2.6 },
-  wet:          { label: 'Wet',          letter: 'W', color: '#1f6fe0', grip: [0.82,  0.80, 0.78], optimum: 70,  coldWidth: 22, hotWidth: 18, wear: 3.4 },
+  soft:         { label: 'Soft',         letter: 'S', color: '#e8222b', grip: [1.035, 0.56, 0.36], optimum: 95,  coldWidth: 20, hotWidth: 22, wear: 1.8 },
+  medium:       { label: 'Medium',       letter: 'M', color: '#f5c518', grip: [1.0,   0.54, 0.35], optimum: 100, coldWidth: 22, hotWidth: 26, wear: 1.0 },
+  hard:         { label: 'Hard',         letter: 'H', color: '#f2f2f2', grip: [0.97,  0.52, 0.34], optimum: 108, coldWidth: 24, hotWidth: 30, wear: 0.6 },
+  intermediate: { label: 'Intermediate', letter: 'I', color: '#2fb54a', grip: [0.79,  0.77, 0.58], optimum: 80,  coldWidth: 22, hotWidth: 20, wear: 2.6 },
+  wet:          { label: 'Wet',          letter: 'W', color: '#1f6fe0', grip: [0.75,  0.72, 0.69], optimum: 70,  coldWidth: 22, hotWidth: 18, wear: 3.4 },
 };
 
 export function isCompound(value: unknown): value is TyreCompound {

@@ -52,7 +52,7 @@ Skutki (ekspert, przed → po):
 - Napęd, hamowanie i toczenie wykorzystują wspólny budżet siły wzdłużnej osi. Żądanie hamowania rozdzielane jest 56/44 i ograniczane osobno na osiach.
 - Siła boczna każdej osi korzysta z pozostałego koła tarcia `sqrt((mu*Fz)^2-Fx^2)`. Skręt i korekcja poślizgu są sumowane w tej samej osi i wspólnie ograniczane.
 - Globalny wektor prędkości jest aktualizowany jeden raz z wynikowej siły. Zmiana orientacji nadwozia sama nie obraca pędu.
-- Powyżej ok. 8 m/s działa dynamiczny model jednośladu (patrz „Dynamika poślizgu”); poniżej — kinematyczna odpowiedź pierwszego rzędu (0,05 s), ograniczona dostępną siłą boczną. Przejście jest płynne (8–16 m/s).
+- Powyżej ok. 8 m/s działa dynamiczny model jednośladu (patrz „Dynamika poślizgu”); poniżej — kinematyczna odpowiedź pierwszego rzędu (0,05 s), ograniczona dostępną siłą boczną. Przejście jest płynne (8–16 m/s): siła, odchylenie, flagi poślizgu, siła „w użyciu” i grzanie opon mieszają się tą samą wagą (od 20.11.2026).
 - Telemetria G jest podpisanym przyspieszeniem ze zmiany prędkości, rzutowanym na osie pojazdu z początku kroku. Nie jest obcinana przed wykorzystaniem w transferze mas.
 
 Worker używa stałego kroku 1/60 s i akumulatora rzeczywistego czasu. Tryb Balanced 1× nie wykonuje dodatkowych kroków tylko dlatego, że ticker uruchamia się co 16 ms. Po pauzie nie nadrabia czasu zatrzymania. Długie opóźnienia ograniczane są do 0,25 s, a liczba kroków do budżetu profilu, aby uniknąć spirali nadrabiania. Profile Performance i Turbo celowo przyspieszają symulację; MAX wykorzystuje dostępny budżet.
@@ -78,6 +78,96 @@ Każdy tor generuje oddzielne krawędzie asfaltu, pas trawy, żwir i bandy. Bazo
 Nawierzchnia jest próbkowana pod czterema kołami (rozstaw osi 3,6 m, szerokość 1,8 m). Wypadkowe μ stanowi średnią udziałów: asfalt 1,85, trawa 0,45, żwir 0,60. Dodatkowy opór przeciwny do całego wektora prędkości wynosi 0,04 g na trawie i 0,35 g na żwirze przy pełnym udziale nawierzchni. Impuls nie może odwrócić ruchu. To parametry uproszczonego modelu, nie kalibracja konkretnego toru. Pełny postój w żwirze może uniemożliwić ponowne ruszenie.
 
 Przekroczenie białej linii nie powoduje DNF. Po lekkim kontakcie z bandą usuwana jest prędkość skierowana w bandę, a pozostała mnożona przez 0,8; bolid jest odsuwany o 3 cm. Prędkość prostopadła do bandy co najmniej 12 m/s kończy jazdę. Rozbite auto zostaje na torze jako wrak z lokalną żółtą flagą przez 15 s (`WRECK_CLEAR_SECONDS`), w treningu tak samo jak w wyścigu. W wyścigu nie ma respawnu; trening przywraca auto dopiero po usunięciu wraku. Telemetria pokazuje nawierzchnię i przyczynę eliminacji. Odzyskiwanie kontroli dostaje do 30 s bez checkpointu, pozostała jazda zachowuje dotychczasowy limit 10 s.
+
+## Poprawki z audytu fizyki z 20.11.2026
+
+Audyt: `AUDYT_FIZYKI_2026-11-20.md`, weryfikacja i plan: `PLAN_DZIALAN_FIZYKA_2026-11-20.md`, pomiary: `raport/2026-11-20/`.
+
+### Spójne przejście kinematyka → dynamika
+
+**Problem.** Przy `DYNAMIC_FROM` = 8 m/s auto skręcające ze stałą prędkością nagle „wpadało w poślizg”, choć jego ruch się nie zmieniał. Przy skręcie 0,5 i 0,37 g: między 8,00 a 8,05 m/s flaga `isSliding` skakała z 0 do 100% kroków, siła boczna „w użyciu” rosła z 1,5 do 7,4 kN, a bieżnik przodu zamiast stygnąć (−1,2 °C/s) zaczynał się grzać (+0,6 °C/s). Przyczyny były dwie:
+
+- Model kinematyczny tłumił prędkość boczną środka masy do zera. W kinematyce jednośladu bez poślizgu osi środek masy dryfuje jednak do wnętrza zakrętu z prędkością `lr·r` (`lr` = 0,46 rozstawu, odległość do tylnej osi). Model kątów znoszenia, który przejmuje jazdę od 8 m/s, widział więc na obu osiach kąt ok. 0,46·δ: przy δ = 0,2 rad to ok. 5°, powyżej szczytu siły.
+- Siła boczna i odchylenie były mieszane wagą `dynamicWeight`, ale flagi poślizgu, siła „w użyciu” (budżet hamowania, blokowanie kół) i grzanie bieżnika z poślizgu bocznego brały pełną wartość dynamiczną już przy wadze 0,01. Kąty znoszenia były zerowane poniżej 8 m/s.
+
+**Teraz.** Korekcja poślizgu w modelu kinematycznym dąży do dryfu `lr·r` zamiast do zera, więc kąty znoszenia w kinematycznym zakręcie wynoszą ok. 0,1°. Flagi poślizgu, siła „w użyciu” i grzanie bieżnika z poślizgu bocznego mieszają się tą samą wagą co siła i odchylenie. Kąty znoszenia podążają za ruchem przy każdej prędkości do przodu. Powyżej 16 m/s fizyka liczy dokładnie to samo co dotąd. Tor środka masy w bardzo wolnym zakręcie jest szerszy o ułamek procenta (przy δ = 0,2 rad o 0,4%).
+
+**Test.** `npm run test:blend` (`scripts/test-lateral-blend.mjs`): ustalony zakręt przy 6–20 m/s, skręt 0,5 i 1,0, przy 30, 60 i 120 Hz. Sprawdza brak poślizgu poniżej 0,6 dostępnej przyczepności przodu, ciągłość między 7,9 a 8,2 m/s (przyspieszenie boczne, siła w użyciu, żądanie poślizgu, grzanie bieżnika) i zgodność częstotliwości. Przed poprawką oblewał 94 sprawdzenia.
+
+**Pomiar.** `npm run diag:lowspeed -- 900` (ekspert solo, 900 s): udział kroków z `isSliding` w paśmie 8–12 m/s na GP 51% → 0%, w Monako 93% → 0%. W Monako `isSkidding` w tym paśmie spadło z 97% do 64%, a przyspieszenie boczne wzrosło z 1,04 do 1,45 g, więc auto naprawdę wykorzystuje przyczepność w nawrotach. Gaz w paśmie 8–12 m/s na GP wzrósł z 0,28 do 0,55. Najlepsze okrążenie eksperta: Monako 83,17 → 82,77 s, GP 50,85 → 50,84 s, Monza 90,12 → 90,15 s, Hungaroring 95,16 → 95,13 s. `bench-laptime 1800` (GP, 20 aut, ziarna 145, 456, 789): najlepsze 51,11 → 49,66 s, mediana rekordów 53,06 → 53,19 s, `lateMedian` 55,78 → 55,72 s, poza asfaltem 0,15% → 0,12%; różnice mieszczą się w rozrzucie ziaren. `test-tracks` (stawka, ok. 82 min symulacji na tor): poza asfaltem Monako 0,8% → 0,6%, Hungaroring 1,2% → 0,9%, Singapur 0,5% → 0,3%; najlepsze okrążenia w rozrzucie (1:23,12 → 1:23,22, 1:37,81 → 1:36,82, 1:49,69 → 1:50,66). Skróty `bench:step -- 60`: `67cd15e0287f8a83`, `a744b244bccee1eb`, `5205d38566cce9ed`.
+
+### Bilans sił osi i niezmienniki opon w testach
+
+Punkt 3 audytu (czy siły osi mieszczą się w kole tarcia) rozstrzyga konstrukcja kodu; teraz pilnuje go test. Krok fizyki zapisuje ostatnie siły osi w `Car.lastAxleForces` (tylko diagnostyka, fizyka go nie czyta). `test-units` losuje z ziarnem 2000 stanów (prędkość, poślizg boczny, odchylenie, skręt, pedały, wilgotność, nawierzchnia pod każdym kołem, temperatury i zużycie opon, uszkodzenia, blokada, siła w użyciu) i po jednym kroku przy 30/60/120 Hz sprawdza: przód mieści się w elipsie `√(Fx² + (Fy/0,89)²) ≤ μFz`, tył w kole `√(Fx² + Fy²) ≤ μFz`, zablokowana oś zachowuje najwyżej `LOCKED_LATERAL` siły bocznej, a odpowiedź kinematyczna mieści się w sumie sił bocznych osi. Największe wykorzystanie to dokładnie 1,000 na obu osiach.
+
+Tego samego dnia `test-units` dostał niezmienniki opon, które musi zachować przyszła kalibracja: na suchym miększy slick ma więcej przyczepności (w swoim optimum i przy wspólnych 100 °C), szybciej się zużywa i pracuje chłodniej; na mokrym kolejność deszczówka > intery > slick, na suchym odwrotna; przyczepność maleje monotonicznie od optimum i nie spada poniżej 80% (zimno) i 75% (przegrzanie); punkty zmiany opon leżą przy wilgotności 0,15–0,35 (slick → intery, dziś 0,251) i 0,6–0,8 (intery → deszczówki, dziś 0,719). Fizyka się nie zmienia.
+
+### Planista: wiatr wzdłuż toru i aquaplaning
+
+**Problem.** Planista (nauczyciel i strażnik sieci) liczył docisk z prędkości względem toru, a fizyka z prędkości względem powietrza. Przy 11 m/s wiatru w plecy nacisk na opony w zakręcie przejeżdżanym z 40 m/s spada o ok. 13% względem planu, a `PaceSearch` z „live push” bierze do ok. 0,9 przyczepności (przy presji +10 ok. 1,08), więc w zakrętach z wiatrem w plecy auta wypadały. Na stojącej wodzie slick traci do 50% przyczepności powyżej 200 km/h (aquaplaning), czego planista nie przewidywał.
+
+**Teraz.** Planista zna średni wiatr wzdłuż drogi i aquaplaning (wzory w sekcji „Pogoda”). Prędkość graniczna zakrętu liczy `cornerLimitSpeed` (`DrivePlanner.ts`). Współczynnik docisku uszkodzonego auta pochodzi z jednej funkcji `Car.downforceDamage` w fizyce i w planie. Planista nadal nie zna czynników okrążenia stresowego (celowo, patrz README, „Trudne okrążenia”) ani aktywnej aero i stallu podłogi (nie da się ich przewidzieć w planie), a `PLAN_AERO_SHARE` zostaje. W bezwietrznej pogodzie plan jest identyczny co do bitu: skróty `bench:step` po tej zmianie są takie same jak po poprzedniej, więc `bench-laptime` i `test-tracks` (pogoda odniesienia) się nie zmieniają.
+
+**Pomiar** (`node scripts/diag-weather.mjs`, GP, ziarna 1–3, średnie; przed = stan po poprzedniej zmianie z tego dnia):
+
+| Scenariusz | Stawka 20 aut, 600 s: wypadki/min | poza asfaltem | czyste okrążenia | przejęcia strażnika | hamowania awaryjne (udział kroków) |
+| --- | --- | --- | --- | --- | --- |
+| Słonecznie | 0,07 → 0,07 | 0,14% → 0,14% | 147 → 147 | 1,6% → 1,6% | 1,23% → 1,23% |
+| Silny wiatr | 3,43 → 0,27 | 4,28% → 0,66% | 56 → 121 | 18,2% → 2,3% | 1,07% → 1,71% |
+| Burza | 3,87 → 1,40 | 4,72% → 1,69% | 49 → 94 | 3,2% → 2,7% | 3,77% → 0,64% |
+| Przelotny deszcz | 0,43 → 0,20 | 0,77% → 0,29% | 74 → 77 | 16,3% → 12,4% | 0,68% → 0,85% |
+
+W wietrze strażnik rzadziej przejmuje auto po utracie kontroli, a częściej hamuje awaryjnie przed zakrętem z wiatrem w plecy (sieć nie widzi wiatru, a plan jest teraz trafniejszy). Na okrążenie hamowań awaryjnych jest jednak mniej, bo czystych okrążeń jest ponad dwa razy więcej. Mediana czystych okrążeń stawki: wiatr 55,94 → 55,23 s, burza 63,45 → 62,26 s, deszcz 56,69 → 55,68 s.
+
+Ekspert solo (900 s): w silnym wietrze poza asfaltem 7,2% → 0%, czyste okrążenia 2,7 → 12,3, wypadki 0,62 → 0 na minutę; w burzy 3,55% → 0,04% i 6,3 → 10,3 okrążenia; w przelotnym deszczu 0,59% → 0,10%. Najlepsze okrążenie eksperta jest wolniejsze: w wietrze 48,41 → 50,57 s (dawny wynik to pojedyncze okrążenia, które przetrwały z planem za szybkim na zakręty z wiatrem w plecy), w burzy 56,43 → 56,84 s, w deszczu 49,55 → 50,38 s. Na 6 ziarnach różnica w deszczu jest mniejsza (mediana 52,72 → 53,05 s) i wynika z wiatru: aquaplaning ekspertowi w tym scenariuszu się nie zdarza. W stawce zdarza się w 0,2–0,4% kroków; podział strefy hamowania na progu aquaplaningu (zamiast utraty liczonej przy prędkości początkowej dla całej strefy) zmniejszył tam hamowania awaryjne i wypadki („Przelotny deszcz”, 3 ziarna: wypadki 0,20 → 0,13 na minutę, hamowania awaryjne 0,85% → 0,57% kroków). Koszt kroku bez zmian (`bench:step -- 60`: 771 µs przed oboma zmianami, 779 µs po nich).
+
+### Hamowanie eksperta po krzywej planu
+
+**Problem.** Pomiar opon na Albert Park pokazał, że ekspert na deszczówkach przy wilgotności 0,7 w każdym z 6 ziaren wyjeżdża na żwir w zakręcie 3 (punkt toru ok. 1090), a na suchym w tym samym miejscu co jakiś czas przekracza limity toru. Planista planuje hamowanie po krzywej `a = A + B·v²` (budżet `PLAN_BRAKE_GRIP` przyczepności na ciężarze i docisku plus opór), ale pedał przeliczał żądanie na **stałe** opóźnienie `(v² − v_bezp²)/(2·d)` przez całą strefę. Przy 300 km/h plan zakłada ok. 24 m/s², a pedał prosił o 17–18 m/s², więc auto zostawało za planem (`overspeed` rósł od 0 do 0,85). Pod koniec strefy potrzebowało 17–21 m/s² przy 30 m/s, gdzie mokre opony dają ok. 18,7 m/s². Auto wjeżdżało w zakręt o promieniu 17 m z 19,5 m/s zamiast ok. 13 m/s. Na suchym zapas przyczepności to maskował.
+
+**Teraz.** W linii prostej wymagane opóźnienie trzyma kształt krzywej planu, przeskalowanej tak, by kończyła się na prędkości bezpiecznej w punkcie wejścia. Z postaci zamkniętej czynnik skali to dokładnie `brakingNeed`, więc `a = brakingNeed·(A + B·v²)`. Auto hamuje najmocniej przy dużej prędkości (gdzie docisk daje przyczepność), a łagodnie przy zakręcie. Gdy opony już skręcają auto (szybki łuk przed zakrętem), opóźnienie przechodzi płynnie w równomierne, według udziału przyczepności zajętego przez skręt (`|a_y|` / zdolność opon). Czysta krzywa planu hamowała mocno w łuku przy 85 m/s i 3,4 g w bok, blokowała tył i rozbijała auto przed pierwszym zakrętem GP. Krzywa planu nigdy nie żąda mniej niż hamowanie równomierne.
+
+**Pomiar.** Samotny ekspert (tryb wyścigu: stałe marginesy, ziarno 1, 6 torów: GP, Albert Park, Monza, Monako, Red Bull Ring, Silverstone), suma najlepszych okrążeń i udział kroków poza asfaltem:
+
+| Wariant | sucho | poza asfaltem | woda 0,7, deszczówki | poza asfaltem | woda 0,3, intery | poza asfaltem |
+| --- | --- | --- | --- | --- | --- | --- |
+| dotychczasowe hamowanie, budżet 0,50 | 497,6 s | 0,68% | 553,8 s | 0,12% | 530,3 s | 0,66% |
+| krzywa planu, 0,50 | 501,9 s | 0% | 559,3 s | 0% | 535,1 s | 0% |
+| krzywa planu, 0,55 | 500,6 s | 0% | 554,5 s | 0% | 532,5 s | 0% |
+| krzywa planu, 0,60 | 499,5 s | 0,06% | 553,0 s | 0,67% | 533,4 s | 0,51% |
+
+Test nauczyciela z `test-neural-driving` (GP, 60 s, okrążenia stresowe i zmienność) powtórzony na 24 ziarnach przy 60 i 120 Hz: dotychczasowe hamowanie 0 wypadków na 48 przejazdów przy budżecie 0,50 i 0,55; czysta krzywa planu 1/48 (0,50) i 2/48 (0,55); krzywa z przejściem w łuku 0/48 przy 0,50 i 3/48 przy 0,55; dodatkowy budżet na prostej (+10% i +20%) 1/48 i 2/48. Zostaje krzywa z przejściem i budżet 0,50. Ekspert w trybie wyścigu jest o ok. 0,9% wolniejszy, ale nie wyjeżdża z asfaltu. W treningu `PaceSearch` dostraja marginesy hamowania zakrętów i stawka tego nie traci: `bench-laptime 1800` (GP, ziarna 145, 456, 789) najlepsze 49,66 → 50,77 s, mediana rekordów 53,19 → 52,75 s, `lateMedian` 55,72 → 55,87 s, poza asfaltem 0,12% → 0,11%; `diag-weather` (stawka, 4 scenariusze × 3 ziarna) 58 → 60 wypadków i 1314 → 1327 czystych okrążeń. Ekspert w treningu (`diag-lowspeed -- 900`): GP 50,84 → 50,81 s, Monako 82,77 → 83,11 s, Monza 90,15 → 91,04 s, Hungaroring 95,13 → 94,88 s (poza asfaltem 0,5% → 0%). Test w `test-weather`: ekspert na deszczówkach w Albert Park (woda 0,7, 3 ziarna, 2 okrążenia) nie zjeżdża z asfaltu; przy dotychczasowym hamowaniu wyjeżdżał w punkcie 1100. Skróty `bench:step -- 60`: `851b267dad2d3bec`, `0a297de3174bbee5`, `2a49fb4c22d6689e`.
+
+### Opony: pomiar i dane referencyjne (etap 4 planu)
+
+`node scripts/diag-tyres.mjs [stint|skidpad|wet]` mierzy samotnego eksperta w trybie wyścigu (stałe marginesy, okrążenie liczy się przy każdej wilgotności), przy stałym paliwie 50 kg. Zmienna `GRIP` (JSON z punktami przyczepności mieszanek) podmienia tabelę na czas próby kalibracji, bez edycji `Tyres.ts`.
+
+**Dane referencyjne** (cel „wiarygodnego zakresu”, nie telemetria zespołu):
+
+| Wielkość | Wartość | Źródło |
+| --- | --- | --- |
+| Okna pracy (2019) | C1 110–140 °C, C2 110–135 °C, C3 105–135 °C, C4 90–120 °C, C5 85–115 °C | Pirelli, „What's new with Pirelli's 2019 Formula 1 tyres?” (press.pirelli.com) |
+| Różnica tempa sąsiednich mieszanek | ok. 0,6–1,0 s/okr. (C1–C2 0,8–1,0 s, C2–C3 0,7 s, C3–C4 i C4–C5 ok. 0,6 s) | Pirelli przez Autosport i Motorsport.com, „Pirelli reveals gap between 2019 tyre types” |
+| Cel przetargu FIA 2020–2024 | medium o 1,0 s szybszy od hard, soft o 1,2 s od medium; strata 2 s po 10% (soft), 18% (medium) i 22% (hard) dystansu | RaceFans, 8.04.2019 (Pirelli tych celów nie osiągnął) |
+| Degradacja | zwykle kilka dziesiątych s/okr.; 0,2–0,3 s/okr. to już „bardzo wysoka” (Barcelona 2026) | The Race, Formula1.com |
+| Punkty zmiany opon | slick → intery przy ok. 112% suchego czasu okrążenia, intery → deszczówki przy ok. 116–118% (Pirelli chciał 115–116%) | Pirelli (Mario Isola) przez RacingNews365 i Motorsport.com |
+
+**Sucho (`diag-tyres stint`).** Okrążenia do 70% zużycia: GP soft 29, medium 49, hard ponad 60; Albert Park 16 / 34 / 39; Monza 40 / ponad 60 / ponad 60. Degradacja 0,03–0,37 s/okr. Tempo pierwszych okrążeń (soft / medium / hard): GP 50,71 / 50,05 / 49,64 s, Albert Park 94,03 / 93,87 / 94,46 s, Monza 88,24 / 88,89 / 93,37 s. Kolejność mieszanek zgadza się z danymi tylko na Monzy, a tam hard jest o 5% za wolny. Przyczyna: bieżnik przodu ma na GP 116–122 °C (wszystkie mieszanki ponad optimum, najlepiej znosi to hard z optimum 108 °C), a na Monzy 78–87 °C (wszystkie zimne, hard najbardziej). Rozrzut temperatur między torami (ok. 40 °C) jest większy niż okna mieszanek (±20–30 °C), a optima modelu (95 / 100 / 108 °C) leżą niżej niż okna Pirelli. To zmiana modelu ciepła i okien, a nie jednego parametru, więc zostaje otwarta (patrz „Ograniczenia”). Skidpad (60 s przy 70% przyczepności) grzeje przód do 138–190 °C, a tył do 99–179 °C. Rozkład na 39 torach (`diag-tyres temps all`, medium, okrążenia 2–4): bieżnik przodu min / p10 / mediana / p90 / max = 74,6 / 92,6 / 117,3 / 124,7 / 133,5 °C, tyłu 70,2 / 81,9 / 91,5 / 96,9 / 107,7 °C. Przy jednym optimum na mieszankę (medium 100 °C) przód prawie zawsze pracuje powyżej okna, a tył lekko poniżej, więc samo przesunięcie optimów nie wystarczy. Mniejsze grzanie przodu (`TYRE_FRONT_HEAT` 1,6 → 1,3) zbliża osie (mediany 104,8 i 96,4 °C) i skraca sumę 6 torów z 501,9 do 498,8 s, ale soft rozbija się wtedy na GP na pierwszym okrążeniu, a przy 1,0 także medium: przegrzany przód działa dziś jak stabilizator (podsterowność). Kalibracja okien na suchym wymaga więc ponownego zestrojenia równowagi auta (`FRONT_GRIP_BIAS`, grzanie przodu, optima) i zostaje osobnym zadaniem.
+
+**Mokro (`diag-tyres wet`, punkty zmiany według czasu okrążenia).** Przed kalibracją: GP 106,3% / 108,5%, zalany tor na deszczówkach 108,4%; Albert Park 106,0% / 110,7% / 114,9%; Monza 103,1% / 107,8% / 112,8%. Mokry tor był więc wyraźnie za szybki względem danych Pirelli. Od 20.11.2026 punkty mieszanek na wilgotnym (0,5) i zalanym (1) torze to: soft 0,56 / 0,36, medium 0,54 / 0,35, hard 0,52 / 0,34, intery 0,77 / 0,58 (na suchym 0,79), deszczówki 0,72 / 0,69 (na suchym 0,75). Daje to średnio 110,1% / 115,0% / 120,0% (GP 109,6 / 114,3 / 118,5; Albert Park 110,9 / 117,7 / 123,8; Monza 109,7 / 113,0 / 117,6), przy progach wyboru opon AI 0,251 i 0,688 (w zakresach testu niezmienników). Punkty zmiany zależą od toru, bo zależą od temperatur opon: na zimnej Monzy slicki przegrywają z interami wcześniej (przy wilgotności ok. 0,16).
+
+Pierwsza próba tej kalibracji pokazała, że w deszczu stawka rozbija się wielokrotnie częściej („Deszcz” 0,07 → 1,40 wypadku na minutę). Dziennik wypadków (`diag-weather --wrecks`) wskazał przyczynę: 40 z 42 wraków to auta na slickach, które w pierwszych dwóch minutach utknęły w żwirze. Nowe auto nie dobierało opon do pogody (dobierał je dopiero `reset`), więc stawka utworzona na mokrym torze startowała na slickach, a wybór deszczowej prognozy w trakcie sesji od razu zalewał tor. Obie rzeczy są poprawione (patrz „Pogoda”). Pomiar po poprawkach (`diag-weather`, stawka, 3 ziarna po 600 s, przed → po kalibracji):
+
+| Scenariusz | mediana czystych okrążeń | wypadki na minutę | poza asfaltem |
+| --- | --- | --- | --- |
+| Przelotny deszcz | 55,05 → 54,92 s | 0,27 → 0,30 | 0,43% → 0,38% |
+| Deszcz | 62,45 → 67,10 s | 0 → 0,03 | 0,18% → 0,14% |
+| Burza | 64,21 → 68,99 s | 0,20 → 0,10 | 0,30% → 0,28% |
+| Zmienna | 56,64 → 60,86 s | 0,10 → 0,13 | 0,29% → 0,25% |
+| Deszcz wybrany w trakcie sesji | — | 0,10 → 0,10 | 0,28% → 0,32% |
+| Burza wybrana w trakcie sesji | — | 0,57 → 1,60 | 1,39% → 1,91% |
+
+Ekspert solo (6 ziaren po 900 s): deszcz 56,43 → 62,14 s, burza 58,75 → 63,83 s, bez nowych wyjazdów. Burza wybrana w trakcie sesji zalewa tor w niecałą minutę, zanim auta na slickach dojadą do alei. Przy realistycznie słabych slickach na zalanym torze kończy się to częściej w żwirze.
 
 ## Poprawki z audytu „argon” (28.10.2026)
 
@@ -124,7 +214,7 @@ Podczas pomyłki i odzyskiwania kontroli replay jest wyłączony i czyszczony. D
 
 ## Ograniczenia
 
-Wiatr jest jednorodny na całym torze (bez osłonięć trybunami). Brak pełnej mapy aero (docisk, balans i od 28.10.2026 część oporu zależą od prześwitu). Uszkodzenia ograniczają się do jednego skalara (docisk/opór). Zawieszenie, opony (temperatura, zużycie, wrażliwość na obciążenie) i skrzynię biegów opisują osobne sekcje. Model nie był kalibrowany względem danych konkretnego bolidu F1. Dawne czasy okrążeń i wagi AI nie są porównywalne z wynikami po zmianie fizyki oraz szerokości toru; zalecany jest nowy trening.
+Wiatr jest jednorodny na całym torze (bez osłonięć trybunami). Brak pełnej mapy aero (docisk, balans i od 28.10.2026 część oporu zależą od prześwitu). Uszkodzenia ograniczają się do jednego skalara (docisk/opór). Opony na suchym nie są skalibrowane do danych: kolejność mieszanek zależy od toru (na GP najszybszy jest hard), bo przód pracuje średnio o ok. 26 °C cieplej od tyłu, a przegrzany przód stabilizuje równowagę auta (pomiar: „Opony: pomiar i dane referencyjne”). Mokro skalibrowano do punktów zmiany opon Pirelli (20.11.2026). Zawieszenie, opony (temperatura, zużycie, wrażliwość na obciążenie) i skrzynię biegów opisują osobne sekcje. Model nie był kalibrowany względem danych konkretnego bolidu F1. Dawne czasy okrążeń i wagi AI nie są porównywalne z wynikami po zmianie fizyki oraz szerokości toru; zalecany jest nowy trening.
 
 ## Weryfikacja
 
@@ -181,11 +271,11 @@ Wyjścia sieci `[skręt, gaz, hamulec]` są faktycznym sterowaniem (`Car.getAICo
 
 ## Dynamika poślizgu
 
-Model jednośladu (`Car.updatePhysics`): kąty znoszenia osi → siła boczna `Fy = Fmax·tanh(Cα·α/Fmax)` (Cα = 22·Fz, Fmax z koła tarcia osi) → moment na bryłę o bezwładności `Iz = 1,3·m`. Napęd i hamowanie mają **priorytet stabilności**: oś zachowuje siłę boczną użytą w poprzednim kroku (×1,1), a napęd/hamulec dostają resztę koła tarcia (jak TC/ESC). Skręt koła podąża za poleceniem z opóźnieniem 0,09 s.
+Model jednośladu (`Car.updatePhysics`): kąty znoszenia osi → siła boczna `Fy = Fmax·tanh(Cα·α/Fmax)` (Cα = 30·Fz, Fmax z koła tarcia osi) → moment na bryłę o bezwładności `Iz = 1,3·m`. Napęd i hamowanie mają **priorytet stabilności**: oś zachowuje siłę boczną użytą w poprzednim kroku (×1,1), a napęd/hamulec dostają resztę koła tarcia (jak TC/ESC). Skręt koła podąża za poleceniem z opóźnieniem 0,09 s.
 
 Płynny skręt (24.10.2026): opóźnienie skrętu to teraz dwa równe stopnie pierwszego rzędu po 0,045 s (dłonie i przekładnia), rozwiązane dokładnie dla polecenia stałego w kroku, więc wynik nie zależy od częstotliwości kroku. Wcześniej jeden stopień 0,09 s ruszał koła z pełną prędkością w chwili skoku polecenia (przejęcie sterowania przez strażnika, oddanie go sieci, skok wyjścia sieci) i koła „przeskakiwały” bez rozpędu. Cel pościgu geometrycznego rośnie z prędkością bez górnej granicy (`max(8, 5 + 0,25·v)` m, wcześniej do 14 m). Pościg prostuje błąd kursu w czasie ok. `cel/(2·v)`, przy 14 m i 80 m/s to 0,09 s, czyli tyle, co opóźnienie skrętu: koła piłowały wtedy kilka razy na sekundę, a sieć uczyła się tego od nauczyciela. Pomiar (10 bolidów, tor GP, po 200 s): skoki kół (przyspieszenie kątowe > 1500 °/s²) 0,13 → 0,03 na bolid na sekundę, najostrzejsze szarpnięcia (p99,99) ok. 5500 → 2250 °/s² (4 ziarna); odpadnięcia 29 → 13, czas poza asfaltem 3,1% → 2,4% (8 ziaren). `bench-laptime` (600 s): najlepsze okrążenie 54,11 → 53,10 s, mediana rekordów 59,9 → 58,1 s. Sam nauczyciel solo jest ok. 0,3 s wolniejszy (54,3 → 54,6 s).
 
-Skutki: podsterowność przy nasyceniu przedniej osi, nadsterowność przy nasyceniu tylnej, `isSkidding`/`understeerSlip`/`oversteerSlip` wynikają z kątów znoszenia, a nie z samego żądania. Kierowca regułowy ma sprzężenie od prędkości kątowej i ogranicza skręt do tego, co wykorzystuje oś. Poniżej ok. 8–16 m/s, gdzie kąty znoszenia są źle uwarunkowane, odpowiedź płynnie przechodzi w kinematyczną.
+Skutki: podsterowność przy nasyceniu przedniej osi, nadsterowność przy nasyceniu tylnej, `isSkidding`/`understeerSlip`/`oversteerSlip` wynikają z kątów znoszenia, a nie z samego żądania. Kierowca regułowy ma sprzężenie od prędkości kątowej i ogranicza skręt do tego, co wykorzystuje oś. Poniżej ok. 8–16 m/s, gdzie kąty znoszenia są źle uwarunkowane, odpowiedź płynnie przechodzi w kinematyczną. Od 20.11.2026 kinematyczna odpowiedź toczy obie osie bez poślizgu (środek masy dryfuje do wnętrza zakrętu z prędkością `lr·r`), więc oba modele zgadzają się na granicy, a flagi poślizgu, siła „w użyciu” i grzanie opon przechodzą równie płynnie jak siła (patrz „Poprawki z audytu fizyki z 20.11.2026”).
 
 ## Kolizje, uszkodzenia, wraki
 
@@ -245,9 +335,11 @@ Wcześniej moc oddawania rosła liniowo ze stanem baterii od 10% do 90%, a MGU-K
 - Tor: relaksacja (τ = 240 s) do `T_pow + 13·słońce·(1 − chmury)·(1 − 0,8·W) − 2·deszcz`. Powietrze: baza − 4 °C·deszcz (τ = 300 s).
 - Woda: deszcz moczy tor do poziomu `0,35 + 0,75·deszcz` (pełna ulewa w ok. 2 min), parowanie `W/520 s · (0,3 + słońce·(1 − chmury))·(T_toru − 5)/30 · (1 + 0,04·wiatr)`: każdy m/s średniego wiatru suszy o 4% szybciej (od 23.10.2026).
 - Gęstość powietrza (od 23.10.2026): `ρ = 1,225·(273,15 + 25)/(273,15 + T_pow)` (gaz doskonały przy stałym ciśnieniu). Przy 25 °C wynosi dokładnie 1,225 kg/m³, więc kalibracja słonecznej pogody się nie zmienia; przy 5 °C ok. 1,31 (więcej docisku i oporu, prędkość maksymalna ok. 6 km/h niższa), przy 35 °C ok. 1,185. Planista zakrętów i hamowania używa tej samej gęstości.
-- Aquaplaning (od 23.10.2026): slick na stojącej wodzie (W > 0,6) powyżej 200 km/h traci przyczepność: `0,5 · (W − 0,6)/0,4 · min(1, (v − 200 km/h)/100 km/h)`. Intery i deszczówki odprowadzają wodę. HUD: „⚠ AQUAPLANING”. Planista tego nie przewiduje; AI na mokrym torze i tak zjeżdża po opony z bieżnikiem.
+- Aquaplaning (od 23.10.2026): slick na stojącej wodzie (W > 0,6) powyżej 200 km/h traci przyczepność: `0,5 · (W − 0,6)/0,4 · min(1, (v − 200 km/h)/100 km/h)`. Intery i deszczówki odprowadzają wodę. HUD: „⚠ AQUAPLANING”. Od 20.11.2026 planista to przewiduje: strefę hamowania dzieli na progu 200 km/h, powyżej hamuje na przyczepności pomniejszonej o aquaplaning przy średniej prędkości tego odcinka, poniżej na pełnej, a zakręt bierze z przyczepnością przy swojej prędkości granicznej (wcześniej nie przewidywał; AI na mokrym torze i tak zjeżdża po opony z bieżnikiem, więc dotyczy to głównie okien „zaczęło padać, auto jeszcze na slickach”).
 - Wiatr: porywy OU (τ = 3 s, σ wg prognozy), kierunek dryfuje o ok. ±15° (τ = 60 s).
+- Zmiana prognozy w trakcie sesji (od 20.11.2026, `Weather.changeForecast`): niebo, deszcz, wiatr i okno przelotnego deszczu zmieniają się od razu, a tor i powietrze zachowują swój stan i zmieniają się z pogodą: deszcz moczy tor w minutę–dwie (przy „Deszczu” wilgotność ok. 0,34 po 30 s i ponad 0,7 po 4 min), a słońce suszy go przez kilka minut. Wcześniej wybór prognozy od razu ustawiał jej warunki startowe, np. zalany tor pod autami na slickach. Sesja i wyścig nadal zaczynają od warunków startowych prognozy (`reset`). Nowo utworzone auto (stawka na nowym torze, zmiana liczby aut) dostaje opony dobrane do wilgotności, jak przy resecie.
 - Aero: prędkość względem powietrza `v_pow = v − wiatr`. Opór `½ρ·CdA·|v_pow|²` przeciw `v_pow`, docisk `½ρ·ClA·|v_pow|²·(1 − 0,6·sin²β)`, gdzie β to kąt napływu; 60% straty z wiatru bocznego pochodzi z przedniej osi. Siła boczna `½ρ·1,5 m²·|v_pow|·v_wiatru,bok` działa 0,3 m za środkiem masy i daje moment odchylający w modelu dynamicznym. W bezwietrznej pogodzie wzory redukują się do poprzednich.
+- Planista i wiatr (od 20.11.2026): docisk i opór w planie liczą się z prędkości względem **średniego** wiatru wzdłuż drogi, `v + h`, gdzie `h = −(w̄·t̂)` (`t̂` to styczna toru, `w̄` to średni wiatr bez porywów: kierowca zna kierunek wiatru, porywów nie przewiduje). Prędkość graniczna zakrętu to pierwiastek `(κ − μa)·v² − 2μa·h·v − μ(g + a·h²) = 0` (`cornerLimitSpeed` w `DrivePlanner.ts`). Hamowanie zachowuje rozwiązanie w postaci zamkniętej, a człony aero mnoży przez `((v_ref + h)/v_ref)²` w granicach 0,5–1,5, gdzie `v_ref` to średnia z prędkości bieżącej i bezpiecznej, a `h` to wiatr wzdłuż toru pod autem. Z tej samej prędkości powietrza pedał przelicza opóźnienie, a gaz w zakręcie kompensuje opór. Zakręt przejeżdżany w ciszy z prędkością 40 m/s przy 11 m/s wiatru w plecy planista bierze teraz z 36,0 m/s, przy czołowym z 46,0 m/s. `PLAN_AERO_SHARE` zostaje jako zapas na stall podłogi, balans i porywy.
 - Trening: klasa warunków sesji (sucho < 0,15 ≤ wilgotno < 0,6 ≤ mokro, z histerezą) i pasma okrążenia (0–0,2 / 0,1–0,65 / 0,55–1). Okrążenie poza pasmem jest „skompromitowane” dla uczenia. `Population.setConditions` przy zmianie klasy ustala nowy rekord odniesienia przy pierwszym czystym okrążeniu, a mózg mistrza zostaje.
 - Test: `npm run test:weather`.
 

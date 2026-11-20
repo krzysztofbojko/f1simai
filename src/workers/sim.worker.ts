@@ -615,9 +615,10 @@ self.onmessage = (e: MessageEvent) => {
     }
 
     case 'SET_WEATHER': {
-      // A new forecast applies at once (training too) and to every following session.
+      // A new forecast applies at once (training too) and to every following session; the track
+      // gets wet or dries from its present state (Weather.changeForecast).
       if (isWeatherScenario(data.scenario) && data.scenario !== weather.scenario) {
-        weather.reset(data.scenario, typeof data.seed === 'number' ? data.seed : weatherSeed());
+        weather.changeForecast(data.scenario, typeof data.seed === 'number' ? data.seed : weatherSeed());
         population.setConditions(weather.conditions);
         configureIslands();
       }
